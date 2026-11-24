@@ -40,7 +40,7 @@ type Querier interface {
 	ArchiveCasesGetEvidence(ctx context.Context, arg ArchiveCasesGetEvidenceParams) (ArchiveEvidenceExports, error)
 	// scope: tenant
 	ArchiveCasesGetPendingApproval(ctx context.Context, arg ArchiveCasesGetPendingApprovalParams) (int64, error)
-	// scope: platform
+	// scope: tenant
 	ArchiveCasesGrantEligible(ctx context.Context, arg ArchiveCasesGrantEligibleParams) (bool, error)
 	// scope: tenant
 	ArchiveCasesInsertApproval(ctx context.Context, arg ArchiveCasesInsertApprovalParams) (int64, error)

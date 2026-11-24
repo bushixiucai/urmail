@@ -12,6 +12,7 @@ import (
 )
 
 func (h *AIConfigurationHandler) platformTenant(c *gin.Context) (int64, bool) {
+	bindPlatformScope(c)
 	if h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return 0, false

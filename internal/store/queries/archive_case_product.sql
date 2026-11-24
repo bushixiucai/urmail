@@ -29,7 +29,7 @@ SELECT r.user_id,u.email FROM user_tenant_roles r JOIN users u ON u.id=r.user_id
 WHERE r.tenant_id=?1 AND EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=r.tenant_id AND cg.user_id='full_content' AND cg.scope=r.user_id AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>'full_content' AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin')) ORDER BY u.email;
 
 -- name: ArchiveCasesGrantEligible :one
--- scope: platform
+-- scope: tenant
 
 SELECT CAST(EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=?1 AND cg.user_id=?3 AND cg.scope=?2 AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>?3 AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin')) AS BOOLEAN) AS allowed;
 

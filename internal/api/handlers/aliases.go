@@ -212,7 +212,10 @@ func (h *AliasHandler) Create(c *gin.Context) {
 	// predicate answers with a boolean only, so no other tenant's data is
 	// revealed. Catch-all targets are not walkable edges in the renderer.
 	if kind != "catchall" {
-		cycles, err := q.AliasWouldCycle(c.Request.Context(), store.AliasWouldCycleParams{
+		// The cycle preflight is a platform-wide boolean by design (a
+		// SECURITY DEFINER function that returns one bit and no rows). The
+		// tenant route already authorized the target domain above.
+		cycles, err := q.AliasWouldCycle(platformCtx(c), store.AliasWouldCycleParams{
 			Domain:    domain.Fqdn,
 			LocalPart: local,
 			Target:    target,

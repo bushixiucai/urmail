@@ -145,8 +145,9 @@ func aiConfigurationQuotaFields(cfg store.AiProviderConfigs) gin.H {
 	return gin.H{"nonplatform_call_limit": cfg.NonplatformCallLimit, "nonplatform_mailbox_call_limit": cfg.NonplatformMailboxCallLimit, "nonplatform_concurrency_limit": cfg.NonplatformConcurrencyLimit, "quota_timezone": cfg.QuotaTimezone, "daily_token_limit": cfg.DailyTokenLimit, "daily_cost_micros": cfg.DailyCostMicros, "monthly_token_limit": cfg.MonthlyTokenLimit, "monthly_cost_micros": cfg.MonthlyCostMicros}
 }
 func writeAIQuotaStatus(c *gin.Context, q *store.Queries, cfg store.AiProviderConfigs, tenant, mailbox int64) error {
+	ctx := c.Request.Context()
 	now := time.Now().Truncate(time.Microsecond)
-	location, err := aiQuotaLocation(c, q, cfg, tenant)
+	location, err := aiQuotaLocation(ctx, q, cfg, tenant)
 	if err != nil {
 		return err
 	}
@@ -154,21 +155,21 @@ func writeAIQuotaStatus(c *gin.Context, q *store.Queries, cfg store.AiProviderCo
 	if err != nil {
 		return err
 	}
-	daily, err := budgetUsage(c, q, tenant, day, now)
+	daily, err := budgetUsage(ctx, q, tenant, day, now)
 	if err != nil {
 		return err
 	}
-	monthly, err := budgetUsage(c, q, tenant, month, now)
+	monthly, err := budgetUsage(ctx, q, tenant, month, now)
 	if err != nil {
 		return err
 	}
-	quota, quotaErr := resolveAIQuota(c, q, cfg, tenant, now)
+	quota, quotaErr := resolveAIQuota(ctx, q, cfg, tenant, now)
 	if quotaErr != nil && !errors.Is(quotaErr, errAIBudget) {
 		return quotaErr
 	}
 	entitlement := gin.H{"source": quota.Source, "available": quotaErr == nil && cfg.Enabled, "call_limit": int64(0), "mailbox_call_limit": int64(0), "concurrency_limit": int64(0), "timezone": location.String(), "period_start": nil, "period_end": nil, "calls_used": int64(0), "calls_remaining": int64(0), "mailbox_calls_used": nil, "mailbox_calls_remaining": nil, "concurrent_reserved": int64(0)}
 	if quotaErr == nil {
-		usage, e := q.PlatformAIQuotaUsage(c.Request.Context(), store.PlatformAIQuotaUsageParams{TenantID: tenant, MailboxID: mailbox, IndependentWindow: quota.Independent, PeriodStart: quota.Start, PeriodEnd: quota.End})
+		usage, e := q.PlatformAIQuotaUsage(ctx, store.PlatformAIQuotaUsageParams{TenantID: tenant, MailboxID: mailbox, IndependentWindow: quota.Independent, PeriodStart: quota.Start, PeriodEnd: quota.End})
 		if e != nil {
 			return e
 		}
@@ -205,6 +206,7 @@ func (h *AIConfigurationHandler) BudgetGet(c *gin.Context) { h.servePanelAIQuota
 // TenantBudgetGet is the explicit tenant route entrypoint.
 func (h *AIConfigurationHandler) TenantBudgetGet(c *gin.Context) { h.BudgetGet(c) }
 func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool) {
+	bindPlatformScope(c)
 	if h == nil || h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -257,6 +259,7 @@ func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool
 	}
 }
 func serveMailboxAIQuota(c *gin.Context, pool *db.Pool) {
+	bindPlatformScope(c)
 	if pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -290,7 +293,7 @@ func serveMailboxAIQuota(c *gin.Context, pool *db.Pool) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	cfg, err = mailboxQuotaTarget(c, q, cfg, session.TenantID, session.MailboxID)
+	cfg, err = mailboxQuotaTarget(c.Request.Context(), q, cfg, session.TenantID, session.MailboxID)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

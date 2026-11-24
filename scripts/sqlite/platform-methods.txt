@@ -8,7 +8,6 @@ AICloudAuthorized
 AliasWouldCycle
 ArchiveCasesCreate
 ArchiveCasesExportVisible
-ArchiveCasesGrantEligible
 ArchiveCasesSnapshot
 ArchiveCasesSnapshotDigest
 AuthenticateApplicationCredential

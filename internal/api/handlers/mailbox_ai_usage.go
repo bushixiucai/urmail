@@ -20,6 +20,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/ai"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -125,6 +126,9 @@ func (h AISearchAskAccounting) ReserveCustom(ctx context.Context, tenantID, mail
 }
 
 func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID int64, question string, custom *userAICustomConfig) (*AIUsageReservation, error) {
+	// The reservation ledger runs on the platform pool; the caller has
+	// already authenticated the mailbox principal.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if h.Pool == nil {
 		if custom != nil {
 			return nil, ai.ErrProviderDisabled
@@ -297,6 +301,7 @@ func (h *AISearchAskAccounting) BudgetStatus(c *gin.Context) { serveMailboxAIQuo
 
 // PlatformBudgetPut lets a platform operator set the tenant AI budgets.
 func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
+	bindPlatformScope(c)
 	if h == nil || h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -335,6 +340,7 @@ func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
+	ctx := c.Request.Context()
 	actor, ok := middleware.GetUserID(c)
 	if !ok || actor <= 0 {
 		authError(c, 401, "UNAUTHORIZED")
@@ -347,15 +353,15 @@ func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	if err = q.PlatformLockBillingTenant(c.Request.Context(), tenant); err != nil {
+	if err = q.PlatformLockBillingTenant(ctx, tenant); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if _, err = q.PlatformLockPlatformAdmin(c.Request.Context(), actor); err != nil {
+	if _, err = q.PlatformLockPlatformAdmin(ctx, actor); err != nil {
 		authError(c, 403, "FORBIDDEN")
 		return
 	}
-	cfg, err := q.PlatformGetAIProvider(c.Request.Context(), tenant)
+	cfg, err := q.PlatformGetAIProvider(ctx, tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -374,22 +380,22 @@ func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
 	calls, mailboxCalls, concurrency := assign(input.Calls, cfg.NonplatformCallLimit), assign(input.MailboxCalls, cfg.NonplatformMailboxCallLimit), assign(input.Concurrency, cfg.NonplatformConcurrencyLimit)
 	timezone := cfg.QuotaTimezone
 	if timezone == "" && (calls > 0 || dailyTokens > 0 || dailyCost > 0 || monthlyTokens > 0 || monthlyCost > 0) {
-		timezone, err = q.GetBillingBusinessTimezone(c.Request.Context(), tenant)
+		timezone, err = q.GetBillingBusinessTimezone(ctx, tenant)
 		if err != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
 	}
-	if err = q.PlatformSetAIBudget(c.Request.Context(), store.PlatformSetAIBudgetParams{TenantID: tenant, DailyTokenLimit: dailyTokens, DailyCostMicros: dailyCost, MonthlyTokenLimit: monthlyTokens, MonthlyCostMicros: monthlyCost}); err != nil {
+	if err = q.PlatformSetAIBudget(ctx, store.PlatformSetAIBudgetParams{TenantID: tenant, DailyTokenLimit: dailyTokens, DailyCostMicros: dailyCost, MonthlyTokenLimit: monthlyTokens, MonthlyCostMicros: monthlyCost}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if err = q.PlatformSetNonplatformAIQuota(c.Request.Context(), store.PlatformSetNonplatformAIQuotaParams{TenantID: tenant, NonplatformCallLimit: calls, NonplatformMailboxCallLimit: mailboxCalls, NonplatformConcurrencyLimit: concurrency, QuotaTimezone: timezone}); err != nil {
+	if err = q.PlatformSetNonplatformAIQuota(ctx, store.PlatformSetNonplatformAIQuotaParams{TenantID: tenant, NonplatformCallLimit: calls, NonplatformMailboxCallLimit: mailboxCalls, NonplatformConcurrencyLimit: concurrency, QuotaTimezone: timezone}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
 	detail, _ := json.Marshal(gin.H{"daily_token_limit": dailyTokens, "daily_cost_micros": dailyCost, "monthly_token_limit": monthlyTokens, "monthly_cost_micros": monthlyCost, "nonplatform_call_limit": calls, "nonplatform_mailbox_call_limit": mailboxCalls, "nonplatform_concurrency_limit": concurrency, "quota_timezone": timezone})
-	if _, err = q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenant, Valid: true}, ActorUserID: pgtype.Int8{Int64: actor, Valid: true}, Action: "UPDATE ai.budget", TargetType: pgtype.Text{String: "tenant", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(tenant, 10), Valid: true}, Detail: detail}); err != nil {
+	if _, err = q.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenant, Valid: true}, ActorUserID: pgtype.Int8{Int64: actor, Valid: true}, Action: "UPDATE ai.budget", TargetType: pgtype.Text{String: "tenant", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(tenant, 10), Valid: true}, Detail: detail}); err != nil {
 		authError(c, 503, "AUDIT_UNAVAILABLE")
 		return
 	}
@@ -414,7 +420,7 @@ func (r *AIUsageReservation) releaseUnused() {
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform}), 5*time.Second)
 		defer cancel()
 		rows, err := db.Queries(r.pool).PlatformFinishAIRequest(ctx, store.PlatformFinishAIRequestParams{TenantID: r.tenant, ID: r.id, Status: "released", ActualTokens: pgtype.Int8{Int64: 0, Valid: true}, ActualCostMicros: pgtype.Int8{Int64: 0, Valid: true}})
 		if err != nil || rows != 1 {

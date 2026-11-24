@@ -22,6 +22,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/ai"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -85,6 +86,10 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if s == nil || s.Pool == nil || len(key) < 16 || len(key) > 200 {
 		return nil, ai.ResultMeta{}, ai.ErrProviderDisabled
 	}
+	// This entry owns the platform pool: the intent, reservation, settlement
+	// and quota statements are platform-scoped by design, while the mailbox
+	// session and target checks below authorize the caller.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	targetDigest := ""
 	if len(expectedConfiguration) == 1 {
 		targetDigest = expectedConfiguration[0]
@@ -304,7 +309,9 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 			status = "completed"
 		}
 	}
-	settleCtx, settleCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// The settlement outlives the request, so it cannot reuse ctx's
+	// cancellation; it still needs the platform scope this ledger requires.
+	settleCtx, settleCancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform}), 5*time.Second)
 	defer settleCancel()
 	finished, finishErr := db.Queries(s.Pool).PlatformFinishAIRequest(settleCtx, store.PlatformFinishAIRequestParams{TenantID: principal.TenantID, ID: reservation.ID, Status: status, ActualTokens: actualTokens, ActualCostMicros: actualCost, Result: result})
 	if finishErr != nil || finished != 1 {
@@ -354,6 +361,7 @@ type AIConfigurationHandler struct {
 
 // Get returns redacted provider configuration.
 func (h *AIConfigurationHandler) Get(c *gin.Context) {
+	bindPlatformScope(c)
 	if h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -386,6 +394,7 @@ func (h *AIConfigurationHandler) Get(c *gin.Context) {
 
 // Put updates a tenant-owned provider through the scoped DB function.
 func (h *AIConfigurationHandler) Put(c *gin.Context) {
+	bindPlatformScope(c)
 	if h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -527,6 +536,7 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 
 // Usage lists accounting metadata without email or model output.
 func (h *AIConfigurationHandler) Usage(c *gin.Context) {
+	bindPlatformScope(c)
 	if h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -564,6 +574,7 @@ func (h *AIConfigurationHandler) Usage(c *gin.Context) {
 
 // PlatformPut configures platform-funded models and explicit accounting rates.
 func (h *AIConfigurationHandler) PlatformPut(c *gin.Context) {
+	bindPlatformScope(c)
 	tid, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || tid <= 0 {
 		authError(c, 400, "INVALID_PARAMS")
@@ -655,6 +666,7 @@ type AIHealthHandler struct {
 
 // Health forwards only the diagnostic capability, never the configuration pool.
 func (h *AIConfigurationHandler) Health(c *gin.Context) {
+	bindPlatformScope(c)
 	diagnostic := AIHealthHandler{HealthRepository: h.HealthRepository, Secrets: h.Secrets, CloudEndpoints: h.CloudEndpoints, LocalEndpoints: h.LocalEndpoints, FetchHealthModels: h.FetchHealthModels}
 	diagnostic.Health(c)
 }
@@ -802,6 +814,7 @@ func (h *AIHealthHandler) Health(c *gin.Context) {
 // ResolveUsage requires a platform operator to supply explicit observed usage;
 // missing usage never releases a reservation automatically.
 func (h *AIConfigurationHandler) ResolveUsage(c *gin.Context) {
+	bindPlatformScope(c)
 	if h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return

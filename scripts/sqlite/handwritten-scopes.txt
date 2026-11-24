@@ -31,10 +31,10 @@ RecordTenantAudit                  tenant
 PlatformReadEvidenceBody           platform
 PlatformMarkMarketingFlowUncertain platform
 PlatformDeleteContactGroup         platform
-ArchiveCasesSnapshot               platform
-ArchiveCasesSnapshotDigest         platform
-ArchiveCasesExportVisible          platform
-ArchiveCasesCreate                 platform
+ArchiveCasesSnapshot tenant
+ArchiveCasesSnapshotDigest tenant
+ArchiveCasesExportVisible tenant
+ArchiveCasesCreate tenant
 SoftDeleteArchiveEntry             platform
 PlatformRotatePanelPassword        platform
 PlatformChangePanelMFA             platform
@@ -70,7 +70,7 @@ RecordMarketingFlowAudit  platform
 
 # -- platform: AI 配置面（沿用被替换语句原 `-- scope: platform` 注解；调用方为租户 owner|admin）
 PlatformConfigureTenantAI            platform
-TenantConsentAICloud                 platform
+TenantConsentAICloud tenant
 PlatformConfigureTenantAIGovernance  platform
 PlatformSetAIProvider                platform
 PlatformSetActiveAIService           platform

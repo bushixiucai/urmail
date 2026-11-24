@@ -153,7 +153,12 @@ func (s *ScopedQuerier) ArchiveCasesClose(ctx context.Context, arg store.Archive
 }
 
 func (s *ScopedQuerier) ArchiveCasesCreate(ctx context.Context, arg store.ArchiveCasesCreateParams) (int64, error) {
-	if _, err := CheckMethod(ctx, "ArchiveCasesCreate", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "ArchiveCasesCreate", ScopeTenant)
+	if err != nil {
+		var zero int64
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "ArchiveCasesCreate", arg.TenantID); err != nil {
 		var zero int64
 		return zero, err
 	}
@@ -187,7 +192,12 @@ func (s *ScopedQuerier) ArchiveCasesEligibleMembers(ctx context.Context, tenantI
 }
 
 func (s *ScopedQuerier) ArchiveCasesExportVisible(ctx context.Context, arg store.ArchiveCasesExportVisibleParams) (bool, error) {
-	if _, err := CheckMethod(ctx, "ArchiveCasesExportVisible", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "ArchiveCasesExportVisible", ScopeTenant)
+	if err != nil {
+		var zero bool
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "ArchiveCasesExportVisible", arg.T); err != nil {
 		var zero bool
 		return zero, err
 	}
@@ -234,7 +244,12 @@ func (s *ScopedQuerier) ArchiveCasesGetPendingApproval(ctx context.Context, arg 
 }
 
 func (s *ScopedQuerier) ArchiveCasesGrantEligible(ctx context.Context, arg store.ArchiveCasesGrantEligibleParams) (bool, error) {
-	if _, err := CheckMethod(ctx, "ArchiveCasesGrantEligible", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "ArchiveCasesGrantEligible", ScopeTenant)
+	if err != nil {
+		var zero bool
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "ArchiveCasesGrantEligible", arg.TenantID); err != nil {
 		var zero bool
 		return zero, err
 	}
@@ -346,7 +361,12 @@ func (s *ScopedQuerier) ArchiveCasesSaveEvidence(ctx context.Context, arg store.
 }
 
 func (s *ScopedQuerier) ArchiveCasesSnapshot(ctx context.Context, arg store.ArchiveCasesSnapshotParams) ([]byte, error) {
-	if _, err := CheckMethod(ctx, "ArchiveCasesSnapshot", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "ArchiveCasesSnapshot", ScopeTenant)
+	if err != nil {
+		var zero []byte
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "ArchiveCasesSnapshot", arg.T); err != nil {
 		var zero []byte
 		return zero, err
 	}
@@ -354,7 +374,12 @@ func (s *ScopedQuerier) ArchiveCasesSnapshot(ctx context.Context, arg store.Arch
 }
 
 func (s *ScopedQuerier) ArchiveCasesSnapshotDigest(ctx context.Context, arg store.ArchiveCasesSnapshotDigestParams) (string, error) {
-	if _, err := CheckMethod(ctx, "ArchiveCasesSnapshotDigest", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "ArchiveCasesSnapshotDigest", ScopeTenant)
+	if err != nil {
+		var zero string
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "ArchiveCasesSnapshotDigest", arg.T); err != nil {
 		var zero string
 		return zero, err
 	}
@@ -6378,7 +6403,7 @@ func (s *ScopedQuerier) SupportDiagnosticMailboxCounts(ctx context.Context, tena
 }
 
 func (s *ScopedQuerier) TenantConsentAICloud(ctx context.Context, arg store.TenantConsentAICloudParams) error {
-	if _, err := CheckMethod(ctx, "TenantConsentAICloud", ScopePlatform); err != nil {
+	if _, err := CheckMethod(ctx, "TenantConsentAICloud", ScopeTenant); err != nil {
 		return err
 	}
 	return s.inner.TenantConsentAICloud(ctx, arg)

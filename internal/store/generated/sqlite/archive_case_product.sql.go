@@ -384,7 +384,7 @@ type ArchiveCasesGrantEligibleParams struct {
 	UserID   int64  `json:"user_id"`
 }
 
-// scope: platform
+// scope: tenant
 func (q *Queries) ArchiveCasesGrantEligible(ctx context.Context, arg ArchiveCasesGrantEligibleParams) (bool, error) {
 	row := q.db.QueryRow(ctx, archiveCasesGrantEligible, arg.TenantID, arg.Scope, arg.UserID)
 	var allowed bool

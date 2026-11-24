@@ -1,3 +1,6 @@
 {
-  "GetTenantSetting": "ScopeID"
+  "GetTenantSetting": "ScopeID",
+  "ArchiveCasesSnapshot": "T",
+  "ArchiveCasesSnapshotDigest": "T",
+  "ArchiveCasesExportVisible": "T"
 }
