@@ -153,6 +153,16 @@ def main():
             env = dict(os.environ)
             env.pop("URMAIL_PACKAGE", None)
             if mode == "fixed":
+                # An upgrade must not race the agent's in-flight configuration
+                # apply from the previous installation: the installer refuses a
+                # host with a pending apply journal (fail-closed, correctly).
+                # Wait, bounded, for the agent to settle its configuration.
+                settle = subprocess.run(["/usr/bin/urmailctl", "config", "status", "--wait", "120s"],
+                                        env=env, capture_output=True, timeout=300)
+                Path(logs, "fixed-config-settle.log").write_bytes(settle.stdout + settle.stderr)
+                if settle.returncode != 0:
+                    print_failure_output(settle.stdout + settle.stderr, env)
+                assert settle.returncode == 0, f"{mode}: agent configuration did not settle (exit {settle.returncode})"
                 # A managed upgrade refuses to fence without a fresh complete
                 # backup run (R1 gate); the disposable host starts with none.
                 # Produce a real local-only generation through the product
