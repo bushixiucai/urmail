@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -116,6 +117,7 @@ func (e *Engine) firstLocalRecipient(ctx context.Context, recipients []string, c
 			continue
 		}
 		lookupCtx, cancel := context.WithTimeout(ctx, cfg.LookupTimeout)
+		lookupCtx = isolation.WithScope(lookupCtx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 		row, err := db.Queries(e.Platform.Pool).PlatformGetMailboxByAddress(lookupCtx, address)
 		cancel()
 		if errors.Is(err, pgx.ErrNoRows) {

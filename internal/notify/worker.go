@@ -39,6 +39,9 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	if !w.Enabled || w.DevMode || w.Quarantined || w.Secrets == nil || w.Messages == nil {
 		return false, nil
 	}
+	// The fenced worker owns platform-wide notification configuration rows;
+	// callers (scheduler) do not carry a DB scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	q := db.Queries(w.Pool)
 	value, err := q.PlatformGetNotificationChannel(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {

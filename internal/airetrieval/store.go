@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -40,6 +41,9 @@ func (s PGChunkStore) inTx(ctx context.Context, p Principal, op txOp) error {
 	if s.Pool == nil || !p.Valid() {
 		return errors.New("airetrieval: missing store pool or principal")
 	}
+	// The store owns the tenant scope of the principal it was given; callers
+	// (service/HTTP) authenticate the principal, but do not carry DB scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: p.TenantID})
 	tx, err := s.Pool.MailboxTx(ctx, p.TenantID, p.MailboxID)
 	if err != nil {
 		return err
