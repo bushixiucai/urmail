@@ -7,11 +7,12 @@ package caldav
 import (
 	"encoding/json"
 	"encoding/xml"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"

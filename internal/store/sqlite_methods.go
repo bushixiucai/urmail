@@ -1388,8 +1388,8 @@ func (q *Queries) PlatformChangePanelMFA(ctx context.Context, arg PlatformChange
 // S4 batch C: DNS credential / change-plan procedures (dns_onboarding.sql).
 // Faithful port of the urmail_*_dns_* plpgsql functions:
 //   * pg_advisory_xact_lock(51,hashtext(domain)) -> SQLite's single-writer
-//     transaction serialisation (no session semantics are dropped: the lock
-//     only ever serialised writers, never carried data).
+//     transaction serialization (no session semantics are dropped: the lock
+//     only ever serialized writers, never carried data).
 //   * urmail_dns_actor keeps its role/actor gate by reading the S2 decorator's
 //     session settings (current_setting('urmail.user_id')), which is how the PG
 //     function saw the caller. That seam is app_pending: the tenant self-check
@@ -1596,7 +1596,7 @@ type dnsPlanRow struct {
 	ExpiresAt         int64
 }
 
-// dnsPlan loads the plan inside the caller's transaction (SQLite serialises
+// dnsPlan loads the plan inside the caller's transaction (SQLite serializes
 // writers, so the PG FOR UPDATE is unnecessary).
 func (q *Queries) dnsPlan(ctx context.Context, tenant int64, id string) (dnsPlanRow, error) {
 	var p dnsPlanRow
@@ -1874,7 +1874,7 @@ func (q *Queries) AbandonDNSPlan(ctx context.Context, arg AbandonDNSPlanParams) 
 // procedures, never silently dropped.
 //
 // pg_advisory_xact_lock(tenant) calls are replaced by SQLite's single-writer
-// transaction serialisation; the lock only ever ordered writers and carried no
+// transaction serialization; the lock only ever ordered writers and carried no
 // data.
 // ---------------------------------------------------------------------------
 
@@ -2380,12 +2380,12 @@ func (q *Queries) RecordMarketingFlowAudit(ctx context.Context, arg RecordMarket
 		// tenant admin, definition existence, action whitelist and payload.
 		_, err := q.db.Exec(ctx,
 			`SELECT urmail_record_marketing_flow_audit($1::bigint,$2::bigint,$3::text,$4::jsonb)`,
-			arg.PTenant, arg.PDefinition, arg.PAction, string(compact.Bytes()))
+			arg.PTenant, arg.PDefinition, arg.PAction, compact.String())
 		return err
 	}
 	_, err = q.db.Exec(ctx, marketingFlowAuditInsertSQL, arg.PTenant, actor,
 		"marketing.flow."+arg.PAction, strconv.FormatInt(arg.PDefinition, 10),
-		string(compact.Bytes()))
+		compact.String())
 	return err
 }
 
@@ -3744,7 +3744,7 @@ func draftSessionLockKey(tenant, mailbox, folder, validity, uid string) string {
 // PlatformAcquireDraftSessionLock blocks until this process owns the key. It
 // replaces pg_advisory_lock: the caller must pair it with
 // PlatformReleaseDraftSessionLock, and cancellation while waiting is honored
-// (PG's blocking acquire is cancelled by statement_timeout/context too).
+// (PG's blocking acquire is canceled by statement_timeout/context too).
 func (q *Queries) PlatformAcquireDraftSessionLock(ctx context.Context, arg PlatformAcquireDraftSessionLockParams) error {
 	key := draftSessionLockKey(arg.TenantID, arg.MailboxID, arg.Folder, arg.Validity, arg.Uid)
 	reg := &draftSessionLocks

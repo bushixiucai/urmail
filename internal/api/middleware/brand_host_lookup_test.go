@@ -17,14 +17,14 @@ import (
 )
 
 type fakeBrandLookup struct {
-	brandID         int64
-	status          string
-	found           bool
-	lifecycleErr    error
-	eligible        bool
-	eligibleErr     error
-	lifecycleCalls  int
-	eligibleCalls   int
+	brandID        int64
+	status         string
+	found          bool
+	lifecycleErr   error
+	eligible       bool
+	eligibleErr    error
+	lifecycleCalls int
+	eligibleCalls  int
 }
 
 func (f *fakeBrandLookup) BrandHostLifecycle(ctx context.Context, host string) (int64, string, bool, error) {
@@ -129,7 +129,7 @@ func TestBrandBoundaryInactiveHostRejected(t *testing.T) {
 
 func TestBrandBoundaryCertEligibilityFailuresRejected(t *testing.T) {
 	for name, mutate := range map[string]func(*fakeBrandLookup){
-		"not-eligible": func(f *fakeBrandLookup) { f.eligible = false },
+		"not-eligible":      func(f *fakeBrandLookup) { f.eligible = false },
 		"eligibility-error": func(f *fakeBrandLookup) { f.eligibleErr = errors.New("boom") },
 	} {
 		t.Run(name, func(t *testing.T) {

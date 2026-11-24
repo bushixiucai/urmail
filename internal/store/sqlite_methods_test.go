@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -211,9 +212,7 @@ func draftLockArgs(tenant, uid string) PlatformAcquireDraftSessionLockParams {
 
 func releaseDraftLock(t *testing.T, arg PlatformAcquireDraftSessionLockParams) bool {
 	t.Helper()
-	held, err := (&Queries{}).PlatformReleaseDraftSessionLock(context.Background(), PlatformReleaseDraftSessionLockParams{
-		TenantID: arg.TenantID, MailboxID: arg.MailboxID, Folder: arg.Folder, Validity: arg.Validity, Uid: arg.Uid,
-	})
+	held, err := (&Queries{}).PlatformReleaseDraftSessionLock(context.Background(), PlatformReleaseDraftSessionLockParams(arg))
 	if err != nil {
 		t.Fatalf("release: %v", err)
 	}
@@ -273,7 +272,7 @@ func TestDraftSessionLockCancel(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- q.PlatformAcquireDraftSessionLock(ctx, arg) }()
 	cancel()
-	if err := <-done; err != context.Canceled {
+	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("waiting acquire = %v, want context.Canceled", err)
 	}
 	// The holder still owns the lock: a fresh acquire must still block, and the

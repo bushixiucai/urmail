@@ -3,11 +3,12 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"github.com/bushixiucai/urmail/internal/db/isolation"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"net/http"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"

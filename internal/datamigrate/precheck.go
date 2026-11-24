@@ -338,23 +338,23 @@ func inventoryLike(queriesDirs []string) (all []string, bare []string) {
 func writePrecheckReport(path string, report PrecheckReport) error {
 	var sb strings.Builder
 	sb.WriteString("# S5 migrator precheck report (§4.2/§4.3/§4.4)\n\n")
-	sb.WriteString(fmt.Sprintf("## numeric->TEXT columns (%d)\n", len(report.NumericColumns)))
+	fmt.Fprintf(&sb, "## numeric->TEXT columns (%d)\n", len(report.NumericColumns))
 	for _, c := range report.NumericColumns {
 		sb.WriteString("- " + c + "\n")
 	}
-	sb.WriteString(fmt.Sprintf("\n## numeric ORDER BY/range usage points (%d; gate == 0)\n", len(report.NumericUsage)))
+	fmt.Fprintf(&sb, "\n## numeric ORDER BY/range usage points (%d; gate == 0)\n", len(report.NumericUsage))
 	for _, u := range report.NumericUsage {
 		sb.WriteString("- " + u + "\n")
 	}
-	sb.WriteString(fmt.Sprintf("\n## NOCASE fold conflicts (%d; abort when > 0)\n", len(report.NOCASEConflicts)))
+	fmt.Fprintf(&sb, "\n## NOCASE fold conflicts (%d; abort when > 0)\n", len(report.NOCASEConflicts))
 	for _, c := range report.NOCASEConflicts {
 		sb.WriteString("- " + c + "\n")
 	}
-	sb.WriteString(fmt.Sprintf("\n## ILIKE/LIKE statements (%d)\n", len(report.LikeStatements)))
+	fmt.Fprintf(&sb, "\n## ILIKE/LIKE statements (%d)\n", len(report.LikeStatements))
 	for _, s := range report.LikeStatements {
 		sb.WriteString("- " + s + "\n")
 	}
-	sb.WriteString(fmt.Sprintf("\n## bare case-sensitive PG LIKE statements needing disposition (%d)\n", len(report.BareLikeStatements)))
+	fmt.Fprintf(&sb, "\n## bare case-sensitive PG LIKE statements needing disposition (%d)\n", len(report.BareLikeStatements))
 	sb.WriteString("Dispositions:\n")
 	sb.WriteString("- operational_alerts kind LIKE 'telemetry_%'/'archive_%': kind values are lowercase by construction (CHECK-free convention), PG LIKE and SQLite LIKE agree for ASCII-lowercase prefixes — accepted as-is.\n")
 	sb.WriteString("- platform_secret_maintenance mfa_secret NOT LIKE 'enc:v1:%': encryption prefixes are app-written lowercase; the case-sensitive PG semantics is the intended (stricter) check — SQLite port must preserve case sensitivity via GLOB (which is case-sensitive by default) — accepted with GLOB mapping.\n")

@@ -71,9 +71,9 @@ func (t *spyTx) Rollback(context.Context) error { return nil }
 
 type spyEmptyRows struct{ pgx.Rows }
 
-func (spyEmptyRows) Close()        {}
-func (spyEmptyRows) Err() error    { return nil }
-func (spyEmptyRows) Next() bool    { return false }
+func (spyEmptyRows) Close()            {}
+func (spyEmptyRows) Err() error        { return nil }
+func (spyEmptyRows) Next() bool        { return false }
 func (spyEmptyRows) Scan(...any) error { return nil }
 
 type spyErrRow struct{ err error }
@@ -236,9 +236,9 @@ type sqliteRows struct {
 	rows *sql.Rows
 }
 
-func (r *sqliteRows) Close()             { _ = r.rows.Close() }
-func (r *sqliteRows) Err() error         { return r.rows.Err() }
-func (r *sqliteRows) Next() bool         { return r.rows.Next() }
+func (r *sqliteRows) Close()              { _ = r.rows.Close() }
+func (r *sqliteRows) Err() error          { return r.rows.Err() }
+func (r *sqliteRows) Next() bool          { return r.rows.Next() }
 func (r *sqliteRows) Scan(d ...any) error { return r.rows.Scan(d...) }
 
 type sqliteRow struct{ row *sql.Row }

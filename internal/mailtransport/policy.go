@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"mime"
 	"net"
@@ -16,6 +15,8 @@ import (
 	"net/smtp"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/maildnsreport"
 	"github.com/bushixiucai/urmail/internal/store"

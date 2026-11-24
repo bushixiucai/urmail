@@ -3,11 +3,12 @@ package agentd
 import (
 	"context"
 	"errors"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/validation"

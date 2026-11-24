@@ -182,7 +182,7 @@ func migrateRecallTable(ctx context.Context, src Source, t *Target, tm TypeMap, 
 	}
 	// Restore verbatim from the captured DDL regardless of the copy outcome.
 	if _, err := t.DB.ExecContext(ctx, baseline.SQL); err != nil {
-		return stats, nil, fmt.Errorf("restore %s: %w (copy error: %v)", recallInsertGuard, err, copyErr)
+		return stats, nil, fmt.Errorf("restore %s: %w (copy error: %w)", recallInsertGuard, err, copyErr)
 	}
 	if copyErr != nil {
 		return stats, nil, copyErr

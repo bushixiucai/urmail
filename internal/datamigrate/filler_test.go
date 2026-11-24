@@ -592,7 +592,7 @@ WHERE table_schema='public'`)
 				// that side-gate additional NOT NULL columns.
 				for _, lit := range lits {
 					switch strings.ToLower(lit) {
-					case "storage", "deleted", "disabled", "purge", "purged", "failed", "cancelled", "canceled":
+					case "storage", "deleted", "disabled", "purge", "purged", "failed", "canceled":
 						continue
 					}
 					return lit, nil

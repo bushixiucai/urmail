@@ -2,8 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
-	"github.com/bushixiucai/urmail/internal/db"
 	"strconv"
+
+	"github.com/bushixiucai/urmail/internal/db"
 
 	"github.com/gin-gonic/gin"
 

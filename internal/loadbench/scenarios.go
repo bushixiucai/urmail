@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"sync/atomic"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"

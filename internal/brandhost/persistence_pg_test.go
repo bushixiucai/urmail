@@ -3,9 +3,10 @@ package brandhost
 import (
 	"context"
 	"errors"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/jackc/pgx/v5"
 

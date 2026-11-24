@@ -1,10 +1,11 @@
 package handlers
 
 import (
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 

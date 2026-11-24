@@ -6,12 +6,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"fmt"
-	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/testdb"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
 // schemaFakeSource answers the schema-version and recall-fingerprint queries

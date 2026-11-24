@@ -2,9 +2,10 @@ package handlers
 
 import (
 	"context"
-	"github.com/bushixiucai/urmail/internal/db"
 	"sort"
 	"strconv"
+
+	"github.com/bushixiucai/urmail/internal/db"
 
 	"github.com/gin-gonic/gin"
 
