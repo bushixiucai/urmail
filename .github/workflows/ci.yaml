@@ -309,6 +309,16 @@ jobs:
       - name: Install web dependencies (browser test starts Vite)
         working-directory: web
         run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            pw-${{ runner.os }}-
+      - name: Install browser for the SQLite browser test
+        working-directory: web
+        run: npx playwright install --with-deps chromium
 
       - name: Install recovery test tools
         run: sudo apt-get update && sudo apt-get install -y age postgresql-client-16
