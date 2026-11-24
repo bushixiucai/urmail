@@ -662,6 +662,13 @@ WHERE tenant_id=?1 AND mailbox_id=?2 AND group_id=?3`
 // PlatformDeleteContactGroup soft-deletes a contact group and clears its
 // members (mirrors urmail_delete_contact_group; both writes always run).
 func (q *Queries) PlatformDeleteContactGroup(ctx context.Context, arg PlatformDeleteContactGroupParams) (bool, error) {
+	if !isSQLiteDBTX(q.db) {
+		// The PostgreSQL twin is the stored deletion; the statements below are
+		// SQLite-only and carry no `-- name:` label.
+		return pgstore.New(q.db).PlatformDeleteContactGroup(ctx, pgstore.PlatformDeleteContactGroupParams{
+			PTenant: arg.PTenant, PMailbox: arg.PMailbox, PGroup: arg.PGroup,
+		})
+	}
 	tag, err := q.db.Exec(ctx, deleteContactGroupSQL, arg.PTenant, arg.PMailbox, arg.PGroup)
 	if err != nil {
 		return false, err
