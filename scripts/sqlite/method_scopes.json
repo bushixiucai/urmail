@@ -714,10 +714,11 @@
   "PlatformRefreshDNSOnboardingAlerts": "platform",
   "PlatformResetBrandTheme": "platform",
   "PlatformUnbindBrandHost": "platform",
-  "PlatformVerifyBrandHostProof": "platform"
+  "PlatformVerifyBrandHostProof": "platform",
+  "PlatformCreateFirstDomain": "tenant"
  },
  "counts": {
-  "tenant": 233,
+  "tenant": 234,
   "platform": 478,
   "system": 4,
   "pre-auth": 0

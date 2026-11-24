@@ -60,6 +60,10 @@ func TestSetupCreatesFirstAdminOnSQLite(t *testing.T) {
 	var admins, audits int
 	_ = raw.QueryRow(`SELECT count(*) FROM platform_admins WHERE user_id=?`, userID).Scan(&admins)
 	_ = raw.QueryRow(`SELECT count(*) FROM audit_logs WHERE action='SETUP platform.bootstrap' AND tenant_id=?`, tenantID).Scan(&audits)
+	var schemaVersion int
+	if err := raw.QueryRow("PRAGMA user_version").Scan(&schemaVersion); err != nil || schemaVersion != sqlitedb.ExpectedSchemaVersion {
+		t.Fatalf("user_version=%d err=%v want %d", schemaVersion, err, sqlitedb.ExpectedSchemaVersion)
+	}
 	if status != "pending" || ownerID != userID || role != "owner" || admins != 1 || audits != 1 {
 		t.Fatalf("setup rows: tenant=%d status=%q owner=%d user=%d role=%q admins=%d audits=%d", tenantID, status, ownerID, userID, role, admins, audits)
 	}
@@ -126,25 +130,59 @@ func setupDBFileSHA256(t *testing.T, raw *sql.DB) string {
 func TestSetupSQLiteKeepsCredentialAndHostnameRules(t *testing.T) {
 	cases := []struct {
 		name     string
+		email    string
 		password string
 		hostname string
 	}{
-		{"short password", "elevenchars", "drill.test"},
-		{"empty hostname", "drill-password-123", ""},
+		{"short password", "admin@drill.test", "elevenchars", "drill.test"},
+		{"empty hostname", "admin@drill.test", "drill-password-123", ""},
+		{"email without at", "admin-at-drill.test", "drill-password-123", "drill.test"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, raw := newSetupSQLite(t)
 			t.Setenv("URMAIL_MYHOSTNAME", tc.hostname)
-			err := runSetup(context.Background(), []string{"--email", "admin@drill.test", "--password", tc.password, "--brand", "default", "--tenant", "default"})
+			err := runSetup(context.Background(), []string{"--email", tc.email, "--password", tc.password, "--brand", "default", "--tenant", "default"})
 			if err == nil {
 				t.Fatalf("setup accepted %s", tc.name)
 			}
-			for _, query := range []string{"SELECT count(*) FROM users", "SELECT count(*) FROM tenants"} {
+			for _, query := range []string{"SELECT count(*) FROM users", "SELECT count(*) FROM tenants", "SELECT count(*) FROM platform_admins"} {
 				var count int
 				if qerr := raw.QueryRow(query).Scan(&count); qerr != nil || count != 0 {
 					t.Fatalf("%s: %s count=%d err=%v", tc.name, query, count, qerr)
 				}
+			}
+		})
+	}
+}
+
+// TestSetupDomainPathKeepsScopeAndHostnameGuards: the --domain shape must
+// apply the same platform scope guard and hostname rule, and refuse before a
+// write.
+func TestSetupDomainPathKeepsScopeAndHostnameGuards(t *testing.T) {
+	cases := []struct {
+		name     string
+		scope    string
+		hostname string
+	}{
+		{"non platform scope", "app", "drill.test"},
+		{"empty hostname", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, raw := newSetupSQLite(t)
+			if err := runSetup(context.Background(), []string{"--email", "admin@drill.test", "--password", "drill-password-123", "--brand", "default", "--tenant", "default"}); err != nil {
+				t.Fatalf("seed setup: %v", err)
+			}
+			before := setupDBFileSHA256(t, raw)
+			t.Setenv("URMAIL_SETUP_SCOPE", tc.scope)
+			t.Setenv("URMAIL_MYHOSTNAME", tc.hostname)
+			err := runSetup(context.Background(), []string{"--domain", "blocked.example.test", "--email", "admin@drill.test"})
+			if err == nil {
+				t.Fatalf("--domain bypassed %s", tc.name)
+			}
+			if after := setupDBFileSHA256(t, raw); after != before {
+				t.Fatalf("refused --domain changed the database: %s -> %s", before, after)
 			}
 		})
 	}

@@ -98,3 +98,4 @@ PlatformRefreshDNSOnboardingAlerts platform
 PlatformResetBrandTheme platform
 PlatformUnbindBrandHost platform
 PlatformVerifyBrandHostProof platform
+PlatformCreateFirstDomain           tenant

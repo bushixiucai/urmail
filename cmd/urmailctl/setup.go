@@ -88,24 +88,28 @@ func runSetup(ctx context.Context, args []string) error {
 		setupScope = isolation.ScopeTenant
 	}
 	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: setupScope, TenantID: conditionalTenant(setupScope)})
-	if *domainName != "" {
-		if normalizedEmail == "" {
-			return errors.New("setup --domain requires --email")
-		}
-		return runSetupFirstDomain(ctx, cfg, *domainName, normalizedEmail)
-	}
+	// Both setup shapes are platform operations; the same method guard runs
+	// before either path, so a non-platform URMAIL_SETUP_SCOPE is refused
+	// before any lookup or write.
 	if err := isolation.CheckContext(ctx, "PlatformSetupTenant"); err != nil {
 		return err
 	}
-	input := selfhost.Input{DatabaseURL: cfg.DatabaseURLPlatform, AdminEmail: normalizedEmail, Password: *password, Hostname: cfg.MyHostname}
+	// Both shapes use the same selfhost credential/hostname rules. The domain
+	// shape has no password of its own, so a canonical 12-character value
+	// feeds only the email and hostname rules.
+	preflightPassword := *password
+	if *domainName != "" && preflightPassword == "" {
+		preflightPassword = "domain-setup-placeholder"
+	}
+	preflightInput := selfhost.Input{DatabaseURL: cfg.DatabaseURLPlatform, AdminEmail: normalizedEmail, Password: preflightPassword, Hostname: cfg.MyHostname}
 	if cfg.IsSQLite() {
 		// Same credential and hostname rules as the PostgreSQL preflight, from
 		// the same source. The DSN shape is not meaningful in single-engine
 		// mode, so a canonical valid PostgreSQL URL feeds only those rules.
-		if err := selfhost.Preflight(selfhost.Input{DatabaseURL: "postgres://urmail@localhost/urmail", AdminEmail: normalizedEmail, Password: *password, Hostname: cfg.MyHostname}); err != nil {
+		if err := selfhost.Preflight(selfhost.Input{DatabaseURL: "postgres://urmail@localhost/urmail", AdminEmail: normalizedEmail, Password: preflightPassword, Hostname: cfg.MyHostname}); err != nil {
 			return selfhost.ErrNotReady
 		}
-	} else if err := selfhost.PreflightConnected(ctx, input, func(ctx context.Context, databaseURL string) error {
+	} else if err := selfhost.PreflightConnected(ctx, preflightInput, func(ctx context.Context, databaseURL string) error {
 		pool, err := db.OpenPlatform(ctx, databaseURL)
 		if err != nil {
 			return err
@@ -114,6 +118,12 @@ func runSetup(ctx context.Context, args []string) error {
 		return nil
 	}); err != nil {
 		return err
+	}
+	if *domainName != "" {
+		if normalizedEmail == "" {
+			return errors.New("setup --domain requires --email")
+		}
+		return runSetupFirstDomain(ctx, cfg, *domainName, normalizedEmail)
 	}
 	if !slugPattern.MatchString(*brandSlug) {
 		return fmt.Errorf("invalid brand slug %q", *brandSlug)
@@ -387,9 +397,26 @@ func runSetupFirstDomain(ctx context.Context, cfg *config.Config, fqdn, email st
 		return err
 	}
 	verification := hex.EncodeToString(token)
-	if _, err = raw.ExecContext(ctx, `INSERT INTO domains(tenant_id,fqdn,status,verification_token,provisioning_state,dkim_selector,dkim_private_key)
-		VALUES(?,?, 'pending_dns',?,'pending',?,?)`, tenantID, fqdn, verification, dkim.Selector, dkim.PrivateKey); err != nil {
+	// The domain row is created through the product's SQLite query twin under
+	// the tenant scope, not by raw INSERT; the method guard still applies.
+	pool, err := db.NewSQLitePool(raw, isolation.ScopeTenant)
+	if err != nil {
+		return fmt.Errorf("open tenant sqlite pool: %w", err)
+	}
+	tx, err := pool.TenantTx(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("begin domain transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tenantCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tenantID})
+	if _, err = db.Queries(tx).PlatformCreateFirstDomain(tenantCtx, store.PlatformCreateFirstDomainParams{
+		TenantID: tenantID, Fqdn: fqdn, Mode: "delegated", Status: "pending_dns",
+		VerificationToken: verification, TlsMode: "letsencrypt", DkimSelector: dkim.Selector, DkimPrivateKey: dkim.PrivateKey,
+	}); err != nil {
 		return fmt.Errorf("create first domain: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit first domain: %w", err)
 	}
 	fmt.Printf("setup domain complete: fqdn=%s tenant=%d dkim_selector=%s\n", fqdn, tenantID, dkim.Selector)
 	return nil

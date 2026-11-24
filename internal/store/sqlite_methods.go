@@ -3643,6 +3643,40 @@ func (q *Queries) PlatformLockBillingTenant(ctx context.Context, tenantID int64)
 	return nil
 }
 
+// PlatformCreateFirstDomain creates the setup's first domain on either
+// engine through the product query surface, so the tenant method guard and
+// the SQLite/PG twins stay in one place.
+type PlatformCreateFirstDomainParams struct {
+	TenantID          int64
+	Fqdn              string
+	Mode              string
+	Status            string
+	VerificationToken string
+	TlsMode           string
+	DkimSelector      string
+	DkimPrivateKey    string
+}
+
+const platformCreateFirstDomainSQL = `-- name: PlatformCreateFirstDomain :one
+INSERT INTO domains(tenant_id,fqdn,mode,status,verification_token,tls_mode,dkim_selector,dkim_private_key)
+VALUES(?,?,?,?,?,?,?,?) RETURNING id`
+
+func (q *Queries) PlatformCreateFirstDomain(ctx context.Context, arg PlatformCreateFirstDomainParams) (int64, error) {
+	if !isSQLiteDBTX(q.db) {
+		row, err := pgstore.New(q.db).CreateDomain(ctx, pgstore.CreateDomainParams{
+			TenantID: arg.TenantID, Fqdn: arg.Fqdn, Mode: arg.Mode, Status: arg.Status,
+			VerificationToken: arg.VerificationToken, TlsMode: arg.TlsMode,
+			DkimSelector:   arg.DkimSelector,
+			DkimPrivateKey: pgtype.Text{String: arg.DkimPrivateKey, Valid: arg.DkimPrivateKey != ""},
+		})
+		return row.ID, err
+	}
+	var id int64
+	err := q.db.QueryRow(ctx, platformCreateFirstDomainSQL, arg.TenantID, arg.Fqdn, arg.Mode, arg.Status,
+		arg.VerificationToken, arg.TlsMode, arg.DkimSelector, arg.DkimPrivateKey).Scan(&id)
+	return id, err
+}
+
 // PlatformLockSendDraft（原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
 // 草稿发送与草稿编辑互斥；PG 在事务级持锁，SQLite 用事务串行化。
 func (q *Queries) PlatformLockSendDraft(ctx context.Context, arg PlatformLockSendDraftParams) error {
