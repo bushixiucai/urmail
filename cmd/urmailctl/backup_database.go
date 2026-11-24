@@ -28,6 +28,19 @@ const (
 
 var managedServiceName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 
+// pgDumpPath is the managed backup's fixed pg_dump path. The image and the
+// host package both install it there; a missing binary must fail with a
+// clear message instead of a bare fork/exec error.
+var pgDumpPath = "/usr/bin/pg_dump"
+
+func requirePgDump() error {
+	info, err := os.Stat(pgDumpPath)
+	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		return fmt.Errorf("managed backup requires an executable pg_dump at %s (install postgresql-client)", pgDumpPath)
+	}
+	return nil
+}
+
 // managedTopology describes the explicitly declared deployment shape.
 // "compose" accepts one project service name on 5432; "loopback" accepts only
 // a loopback literal on a controlled high port so a host systemd unit can
@@ -43,16 +56,16 @@ func loopbackHost(host string) bool {
 }
 
 func managedTopologyFromEnv() (managedTopology, bool, error) {
-	raw := strings.TrimSpace(os.Getenv(managedTopologyEnv))
+	raw := os.Getenv(managedTopologyEnv)
 	if raw == "" {
 		return managedTopology{}, false, nil
 	}
 	switch raw {
 	case "compose":
-		if strings.TrimSpace(os.Getenv(managedPGPortEnv)) != "" {
+		if os.Getenv(managedPGPortEnv) != "" {
 			return managedTopology{}, false, fmt.Errorf("%s is not accepted with the compose topology", managedPGPortEnv)
 		}
-		host := strings.TrimSpace(os.Getenv(managedPGHostEnv))
+		host := os.Getenv(managedPGHostEnv)
 		if host == "" {
 			host = "pg"
 		}
@@ -61,10 +74,10 @@ func managedTopologyFromEnv() (managedTopology, bool, error) {
 		}
 		return managedTopology{mode: "compose", host: host, port: "5432"}, true, nil
 	case "loopback":
-		if strings.TrimSpace(os.Getenv(managedPGHostEnv)) != "" {
+		if os.Getenv(managedPGHostEnv) != "" {
 			return managedTopology{}, false, fmt.Errorf("%s is not accepted with the loopback topology", managedPGHostEnv)
 		}
-		port := strings.TrimSpace(os.Getenv(managedPGPortEnv))
+		port := os.Getenv(managedPGPortEnv)
 		number, err := strconv.Atoi(port)
 		if err != nil || number < 1024 || number > 65535 {
 			return managedTopology{}, false, fmt.Errorf("%s must be a port between 1024 and 65535", managedPGPortEnv)
@@ -140,7 +153,10 @@ func managedBackupDatabaseCommand(ctx context.Context, plan string) (*exec.Cmd, 
 	}
 	u.Scheme = "postgresql"
 	u.User = url.User("urmail_migrate")
-	command := exec.CommandContext(ctx, "/usr/bin/pg_dump", "--no-owner", "--format=custom", "--dbname", u.String()) // #nosec G204 G702 -- fixed executable, validated managed service, credentials excluded from argv.
+	if err := requirePgDump(); err != nil {
+		return nil, err
+	}
+	command := exec.CommandContext(ctx, pgDumpPath, "--no-owner", "--format=custom", "--dbname", u.String()) // #nosec G204 G702 -- fixed executable, validated managed service, credentials excluded from argv.
 	command.Env = []string{
 		"PATH=/usr/sbin:/usr/bin:/sbin:/bin",
 		"LANG=C.UTF-8",
