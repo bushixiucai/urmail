@@ -30,3 +30,73 @@ func TestBackupPeerRestrictsTargetAndSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupManagedComposeTopologyAcceptsTheProjectServiceOnly(t *testing.T) {
+	t.Setenv("URMAIL_BACKUP_MANAGED_TOPOLOGY", "compose")
+	t.Setenv("URMAIL_BACKUP_MANAGED_PG_HOST", "")
+	t.Setenv("URMAIL_BACKUP_S3_SECRET_KEY", "root-only-offsite-secret")
+
+	peer, err := backupPeerDatabaseURL("postgres://urmail_migrate:private-fixture@pg:5432/urmail?sslmode=disable")
+	if err != nil {
+		t.Fatalf("managed compose DSN rejected: %v", err)
+	}
+	if !strings.HasPrefix(peer, managedBackupScheme+"://") || !strings.Contains(peer, "@pg/urmail") {
+		t.Fatalf("plan = %q", peer)
+	}
+	command, err := backupDatabaseCommand(context.Background(), peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.Path != "/usr/bin/pg_dump" {
+		t.Fatalf("managed backup must run pg_dump directly, got %s", command.Path)
+	}
+	joinedArgs := strings.Join(command.Args, " ")
+	if strings.Contains(joinedArgs, "private-fixture") {
+		t.Fatal("password leaked into argv")
+	}
+	env := strings.Join(command.Env, "\n")
+	if !strings.Contains(env, "PGPASSWORD=private-fixture") || !strings.Contains(env, "PGOPTIONS=-c role="+managedPGRole) {
+		t.Fatalf("managed command env = %q", command.Env)
+	}
+	if strings.Contains(env, "root-only-offsite-secret") {
+		t.Fatal("managed pg_dump inherited offsite credentials")
+	}
+
+	for _, raw := range []string{
+		"postgres://urmail:private-fixture@pg:5432/urmail?sslmode=disable",
+		"postgres://urmail_platform:private-fixture@pg:5432/urmail?sslmode=disable",
+		"postgres://urmail_migrate@pg:5432/urmail?sslmode=disable",
+		"postgres://urmail_migrate:private-fixture@external.test:5432/urmail?sslmode=disable",
+		"postgres://urmail_migrate:private-fixture@127.0.0.1:5432/urmail?sslmode=disable",
+		"postgres://urmail_migrate:private-fixture@pg:6543/urmail?sslmode=disable",
+		"postgres://urmail_migrate:private-fixture@pg:5432/urmail?options=-crole=postgres",
+		"postgres://urmail_migrate:private-fixture@pg:5432/not-allowed!",
+	} {
+		if _, err := backupPeerDatabaseURL(raw); err == nil {
+			t.Fatalf("managed topology accepted unsafe DSN %q", raw)
+		}
+	}
+}
+
+func TestBackupManagedTopologyRequiresExplicitDeclaration(t *testing.T) {
+	t.Setenv("URMAIL_BACKUP_MANAGED_TOPOLOGY", "")
+	t.Setenv("URMAIL_BACKUP_MANAGED_PG_HOST", "")
+	if _, err := backupPeerDatabaseURL("postgres://urmail_migrate:private-fixture@pg:5432/urmail?sslmode=disable"); err == nil {
+		t.Fatal("compose service host accepted without an explicit managed topology")
+	}
+	t.Setenv("URMAIL_BACKUP_MANAGED_TOPOLOGY", "kubernetes")
+	if _, err := backupPeerDatabaseURL("postgres://urmail_migrate:private-fixture@pg:5432/urmail?sslmode=disable"); err == nil {
+		t.Fatal("unknown topology accepted")
+	}
+}
+
+func TestBackupManagedTopologyUsesTheConfiguredServiceName(t *testing.T) {
+	t.Setenv("URMAIL_BACKUP_MANAGED_TOPOLOGY", "compose")
+	t.Setenv("URMAIL_BACKUP_MANAGED_PG_HOST", "db")
+	if _, err := backupPeerDatabaseURL("postgres://urmail_migrate:private-fixture@db:5432/urmail?sslmode=disable"); err != nil {
+		t.Fatalf("configured service name rejected: %v", err)
+	}
+	if _, err := backupPeerDatabaseURL("postgres://urmail_migrate:private-fixture@pg:5432/urmail?sslmode=disable"); err == nil {
+		t.Fatal("a service other than the configured one was accepted")
+	}
+}
