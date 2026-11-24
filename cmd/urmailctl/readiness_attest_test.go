@@ -343,3 +343,75 @@ func mustHoldSHA(t *testing.T, root string) string {
 	}
 	return sha256Hex(hold)
 }
+
+// TestReleaseAuditOrderingRecovery covers the F-AUDIT gap: a crash after the
+// durable completed audit but before mark is recovered from the audit; missing
+// audit is never a successful release; an audit failure can discard the
+// unproven attempt.
+func TestReleaseAuditOrderingRecovery(t *testing.T) {
+	f := newAttestFixture(t)
+	ctx := context.Background()
+	if err := runReadinessAttestSign(ctx, f.signArgs()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReadinessAttestConsume(ctx, append(f.targetArgs(), "--attest", f.attestPath, "--request-id", "audit-crash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err != nil {
+		t.Fatal(err)
+	}
+	attemptPath := filepath.Join(f.root, "upgrade_release_attempt.json")
+	holdSHA := mustHoldSHA(t, f.root)
+
+	// No hold with only an attempted claim: never a success.
+	if err := os.Rename(filepath.Join(f.root, "upgrade.hold"), filepath.Join(f.root, "hold.away")); err != nil {
+		t.Fatal(err)
+	}
+	if already, err := noHoldReleaseOutcome(f.root, true); err == nil || already {
+		t.Fatalf("attempt without audit claimed success: already=%t err=%v", already, err)
+	}
+	if already, err := noHoldReleaseOutcome(f.root, false); err == nil || already {
+		t.Fatalf("legacy no-hold without audit claimed success: already=%t err=%v", already, err)
+	}
+	// Crash after durable audit but before mark: recover, then read back both.
+	if err := maintenance.AppendUpgradeAudit(f.root, maintenance.UpgradeAuditEntry{Action: "release-completed", HoldSHA256: holdSHA, Generation: 6}); err != nil {
+		t.Fatal(err)
+	}
+	already, err := noHoldReleaseOutcome(f.root, true)
+	if err != nil || !already {
+		t.Fatalf("audit-backed recovery failed: already=%t err=%v", already, err)
+	}
+	raw, err := os.ReadFile(attemptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var attempt readinessReleaseAttempt
+	if err := json.Unmarshal(raw, &attempt); err != nil || attempt.State != "completed" {
+		t.Fatalf("attempt not marked completed from audit: %+v %v", attempt, err)
+	}
+	entries, err := maintenance.ReadUpgradeAuditTail(f.root, 5)
+	if err != nil || len(entries) == 0 || entries[len(entries)-1].Action != "release-completed" {
+		t.Fatalf("completed audit not readable back: %+v %v", entries, err)
+	}
+	if already, err := noHoldReleaseOutcome(f.root, false); err != nil || !already {
+		t.Fatalf("legacy completed audit not recognized: already=%t err=%v", already, err)
+	}
+
+	// Audit failure path discards the unproven attempt for a fresh round.
+	other := newAttestFixture(t)
+	if err := runReadinessAttestSign(ctx, other.signArgs()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReadinessAttestConsume(ctx, append(other.targetArgs(), "--attest", other.attestPath, "--request-id", "audit-fail")); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyReleaseConsume(ctx, other.root, other.lockFD); err != nil {
+		t.Fatal(err)
+	}
+	if err := discardReleaseAttemptOnAuditFailure(other.root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(other.root, "upgrade_release_attempt.json")); !os.IsNotExist(err) {
+		t.Fatalf("unproven attempt not discarded: %v", err)
+	}
+}

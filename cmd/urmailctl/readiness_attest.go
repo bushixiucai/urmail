@@ -592,17 +592,53 @@ func markReleaseCompleted(rootDir, holdSHA string) error {
 // only a completed attempt may report an idempotent release; anything else is
 // an incomplete/manual reconciliation, never a first success.
 func noHoldReleaseOutcome(rootDir string, requireConsume bool) (bool, error) {
-	if !requireConsume {
-		return false, nil
+	entries, auditErr := maintenance.ReadUpgradeAuditTail(rootDir, 50)
+	if auditErr != nil {
+		return false, fmt.Errorf("no active upgrade fence and the completed-release audit is unreadable: %w (manual reconciliation required)", auditErr)
+	}
+	hasAudit := func(holdSHA string) bool {
+		for _, entry := range entries {
+			if entry.Action == "release-completed" && (holdSHA == "" || entry.HoldSHA256 == holdSHA) {
+				return true
+			}
+		}
+		return false
 	}
 	attemptPath := filepath.Join(maintenance.Root(rootDir), "upgrade_release_attempt.json")
+	if !requireConsume {
+		if hasAudit("") {
+			return true, nil
+		}
+		return false, errors.New("no active upgrade fence and no completed-release audit; manual reconciliation required (not a successful release)")
+	}
 	raw, err := readBoundedRegular(attemptPath, 1<<20)
 	if err != nil {
 		return false, errors.New("no active upgrade fence and no release attempt record; manual reconciliation required (not a successful first release)")
 	}
 	var attempt readinessReleaseAttempt
-	if err := json.Unmarshal(raw, &attempt); err != nil || attempt.State != "completed" {
-		return false, errors.New("no active upgrade fence but the release attempt is not completed; manual reconciliation required (not a successful first release)")
+	if err := json.Unmarshal(raw, &attempt); err != nil {
+		return false, errors.New("no active upgrade fence and the release attempt is unreadable; manual reconciliation required")
 	}
-	return true, nil
+	if attempt.State == "completed" {
+		return true, nil
+	}
+	// Crash after the durable audit but before marking completed: recover from
+	// the audit that binds this hold, never from the claim alone.
+	if attempt.State == "attempted" && hasAudit(attempt.HoldSHA256) {
+		if err := markReleaseCompleted(rootDir, attempt.HoldSHA256); err != nil {
+			return false, fmt.Errorf("no active fence: audit exists but the attempt could not be completed: %w (manual reconciliation required)", err)
+		}
+		return true, nil
+	}
+	return false, errors.New("no active upgrade fence but no completed-release audit for this attempt; manual reconciliation required (not a successful first release)")
+}
+
+// discardReleaseAttemptOnAuditFailure removes an unproven attempt so a new
+// hold/consume round can start; the restored fence carries new hold bytes.
+func discardReleaseAttemptOnAuditFailure(rootDir string) error {
+	path := filepath.Join(maintenance.Root(rootDir), "upgrade_release_attempt.json")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }

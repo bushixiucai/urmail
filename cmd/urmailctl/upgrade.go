@@ -604,13 +604,6 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 			return restoreFenceOnFailure(fmt.Errorf("release protocol readiness failed: %w", probeErr), maintenance.DefaultWriterUnits)
 		}
 	}
-	if requireConsume && holdDigest != "" {
-		if err := markReleaseCompleted(rootDir, holdDigest); err != nil {
-			return fmt.Errorf("release completed services but the attempt record could not be marked: %w (hold already removed; manual reconciliation required)", err)
-		}
-	}
-	fmt.Println("Upgrade fence released successfully.")
-	fmt.Println("Drop-in guards removed and services unlocked.")
 
 	// 10. Completed-release audit (all modes): one independent, durable record
 	// binding the released hold bytes, fence receipt bytes, signed readiness
@@ -635,8 +628,22 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 		}
 	}
 	if auditErr := maintenance.AppendUpgradeAudit(rootDir, completedEntry); auditErr != nil {
+		if requireConsume {
+			if discardErr := discardReleaseAttemptOnAuditFailure(rootDir); discardErr != nil {
+				return restoreFenceOnFailure(fmt.Errorf("cannot record completed-release audit: %w; also could not discard the unproven attempt: %v (manual reconciliation required)", auditErr, discardErr), maintenance.DefaultWriterUnits)
+			}
+		}
 		return restoreFenceOnFailure(fmt.Errorf("cannot record completed-release audit: %w (fence restored)", auditErr), maintenance.DefaultWriterUnits)
 	}
+	// Only a durable audit may promote the attempt to completed: a crash
+	// between audit and mark is recovered from the audit, never from a claim.
+	if requireConsume && holdDigest != "" {
+		if err := markReleaseCompleted(rootDir, holdDigest); err != nil {
+			return fmt.Errorf("release completed and audited but the attempt record could not be marked: %w (audit exists; manual reconciliation required)", err)
+		}
+	}
+	fmt.Println("Upgrade fence released successfully.")
+	fmt.Println("Drop-in guards removed and services unlocked.")
 
 	// 11. Close the prepared-stuck receipt window: when the live agent already
 	// reports ready while the signed receipt still binds the offline prepared
