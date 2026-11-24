@@ -123,6 +123,9 @@ func runBackupAuto(ctx context.Context, args []string) error {
 		}
 	}
 	recipient, uri := get("URMAIL_BACKUP_AGE_RECIPIENT"), get("URMAIL_BACKUP_OFFSITE_URI")
+	// An explicit operator approval is the only way to record a local complete
+	// backup when no offsite destination exists. Empty without it.
+	localOnly := get("URMAIL_BACKUP_ALLOW_LOCAL_ONLY") == "1"
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -146,27 +149,40 @@ func runBackupAuto(ctx context.Context, args []string) error {
 			return err
 		}
 		if disabled {
-			if recipient == "" {
-				fmt.Println("automatic backup disabled: recipient and offsite destination are not configured")
-				return nil
+			if !localOnly {
+				if recipient == "" {
+					fmt.Println("automatic backup disabled: recipient and offsite destination are not configured")
+					return nil
+				}
+				return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
 			}
-			return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
+			uri, creds = "", backupauto.Credentials{}
 		}
 		if recipient == "" {
 			recipient = resolvedRecipient
 		}
 		uri, creds = resolvedURI, resolvedCreds
 	}
-	if recipient == "" {
+	if uri == "" && !localOnly {
 		return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
 	}
-	if _, err = backupauto.ParseRecipient(recipient); err != nil {
-		return errors.New("invalid automatic backup age public recipient")
+	if uri == "" {
+		// Explicit local-only approval: no offsite credentials are accepted
+		// and the run is recorded as pending_local_only, never as uploaded.
+		recipient = ""
 	}
-	if strings.HasPrefix(uri, "sftp://") && (creds.SFTP.HostKeyFingerprint == "" || (creds.SFTP.Password == "" && creds.SFTP.PrivateKeyPath == "")) {
+	if uri != "" && recipient == "" {
+		return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
+	}
+	if uri != "" {
+		if _, err = backupauto.ParseRecipient(recipient); err != nil {
+			return errors.New("invalid automatic backup age public recipient")
+		}
+	}
+	if uri != "" && strings.HasPrefix(uri, "sftp://") && (creds.SFTP.HostKeyFingerprint == "" || (creds.SFTP.Password == "" && creds.SFTP.PrivateKeyPath == "")) {
 		return errors.New("automatic SFTP backup requires authentication and a pinned SSH host fingerprint")
 	}
-	if creds.SFTP.PrivateKeyPath != "" && strings.HasPrefix(uri, "sftp://") {
+	if uri != "" && creds.SFTP.PrivateKeyPath != "" && strings.HasPrefix(uri, "sftp://") {
 		keyPath := filepath.Clean(creds.SFTP.PrivateKeyPath)
 
 		if err = validatePrivateBackupDirectory(filepath.Dir(keyPath)); err != nil {
@@ -176,9 +192,12 @@ func runBackupAuto(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	store, err := backupauto.ParseDestination(uri, creds)
-	if err != nil {
-		return errors.New("invalid automatic backup destination or credentials")
+	var store backupauto.OffsiteStore
+	if uri != "" {
+		store, err = backupauto.ParseDestination(uri, creds)
+		if err != nil {
+			return errors.New("invalid automatic backup destination or credentials")
+		}
 	}
 	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
 	if err != nil {
@@ -190,7 +209,12 @@ func runBackupAuto(ctx context.Context, args []string) error {
 	if _, err = (&backupauto.StateRecorder{Pool: pool}).StaleRunning(ctx, 0, time.Now()); err != nil {
 		return err
 	}
-	worker := backupauto.Worker{Pool: pool, Runner: rootBackupRunner{}, Store: store, Recipient: recipient, OffsiteURI: uri, Interval: envDuration("URMAIL_BACKUP_INTERVAL_HOURS", backupauto.DefaultInterval), Retention: envRetention()}
+	worker := backupauto.Worker{Pool: pool, Runner: rootBackupRunner{}, Interval: envDuration("URMAIL_BACKUP_INTERVAL_HOURS", backupauto.DefaultInterval), Retention: envRetention()}
+	if uri == "" {
+		worker.LocalOnly = true
+	} else {
+		worker.Store, worker.Recipient, worker.OffsiteURI = store, recipient, uri
+	}
 	return worker.RunOnce(ctx)
 }
 

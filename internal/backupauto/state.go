@@ -14,6 +14,13 @@ import (
 	"github.com/bushixiucai/urmail/internal/db"
 )
 
+// Offsite dispositions recorded in backup_runs.offsite_state (migration 0160).
+// Historical rows keep ""; gates treat empty or unknown values as unsatisfied.
+const (
+	OffsiteStateUploaded         = "uploaded"
+	OffsiteStatePendingLocalOnly = "pending_local_only"
+)
+
 // Run states recorded in backup_runs (migration 0120).
 const (
 	StateRunning   = "running"
@@ -79,6 +86,16 @@ func (s *StateRecorder) FailureStreak(ctx context.Context) (int, error) {
 		streak++
 	}
 	return streak, rows.Err()
+}
+
+// SetOffsiteState records the destination disposition of a run. Historical
+// rows stay empty; gates must treat empty or invalid values as unsatisfied.
+func (s *StateRecorder) SetOffsiteState(ctx context.Context, runUID, state string) error {
+	_, err := s.Pool.Exec(ctx, "UPDATE backup_runs SET offsite_state=$2 WHERE run_uid=$1", runUID, state)
+	if err != nil {
+		return fmt.Errorf("record backup offsite state: %w", err)
+	}
+	return nil
 }
 
 // MarkVerifying moves a run into the verify stage.
@@ -180,6 +197,12 @@ type RunHealth struct {
 	// ManifestName is the offsite manifest object of the run; its stamp is
 	// the generation's own clock, which freshness gates must honor.
 	ManifestName string
+	// OffsiteState is '' for historical/unknown rows, 'uploaded' for an
+	// offsite copy, or 'pending_local_only' for an explicitly approved local
+	// complete backup whose offsite copy is owed after the cut.
+	OffsiteState string
+	// OffsiteURI must be non-empty for an uploaded run.
+	OffsiteURI string
 }
 
 // StaleRun reports whether a run has been in running/verifying for longer
@@ -205,8 +228,8 @@ func (h *RunHealth) StaleRun(now time.Time) bool {
 func (s *StateRecorder) LastRunHealth(ctx context.Context) (*RunHealth, error) {
 	var h RunHealth
 	err := s.Pool.QueryRow(ctx,
-		"SELECT run_uid,state,scope,started_at,error,manifest_name FROM backup_runs ORDER BY id DESC LIMIT 1").
-		Scan(&h.RunUID, &h.State, &h.Scope, &h.StartedAt, &h.Error, &h.ManifestName)
+		"SELECT run_uid,state,scope,started_at,error,manifest_name,offsite_state,offsite_uri FROM backup_runs ORDER BY id DESC LIMIT 1").
+		Scan(&h.RunUID, &h.State, &h.Scope, &h.StartedAt, &h.Error, &h.ManifestName, &h.OffsiteState, &h.OffsiteURI)
 	if err == nil {
 		return &h, nil
 	}

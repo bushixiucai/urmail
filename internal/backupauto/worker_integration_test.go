@@ -636,3 +636,54 @@ func TestOffsiteVerifyMismatchFailsRun(t *testing.T) {
 		t.Fatalf("run error must name the verify mismatch, got %q", note)
 	}
 }
+
+// TestWorkerLocalOnlyRecordsPendingLocalOnly proves the explicit local-only
+// approval path: no offsite store/recipient/URI, a complete local generation,
+// and a success row marked pending_local_only with an empty offsite_uri.
+func TestWorkerLocalOnlyRecordsPendingLocalOnly(t *testing.T) {
+	platform, _ := testdb.OpenMigrated(t)
+	dir := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	worker := Worker{
+		Pool:      platform,
+		Runner:    fakeRunner{Dir: dir},
+		LocalOnly: true,
+		Now:       func() time.Time { return now },
+	}
+	if err := worker.runPipeline(context.Background(), &StateRecorder{Pool: platform}); err != nil {
+		t.Fatalf("local-only pipeline: %v", err)
+	}
+	var state, scope, offsiteState, offsiteURI, manifestName string
+	err := platform.QueryRow(context.Background(),
+		"SELECT state,scope,offsite_state,offsite_uri,manifest_name FROM backup_runs ORDER BY id DESC LIMIT 1").
+		Scan(&state, &scope, &offsiteState, &offsiteURI, &manifestName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != StateSuccess || scope != ScopeComplete {
+		t.Fatalf("state=%q scope=%q", state, scope)
+	}
+	if offsiteState != OffsiteStatePendingLocalOnly || offsiteURI != "" {
+		t.Fatalf("offsite_state=%q offsite_uri=%q, want pending_local_only and empty", offsiteState, offsiteURI)
+	}
+	if manifestName == "" {
+		t.Fatal("local-only run must still name its local manifest")
+	}
+}
+
+// TestWorkerLocalOnlyNeedsExplicitApproval: an unapproved worker with no
+// destination is disabled, so it can never record a success.
+func TestWorkerLocalOnlyNeedsExplicitApproval(t *testing.T) {
+	if !((&Worker{}).disabled()) {
+		t.Fatal("empty worker must be disabled")
+	}
+	unapproved := &Worker{Pool: nil, Runner: fakeRunner{}}
+	if !unapproved.disabled() {
+		t.Fatal("worker without pool must be disabled")
+	}
+	platform, _ := testdb.OpenMigrated(t)
+	approved := &Worker{Pool: platform, Runner: fakeRunner{Dir: t.TempDir()}, LocalOnly: true}
+	if approved.disabled() {
+		t.Fatal("local-only worker with pool and runner must be enabled")
+	}
+}

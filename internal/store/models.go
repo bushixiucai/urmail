@@ -235,6 +235,7 @@ type BackupRuns struct {
 	ManifestName     string `json:"manifest_name"`
 	OffsiteUri       string `json:"offsite_uri"`
 	RetentionDeleted int32  `json:"retention_deleted"`
+	OffsiteState     string `json:"offsite_state"`
 }
 
 type BrandHostChallenges struct {

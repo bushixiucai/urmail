@@ -966,6 +966,17 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 		return "", fmt.Errorf("fresh-backup pre-flight: newest successful backup run %s is a %q backup; a complete maintenance backup is required, or pass --skip-preflight to record an explicit operator override",
 			health.RunUID, health.Scope)
 	}
+	// The destination disposition must be explicit. Historical rows carry '',
+	// which is NOT satisfied; an uploaded run must name its offsite object.
+	switch health.OffsiteState {
+	case backupauto.OffsiteStateUploaded:
+		if health.OffsiteURI == "" {
+			return "", fmt.Errorf("fresh-backup pre-flight: newest successful backup run %s claims offsite_state=uploaded without an offsite_uri; run a complete backup first, or pass --skip-preflight to record an explicit operator override", health.RunUID)
+		}
+	case backupauto.OffsiteStatePendingLocalOnly:
+	default:
+		return "", fmt.Errorf("fresh-backup pre-flight: newest successful backup run %s has offsite_state %q (want uploaded or pending_local_only); run a complete backup first, or pass --skip-preflight to record an explicit operator override", health.RunUID, health.OffsiteState)
+	}
 	// The generation's own clock is the stamp in the manifest name: a
 	// freshly re-uploaded old manifest must not count as a fresh backup.
 	age := time.Since(health.StartedAt)
@@ -976,7 +987,7 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 		return "", fmt.Errorf("fresh-backup pre-flight: newest complete backup generation %s is %s old (window %s); run a complete backup first, or pass --skip-preflight to record an explicit operator override",
 			health.ManifestName, age.Round(time.Minute), window)
 	}
-	fmt.Printf("Fresh-backup pre-flight: newest complete successful run %s, generation %s (age %s).\n",
-		health.RunUID, health.ManifestName, age.Round(time.Minute))
+	fmt.Printf("Fresh-backup pre-flight: newest complete successful run %s, generation %s (age %s; offsite=%s).\n",
+		health.RunUID, health.ManifestName, age.Round(time.Minute), health.OffsiteState)
 	return "", nil
 }
