@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
 func TestSetupCreatesPendingTenantAndRequiresExplicitFiniteGift(t *testing.T) {
 	p, a := testdb.OpenMigrated(t)
-	ctx := context.Background()
+	ctx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	t.Setenv("URMAIL_DATABASE_URL_PLATFORM", p.Config().ConnString())
 	t.Setenv("URMAIL_DATABASE_URL", p.Config().ConnString())
 	t.Setenv("URMAIL_POLICY_ENABLED", "true")
@@ -84,11 +85,12 @@ func TestSetupPreflightReadsInstalledEnvironmentFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := runSetup(t.Context(), []string{"--email", "envfile@example.test", "--password", "isolated-envfile-password-1234"}); err != nil {
+	ctx := isolation.WithScope(t.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	if err := runSetup(ctx, []string{"--email", "envfile@example.test", "--password", "isolated-envfile-password-1234"}); err != nil {
 		t.Fatal(err)
 	}
 	var count int
-	if err := p.QueryRow(t.Context(), "SELECT count(*) FROM users WHERE email='envfile@example.test'").Scan(&count); err != nil || count != 1 {
+	if err := p.QueryRow(ctx, "SELECT count(*) FROM users WHERE email='envfile@example.test'").Scan(&count); err != nil || count != 1 {
 		t.Fatalf("installed env file did not bootstrap user: count=%d err=%v", count, err)
 	}
 }
