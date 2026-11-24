@@ -378,7 +378,7 @@ func (h *MarketingHandler) ConfirmCampaign(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	result, err := requestStore(c, h.Store).ScheduleMarketingCampaign(c.Request.Context(), store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: id, ScheduledAt: timeutil.Micro(input.ScheduledAt.UTC())})
+	result, err := requestStore(c, h.Store).ScheduleMarketingCampaign(platformCtx(c), store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: id, ScheduledAt: timeutil.Micro(input.ScheduledAt.UTC())})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return

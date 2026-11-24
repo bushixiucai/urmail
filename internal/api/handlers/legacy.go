@@ -24,6 +24,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/certs"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
@@ -74,6 +75,11 @@ type LegacyAccessStore interface {
 	AuditLegacyCredentialUse(context.Context, store.AuditLegacyCredentialUseParams) error
 }
 
+// tenantCtx binds the compatibility tenant for tenant-scoped legacy reads.
+func (h *LegacyHandler) tenantCtx(c *gin.Context) context.Context {
+	return isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: h.TenantID})
+}
+
 func (h *LegacyHandler) authorize(c *gin.Context) bool {
 	if !middleware.CanonicalHostAllowed(c) {
 		authError(c, http.StatusForbidden, "FORBIDDEN")
@@ -98,7 +104,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 			return false
 		}
 		token := strings.TrimSpace(c.GetHeader("Authorization")[7:])
-		session, err := access.GetLegacySession(c.Request.Context(), middleware.HashSessionToken(token))
+		session, err := access.GetLegacySession(h.tenantCtx(c), middleware.HashSessionToken(token))
 		if err != nil {
 			authError(c, http.StatusUnauthorized, "MFA_REQUIRED")
 			return false
@@ -137,7 +143,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 		if access == nil {
 			return reject("INVALID_CREDENTIALS")
 		}
-		credential, err := access.AuthenticateApplicationCredential(c.Request.Context(), store.AuthenticateApplicationCredentialParams{TokenHash: middleware.HashSessionToken(password), Email: email})
+		credential, err := access.AuthenticateApplicationCredential(platformCtx(c), store.AuthenticateApplicationCredentialParams{TokenHash: middleware.HashSessionToken(password), Email: email})
 		if err != nil {
 			return reject("INVALID_CREDENTIALS")
 		}
@@ -161,7 +167,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 		reservation.CompleteSuccess()
 		return true
 	}
-	user, err := h.Auth.GetUserByEmail(c.Request.Context(), email)
+	user, err := h.Auth.GetUserByEmail(platformCtx(c), email)
 	if err != nil {
 		if _, available := panelPasswordMatches(c, password, dummyPasswordHash); !available {
 			return false
@@ -178,7 +184,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 	if user.MfaEnabled {
 		return reject("MFA_REQUIRED")
 	}
-	admin, err := h.Auth.CheckPlatformAdmin(c.Request.Context(), user.ID)
+	admin, err := h.Auth.CheckPlatformAdmin(platformCtx(c), user.ID)
 	if err != nil || !admin {
 		return reject("FORBIDDEN")
 	}
@@ -197,7 +203,7 @@ func (h *LegacyHandler) auditLegacyAccess(c *gin.Context, access LegacyAccessSto
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return false
 	}
-	err := access.AuditLegacyCredentialUse(c.Request.Context(), store.AuditLegacyCredentialUseParams{ActorUserID: pgtype.Int8{Int64: userID, Valid: true}, Action: "legacy.authorize " + c.Request.Method + " " + c.FullPath(), TargetID: pgtype.Text{String: target, Valid: true}})
+	err := access.AuditLegacyCredentialUse(h.tenantCtx(c), store.AuditLegacyCredentialUseParams{ActorUserID: pgtype.Int8{Int64: userID, Valid: true}, Action: "legacy.authorize " + c.Request.Method + " " + c.FullPath(), TargetID: pgtype.Text{String: target, Valid: true}})
 	if err != nil {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return false

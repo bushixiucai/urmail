@@ -280,7 +280,7 @@ func (h *SupportHandler) Announcements(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Store).ListVisibleAnnouncements(c.Request.Context(), t)
+	rows, err := requestStore(c, h.Store).ListVisibleAnnouncements(platformCtx(c), t)
 	if supportError(c, err) {
 		return
 	}
