@@ -231,8 +231,9 @@ cat <<HINT
 
 Bootstrap & DNS checklist (domain: $PRIMARY_DOMAIN)
   admin bootstrap : docker compose exec urmaild urmailctl setup \
-                      --email ${ADMIN_EMAIL:-<admin@$PRIMARY_DOMAIN>} --brand default --tenant default
-                    (set URMAIL_SETUP_PASSWORD, at least 12 bytes, in the container env)
+                      --email ${ADMIN_EMAIL:-<admin@$PRIMARY_DOMAIN>} --password <at least 12 bytes> \
+                      --brand default --tenant default
+                    (or inject URMAIL_SETUP_PASSWORD into the container and omit --password)
                     ${ADMIN_EMAIL:+admin email: $ADMIN_EMAIL}
   MX   : $PRIMARY_DOMAIN.  IN MX 10 $DOMAIN.
   SPF  : $PRIMARY_DOMAIN.  IN TXT "v=spf1 mx -all"

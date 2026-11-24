@@ -126,8 +126,13 @@ INT=$(sqlite_snap_query "PRAGMA integrity_check;" | head -n1)
 [ "$INT" = "ok" ] || die "snapshot SQLite integrity_check=$INT"
 UV=$(sqlite_snap_query "PRAGMA user_version;" | head -n1)
 TAB=$(sqlite_snap_query "SELECT count(*) FROM sqlite_master WHERE type='table';" | head -n1)
-AH=$(sqlite_snap_query "SELECT count(*) FROM users WHERE password_hash IS NOT NULL AND password_hash<>'';" 2>/dev/null | head -n1 || true)
-PA=$(sqlite_snap_query "SELECT count(*) FROM platform_admins;" 2>/dev/null | head -n1 || true)
+if ! AH=$(sqlite_snap_query "SELECT count(*) FROM users WHERE password_hash IS NOT NULL AND password_hash<>'';"); then
+    die "cannot read the admin credential count from the snapshot; refusing to record a backup"
+fi
+if ! PA=$(sqlite_snap_query "SELECT count(*) FROM platform_admins;"); then
+    die "cannot read the platform admin count from the snapshot; refusing to record a backup"
+fi
+AH=$(printf '%s\n' "$AH" | head -n1); PA=$(printf '%s\n' "$PA" | head -n1)
 SRC_AFTER=$(src_digest)
 SRC_NAMES_AFTER=$(src_names)
 NEW_SOURCE_FILES=$(comm -13 <(printf '%s\n' "$SRC_NAMES_BEFORE") <(printf '%s\n' "$SRC_NAMES_AFTER") | grep -c . || true)

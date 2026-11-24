@@ -12,7 +12,8 @@
 # Usage:
 #   ./restore-verify.sh --snapshot DIR --target DIR [--sample N] [--sqlite-bin PATH]
 #
-# Env (IMAPS check; skipped when unset):
+# Env (IMAPS check; missing credentials FAIL the run — a restore is never
+# reported PASS without a real mail round-trip):
 #   URMAIL_IMAP_HOST (127.0.0.1) URMAIL_IMAP_PORT (1993)
 #   URMAIL_IMAP_USER URMAIL_IMAP_PASS
 set -euo pipefail
