@@ -656,7 +656,7 @@ FROM retention_policies
 WHERE tenant_id = $1
 `,
 	"GetRetentionPolicyAuthority": `-- name: GetRetentionPolicyAuthority :one
-SELECT urmail_retention_authorized($1::bigint,$2::bigint,$3::bigint)::boolean AS allowed
+SELECT urmail_retention_authorized($1::bigint,$3::bigint,$2::bigint)::boolean AS allowed
 `,
 	"GetSessionByID": `-- name: GetSessionByID :one
 SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at, s.mfa_verified_at, s.kind, s.credential_version, s.origin_host

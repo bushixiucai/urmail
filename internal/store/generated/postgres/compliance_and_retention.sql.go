@@ -136,17 +136,17 @@ func (q *Queries) GetRetentionPolicy(ctx context.Context, tenantID int64) (Reten
 }
 
 const getRetentionPolicyAuthority = `-- name: GetRetentionPolicyAuthority :one
-SELECT urmail_retention_authorized($1::bigint,$2::bigint,$3::bigint)::boolean AS allowed
+SELECT urmail_retention_authorized($1::bigint,$3::bigint,$2::bigint)::boolean AS allowed
 `
 
 type GetRetentionPolicyAuthorityParams struct {
-	TenantID  int64 `json:"tenant_id"`
-	CreatedBy int64 `json:"created_by"`
-	GrantID   int64 `json:"grant_id"`
+	Column1 int64 `json:"column_1"`
+	Column2 int64 `json:"column_2"`
+	Column3 int64 `json:"column_3"`
 }
 
 func (q *Queries) GetRetentionPolicyAuthority(ctx context.Context, arg GetRetentionPolicyAuthorityParams) (bool, error) {
-	row := q.db.QueryRow(ctx, getRetentionPolicyAuthority, arg.TenantID, arg.CreatedBy, arg.GrantID)
+	row := q.db.QueryRow(ctx, getRetentionPolicyAuthority, arg.Column1, arg.Column2, arg.Column3)
 	var allowed bool
 	err := row.Scan(&allowed)
 	return allowed, err

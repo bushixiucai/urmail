@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"regexp"
@@ -58,6 +59,7 @@ SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, arch
 // at the B2 dialect seam, never by rewriting SQL text.
 var postgresTimestampArgIndexes = map[string][]int{
 	"ArchiveRetentionCandidateDigest":        {1},
+	"SearchArchiveContent":                   {5, 6, 7},
 	"CountDeliveryEventsByStatus":            {1},
 	"CreateApplicationCredential":            {3},
 	"CreateComplianceGrant":                  {3},
@@ -106,8 +108,17 @@ func adaptPostgresArgs(method string, args []any) []any {
 		if index >= len(out) {
 			continue
 		}
-		if micros, ok := out[index].(int64); ok {
-			out[index] = time.UnixMicro(micros).UTC()
+		switch value := out[index].(type) {
+		case int64:
+			out[index] = time.UnixMicro(value).UTC()
+		case sql.NullInt64:
+			// The shared SQLite-generated surface uses sql.NullInt64 micros
+			// for nullable timestamps; the PostgreSQL twin binds timestamptz.
+			if value.Valid {
+				out[index] = time.UnixMicro(value.Int64).UTC()
+			} else {
+				out[index] = nil
+			}
 		}
 	}
 	return out

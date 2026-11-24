@@ -560,7 +560,9 @@ func (q *Queries) RecordTenantAudit(ctx context.Context, arg RecordTenantAuditPa
 	if arg.Action == "" || !auditActionPattern.MatchString(arg.Action) {
 		return fmt.Errorf("invalid audit metadata: action %q", arg.Action)
 	}
-	if arg.Target == "" || len(arg.Target) > 2048 {
+	// urmail_record_audit accepts an empty target (search reads carry none);
+	// only NULL/oversize is rejected there.
+	if len(arg.Target) > 2048 {
 		return fmt.Errorf("invalid audit metadata: target length %d", len(arg.Target))
 	}
 	if arg.Status < 100 || arg.Status > 599 {
@@ -875,12 +877,18 @@ func (q *Queries) archiveCaseSnapshotText(ctx context.Context, tenant, caseID, u
 // ArchiveCasesSnapshot returns the case snapshot jsonb text (nil when the
 // actor is not a case member). Session tenant/user binding is app_pending.
 func (q *Queries) ArchiveCasesSnapshot(ctx context.Context, arg ArchiveCasesSnapshotParams) ([]byte, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).ArchiveCasesSnapshot(ctx, pgstore.ArchiveCasesSnapshotParams{T: arg.T, C: arg.C, U: arg.U})
+	}
 	return q.archiveCaseSnapshotText(ctx, arg.T, arg.C, arg.U)
 }
 
 // ArchiveCasesSnapshotDigest returns the hex SHA-256 of the snapshot text,
 // matching encode(sha256(convert_to(snapshot,'UTF8')),'hex').
 func (q *Queries) ArchiveCasesSnapshotDigest(ctx context.Context, arg ArchiveCasesSnapshotDigestParams) (string, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).ArchiveCasesSnapshotDigest(ctx, pgstore.ArchiveCasesSnapshotDigestParams{T: arg.T, C: arg.C, U: arg.U})
+	}
 	snap, err := q.archiveCaseSnapshotText(ctx, arg.T, arg.C, arg.U)
 	if err != nil {
 		return "", err
@@ -911,6 +919,9 @@ type ArchiveCasesRequestApprovalParams struct {
 // in Go. A missing case, a stale version, or a non-member actor yields
 // pgx.ErrNoRows exactly like the PG INSERT ... SELECT did.
 func (q *Queries) ArchiveCasesRequestApproval(ctx context.Context, arg ArchiveCasesRequestApprovalParams) (int64, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).ArchiveCasesRequestApproval(ctx, pgstore.ArchiveCasesRequestApprovalParams{TenantID: arg.TenantID, CaseID: arg.CaseID, ActorID: arg.ActorID, Digest: arg.Digest, Version: arg.Version})
+	}
 	now := timeutil.NowMicro()
 	var existing int64
 	err := q.db.QueryRow(ctx, `SELECT r.id FROM archive_approval_requests r
@@ -968,6 +979,9 @@ ORDER BY r.id LIMIT 1`,
 // ArchiveCasesExportVisible reports whether the approved export request is
 // still fully authorized for this actor (mirrors urmail_archive_export_visible).
 func (q *Queries) ArchiveCasesExportVisible(ctx context.Context, arg ArchiveCasesExportVisibleParams) (bool, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).ArchiveCasesExportVisible(ctx, pgstore.ArchiveCasesExportVisibleParams{T: arg.T, A: arg.A, U: arg.U})
+	}
 	var caseID, requester, approver, caseVersion, invVersion, expiresAt int64
 	var state, sourceSnapshot string
 	err := q.db.QueryRow(ctx, `SELECT r.investigation_id, r.state, r.expires_at, r.case_version,
@@ -1112,6 +1126,13 @@ VALUES(?1,?2,?3)`
 // S2 decorator's app_pending obligation; the grant + expiry bounds + request
 // key idempotency are enforced here.
 func (q *Queries) ArchiveCasesCreate(ctx context.Context, arg ArchiveCasesCreateParams) (int64, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).ArchiveCasesCreate(ctx, pgstore.ArchiveCasesCreateParams{
+			TenantID: arg.TenantID, ActorID: arg.ActorID, Title: arg.Title, Purpose: arg.Purpose,
+			ExpiresAt:  pgtype.Timestamptz{Time: timeutil.FromMicro(arg.ExpiresAt), Valid: true},
+			RequestKey: arg.RequestKey,
+		})
+	}
 	expiry, ok := timestamptzMicros(arg.ExpiresAt)
 	if !ok || !archiveCaseRequestKeyPattern.MatchString(arg.RequestKey) {
 		return 0, pgError("42501", "CASE_NOT_AUTHORIZED")

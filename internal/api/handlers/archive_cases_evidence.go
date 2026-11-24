@@ -26,6 +26,7 @@ import (
 	archivestore "github.com/bushixiucai/urmail/internal/archive"
 	"github.com/bushixiucai/urmail/internal/archiveevidence"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -334,7 +335,10 @@ func (h *archiveCases) downloadPackage(c *gin.Context) {
 	}
 	stream := &evidenceDownload{source: packageFile, size: stat.Size(), release: release, guard: evidenceGuardedReader{ctx: c.Request.Context(), source: packageFile, check: check}}
 	stream.complete = func(success bool, count int64) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		// The custody outcome must be written even after the client is gone,
+		// so it gets a detached context that still carries the platform scope
+		// the audit statement requires.
+		ctx, cancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform}), 2*time.Second)
 		defer cancel()
 		detail, _ := json.Marshal(map[string]any{"actor_id": u, "case_id": row.ID, "approval_id": id, "manifest_sha256": evidence.ManifestSha256, "bytes": count, "completed": success})
 		_, _ = db.Queries(h.Platform.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: t, Valid: true}, Action: "archive.evidence_transfer_finished", TargetType: pgtype.Text{String: "archive_approval", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: detail})

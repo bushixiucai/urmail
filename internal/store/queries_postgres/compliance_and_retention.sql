@@ -62,4 +62,4 @@ ORDER BY u.email LIMIT 500;
 UPDATE retention_policies SET active=false,updated_at=statement_timestamp() WHERE tenant_id = @tenant_id;
 
 -- name: GetRetentionPolicyAuthority :one
-SELECT urmail_retention_authorized(@tenant_id::bigint,@created_by::bigint,@grant_id::bigint)::boolean AS allowed;
+SELECT urmail_retention_authorized($1::bigint,$3::bigint,$2::bigint)::boolean AS allowed;
