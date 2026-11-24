@@ -27,6 +27,7 @@ Usage:
   urmailctl migrate up             apply pending schema migrations
   urmailctl migrate down           roll back the most recent schema migration
   urmailctl migrate version        print the current schema version
+  urmailctl sqlite migrate up      apply the embedded SQLite schema chain (single entry)
   urmailctl setup --email E --password P [--brand B] [--tenant T]
                   [--free-until RFC3339 --free-reason TEXT]
   urmailctl status                 print the service status
@@ -91,6 +92,8 @@ func run(args []string) error {
 		return runBootstrap(ctx, args[1:])
 	case "migrate":
 		return runMigrate(ctx, args[1:])
+	case "sqlite":
+		return runSQLiteMigrate(ctx, args[1:])
 	case "setup":
 		return runSetup(ctx, args[1:])
 	case "status":
