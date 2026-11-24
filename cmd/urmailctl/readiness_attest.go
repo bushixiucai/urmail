@@ -76,6 +76,7 @@ func parseReadinessAttestFlags(setName string, args []string) (readinessAttestFl
 	databaseEnv := flags.String("database-url-env", "URMAIL_READINESS_DATABASE_URL_RO", "environment variable holding a read-only PostgreSQL URL")
 	sqlitePath := flags.String("sqlite", "", "optional SQLite target path (read-only)")
 	sqliteVersion := flags.Uint64("sqlite-generation", 0, "expected SQLite user_version when --sqlite is set")
+	lockFD := flags.Int("lock-fd", -1, "inherited exclusive operation-lock descriptor (formal inputs; required)")
 	required := multiFlag{}
 	flags.Var(&required, "required-file", "absolute required file whose digest is bound (repeatable)")
 	probe := flags.String("probe", "", "readiness probe record to bind (required for sign)")
@@ -92,7 +93,7 @@ func parseReadinessAttestFlags(setName string, args []string) (readinessAttestFl
 	if *sqlitePath != "" && *sqliteVersion == 0 {
 		return out, errors.New("readiness-attest requires --sqlite-generation with --sqlite")
 	}
-	out.opts = readinessProbeOptions{rootDir: *rootDir, generation: *generation, databaseEnv: *databaseEnv, sqlitePath: *sqlitePath, sqliteVersion: *sqliteVersion, requiredFiles: required}
+	out.opts = readinessProbeOptions{rootDir: *rootDir, generation: *generation, databaseEnv: *databaseEnv, sqlitePath: *sqlitePath, sqliteVersion: *sqliteVersion, requiredFiles: required, requireLock: true, lockFD: *lockFD}
 	out.probePath, out.attestPath, out.keyPath, out.pubKeyPath = *probe, *attest, *key, *pub
 	out.requestID = *requestID
 	return out, nil
@@ -387,11 +388,11 @@ func runReadinessAttestConsume(ctx context.Context, args []string) error {
 	if f.attestPath == "" {
 		f.attestPath = filepath.Join(f.opts.rootDir, "upgrade_readiness_attest.json")
 	}
-	lock, err := maintenance.AcquireLockWithTimeout(ctx, f.opts.rootDir, maintenance.DefaultLockName, 30*time.Second)
-	if err != nil {
-		return fmt.Errorf("acquire operation lock: %w", err)
+	// The same orchestrator attempt must pass its held descriptor; consume
+	// never acquires a second lock or treats another holder as approval.
+	if err := verifyOwnedOperationLock(f.opts.rootDir, f.opts.lockFD); err != nil {
+		return err
 	}
-	defer func() { _ = maintenance.ReleaseLock(lock) }()
 	payload, err := verifyReadinessAttestation(ctx, f)
 	if err != nil {
 		return err

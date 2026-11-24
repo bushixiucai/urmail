@@ -92,6 +92,7 @@ type readinessProbeOptions struct {
 	sqliteVersion uint64
 	requiredFiles []string
 	requireLock   bool
+	lockFD        int
 }
 
 // runUpgradeReadinessProbe is registered as "urmailctl upgrade readiness-probe".
@@ -106,14 +107,14 @@ func runUpgradeReadinessProbe(ctx context.Context, args []string) error {
 	required := multiFlag{}
 	flags.Var(&required, "required-file", "absolute required file whose digest is bound (repeatable)")
 	verify := flags.String("verify", "", "path of a previous probe record to re-check; no record is written")
-	requireLock := flags.Bool("require-operation-lock", true, "require the maintenance operation lock to be held exclusively (formal inputs)")
+	lockFD := flags.Int("lock-fd", -1, "inherited exclusive operation-lock file descriptor (formal inputs; required)")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return errors.New("usage: urmailctl upgrade readiness-probe --generation N [--root-dir DIR] [--database-url-env NAME] [--sqlite PATH --sqlite-generation N] [--required-file PATH ...] [--verify RECORD]")
 	}
 	if *generation == 0 {
 		return errors.New("readiness-probe requires --generation from the authorized upgrade plan")
 	}
-	opts := readinessProbeOptions{rootDir: *rootDir, generation: *generation, databaseEnv: *databaseEnv, sqlitePath: *sqlitePath, sqliteVersion: *sqliteVersion, requiredFiles: required, requireLock: *requireLock}
+	opts := readinessProbeOptions{rootDir: *rootDir, generation: *generation, databaseEnv: *databaseEnv, sqlitePath: *sqlitePath, sqliteVersion: *sqliteVersion, requiredFiles: required, requireLock: true, lockFD: *lockFD}
 	if opts.sqlitePath != "" && opts.sqliteVersion == 0 {
 		return errors.New("readiness-probe requires --sqlite-generation with --sqlite")
 	}
@@ -145,7 +146,7 @@ func runUpgradeReadinessProbe(ctx context.Context, args []string) error {
 func probeReadiness(ctx context.Context, opts readinessProbeOptions) (readinessProbeDoc, error) {
 	doc := readinessProbeDoc{Format: readinessProbeFormat, ProbedAt: time.Now().UTC(), SourceRevision: buildRevision()}
 	if opts.requireLock {
-		if err := verifyOperationLock(opts.rootDir); err != nil {
+		if err := verifyOwnedOperationLock(opts.rootDir, opts.lockFD); err != nil {
 			return doc, err
 		}
 	}
@@ -509,21 +510,29 @@ func (w *inotifyWatch) Close() {
 	w.fds = nil
 }
 
-// verifyOperationLock proves the maintenance operation lock is held
-// exclusively by the authorized upgrade flow. The probe itself only opens the
-// existing lock read-only and takes a non-blocking shared advisory lock.
-func verifyOperationLock(rootDir string) error {
-	path := filepath.Join(maintenance.Root(rootDir), maintenance.DefaultLockName)
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return fmt.Errorf("readiness-probe: operation lock is missing or unreadable: %w", err)
+// verifyOwnedOperationLock proves the caller's attempt itself holds the
+// exclusive maintenance lock: the inherited descriptor must be the same inode
+// as the live operation.lock and must hold LOCK_EX. A lock merely held by some
+// other process is not approval and is refused.
+func verifyOwnedOperationLock(rootDir string, fd int) error {
+	if fd < 0 {
+		return errors.New("readiness-probe: formal probe requires an inherited operation-lock descriptor (--lock-fd); a lock held by another process is not proof")
 	}
-	defer func() { _ = syscall.Close(fd) }()
-	if err := syscall.Flock(fd, syscall.LOCK_SH|syscall.LOCK_NB); err == nil {
-		_ = syscall.Flock(fd, syscall.LOCK_UN)
-		return errors.New("readiness-probe: operation lock is not held exclusively; refusing to treat inputs as immutable")
-	} else if !errors.Is(err, syscall.EWOULDBLOCK) {
-		return fmt.Errorf("readiness-probe: operation lock check failed: %w", err)
+	var inherited syscall.Stat_t
+	if err := syscall.Fstat(fd, &inherited); err != nil {
+		return fmt.Errorf("readiness-probe: inherited lock descriptor is invalid: %w", err)
+	}
+	path := filepath.Join(maintenance.Root(rootDir), maintenance.DefaultLockName)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("readiness-probe: operation lock is missing: %w", err)
+	}
+	live, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || uint64(live.Dev) != uint64(inherited.Dev) || live.Ino != inherited.Ino {
+		return errors.New("readiness-probe: inherited descriptor is not the live operation lock")
+	}
+	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return errors.New("readiness-probe: inherited descriptor does not hold the exclusive operation lock")
 	}
 	return nil
 }

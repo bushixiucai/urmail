@@ -648,9 +648,9 @@ func TestReadinessProbeRequiresHeldOperationLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	opts := readinessProbeOptions{rootDir: root, generation: 6, sqlitePath: path, sqliteVersion: 6, requireLock: true}
-	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "operation lock is missing") {
-		t.Fatalf("missing lock accepted: %v", err)
+	opts := readinessProbeOptions{rootDir: root, generation: 6, sqlitePath: path, sqliteVersion: 6, requireLock: true, lockFD: -1}
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "inherited operation-lock") {
+		t.Fatalf("no inherited lock accepted: %v", err)
 	}
 	lockPath := filepath.Join(root, "operation.lock")
 	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
@@ -661,12 +661,24 @@ func TestReadinessProbeRequiresHeldOperationLock(t *testing.T) {
 	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := probeReadiness(ctx, opts); err != nil {
-		t.Fatalf("held lock refused: %v", err)
+	dup, err := syscall.Dup(int(lockFile.Fd()))
+	if err != nil {
+		t.Fatal(err)
 	}
-	_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
-	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "not held exclusively") {
-		t.Fatalf("free lock accepted: %v", err)
+	opts.lockFD = dup
+	if _, err := probeReadiness(ctx, opts); err != nil {
+		t.Fatalf("owned inherited lock refused: %v", err)
+	}
+	// A descriptor for the same inode that does not hold the exclusive lock
+	// is not proof even though another holder exists.
+	other, err := os.OpenFile(lockPath, os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Close() }()
+	opts.lockFD = int(other.Fd())
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "does not hold the exclusive") {
+		t.Fatalf("unowned descriptor accepted: %v", err)
 	}
 }
 

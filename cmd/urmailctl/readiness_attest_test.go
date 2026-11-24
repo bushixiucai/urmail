@@ -11,7 +11,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 type attestFixture struct {
 	dir, root, sqlitePath, required, probePath, attestPath, keyPath, pubPath string
 	key                                                                      ed25519.PrivateKey
+	lockFD                                                                   int
 }
 
 func newAttestFixture(t *testing.T) *attestFixture {
@@ -58,6 +61,16 @@ func newAttestFixture(t *testing.T) *attestFixture {
 		t.Fatal(err)
 	}
 	f.attestPath = filepath.Join(f.dir, "attest.json")
+	lockPath := filepath.Join(f.root, "operation.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lockFile.Close() })
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	f.lockFD = int(lockFile.Fd())
 	t.Setenv("URMAIL_ALLOW_TEST_USER", "1")
 	t.Setenv("URMAIL_READINESS_TEST_ANCHOR", f.pubPath)
 	return f
@@ -86,7 +99,7 @@ func (f *attestFixture) probeOptions() readinessProbeOptions {
 }
 
 func (f *attestFixture) targetArgs() []string {
-	return []string{"--generation", "6", "--root-dir", f.root, "--sqlite", f.sqlitePath, "--sqlite-generation", "6", "--required-file", f.required}
+	return []string{"--generation", "6", "--root-dir", f.root, "--sqlite", f.sqlitePath, "--sqlite-generation", "6", "--required-file", f.required, "--lock-fd", strconv.Itoa(f.lockFD)}
 }
 
 func (f *attestFixture) signArgs() []string {

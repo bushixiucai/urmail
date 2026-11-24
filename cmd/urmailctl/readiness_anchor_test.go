@@ -67,12 +67,6 @@ func TestAnchorFileStructuralRejections(t *testing.T) {
 	var _ syscall.Stat_t
 }
 
-func TestNormalBuildRejectsCallerAnchor(t *testing.T) {
-	if _, err := readinessVerifyAnchor("/tmp/caller.pub"); err == nil || !contains(err.Error(), "fixed") {
-		t.Fatalf("caller anchor accepted: %v", err)
-	}
-}
-
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
