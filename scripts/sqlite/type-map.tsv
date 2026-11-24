@@ -184,6 +184,7 @@ backup_runs	error	text	TEXT	-
 backup_runs	manifest_name	text	TEXT	-
 backup_runs	offsite_uri	text	TEXT	-
 backup_runs	retention_deleted	integer	INTEGER	-
+backup_runs	offsite_state	text	TEXT	-
 brand_host_challenges	hostname	text	TEXT	-
 brand_host_challenges	token_digest	text	TEXT	-
 brand_host_challenges	method	text	TEXT	-
