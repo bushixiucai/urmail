@@ -133,26 +133,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install web dependencies (browser test starts Vite)
-        working-directory: web
-        run: npm ci
 
       - uses: ./.github/actions/setup-node-toolchain
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Cache Playwright browsers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: pw-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
-          restore-keys: |
-            pw-${{ runner.os }}-
-      - name: Install frontend and browser
-        working-directory: web
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
-
       - name: Verify go.mod is tidy
         run: |
           go mod tidy
@@ -184,13 +168,30 @@ jobs:
           python3 -I scripts/classify-port-surface.py --repo . --check-deprecated
           python3 -I scripts/classify-port-surface.py --repo . --self-test-deprecated
 
-      - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+      - name: Snapshot Go package list
+        run: go list ./... > /tmp/go-packages.txt
 
       - name: golangci-lint
         run: |
           bash scripts/ci-go-install.sh github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
           "$(go env GOPATH)/bin/golangci-lint" run --timeout=10m
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            pw-${{ runner.os }}-
+
+      - name: Install web dependencies and browser
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out $(cat /tmp/go-packages.txt)
 
       - name: Message catalogue consistency
         run: go run ./cmd/i18ncheck
