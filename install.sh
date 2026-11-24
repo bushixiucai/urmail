@@ -170,14 +170,32 @@ elif [ -f .env ]; then
 fi
 [ -n "$ADMIN_EMAIL" ] || { warn "--admin-email not given; first-boot bootstrap URL will be printed by urmaild"; }
 
+# Mounted service configs must be world-readable: the official Prometheus and
+# Alertmanager images run as nobody, so a checkout made with umask 077 would
+# otherwise leave config files 0600 and crash-loop both containers.
+[ -d compose ] && chmod -R a+rX compose || true
+
 # ---- 3. data dirs (uid 5000 owns everything under the root) --------------
 for d in db mail certs config backup holds maintenance archive agent-run; do
     install -d -o 5000 -g 5000 -m 0750 "$DATA_ROOT/$d"
 done
+# Prometheus runs as nobody (65534) in the official image; its TSDB dir must be
+# writable by that uid or the server panics on the active-query log.
+install -d -o 65534 -g 65534 -m 0750 "$DATA_ROOT/prometheus"
 # db/pg is intentionally NOT pre-created: PGDATA belongs to the postgres
 # container user (uid 70 in postgres:16-alpine) and is initialised by the
 # image entrypoint (bootstrap.sql runs there on first init).
 log "data dirs ready under $DATA_ROOT (0750, 5000:5000)"
+
+# ---- 3b. single-writer lease pre-flight (P3-DW-01) -----------------------
+# The running urmaild holds an exclusive flock on <DATA_ROOT>/.urmail-writer.lease.
+# A second stack against the same data root must never start: refuse here and
+# name the holder instead of letting two writers race the DB.
+install -d -o 5000 -g 5000 -m 0750 "$DATA_ROOT"
+[ -f scripts/writer-lease-preflight.sh ] || die "scripts/writer-lease-preflight.sh missing from this checkout"
+# shellcheck source=scripts/writer-lease-preflight.sh
+. scripts/writer-lease-preflight.sh
+lease_preflight "$DATA_ROOT/.urmail-writer.lease"
 
 # ---- 4./5. caddy render + build + up ------------------------------------
 # Phase 2 (§1.3): the real Caddyfile is rendered by the agent into the

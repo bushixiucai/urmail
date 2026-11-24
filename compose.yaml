@@ -62,8 +62,17 @@ services:
       URMAIL_POLICY_ENABLED: "true"
       # policy sock 挪进 5000 可写卷（默认 /run/urmail-policy 对非 root 不可写）
       URMAIL_POLICY_SOCKET: /srv/urmail/config/run/policy.sock
+      # Loopback-only machine metrics credential for Prometheus (§1.1).
+      # Empty = /internal/metrics stays 403 (MetricsAccess requires >=32 chars).
+      URMAIL_METRICS_TOKEN: ${URMAIL_METRICS_TOKEN:-}
       URMAIL_STORAGE_ROOT: /srv/urmail/data/mail
       URMAIL_PRIMARY_DOMAIN: ${URMAIL_PRIMARY_DOMAIN:-urmail.local}
+      # P3-DW-01 single-writer lease: one urmaild per data root.  The lease is
+      # an exclusive flock on <DATA_ROOT>/.urmail-writer.lease, taken by the
+      # entrypoint before it touches the DB; a second writer exits non-zero.
+      URMAIL_WRITER_LEASE: /srv/urmail/data-root/.urmail-writer.lease
+      URMAIL_VERSION: ${URMAIL_IMAGE_VERSION:-snapshot}
+      URMAIL_WRITER_NAME: ${URMAIL_WRITER_NAME:-}
       URMAIL_WEBMAIL_NATIVE: "true"
       URMAIL_ROUNDCUBE_ENABLED: "false"
     volumes:
@@ -78,6 +87,10 @@ services:
       - ${URMAIL_DATA_ROOT:-./data}/archive:/var/lib/urmail
       # privileged agent 的 unix socket 目录（agent 以 profile 延后启用）
       - ${URMAIL_DATA_ROOT:-./data}/agent-run:/run/urmail
+      # P3-DW-01: the whole data root (rw) so the writer lease lives at
+      # <DATA_ROOT>/.urmail-writer.lease.  Only urmaild gets this mount; the
+      # MTA/IMAP containers keep their narrow per-directory mounts.
+      - ${URMAIL_DATA_ROOT:-./data}:/srv/urmail/data-root
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/healthz"]
       interval: 10s

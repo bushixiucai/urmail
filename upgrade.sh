@@ -139,6 +139,16 @@ PLAN
     # used to live here re-stamped a fresh timestamp mid-run, orphaning the
     # trap's evidence path; removed (QA C1 fix).
 
+    # ---- 2a. single-writer lease pre-flight (P3-DW-01) ---------------------
+    # Read-only and first: the live urmaild holds an exclusive flock on
+    # <DATA_ROOT>/.urmail-writer.lease.  The holder is allowed only when it IS
+    # this stack's urmaild (the one the fence below stops); any other holder
+    # means a second stack owns the data root and the upgrade must not proceed.
+    [ -f scripts/writer-lease-preflight.sh ] || die "scripts/writer-lease-preflight.sh missing from this checkout"
+    # shellcheck source=scripts/writer-lease-preflight.sh
+    . scripts/writer-lease-preflight.sh
+    lease_preflight "$DATA_ROOT/.urmail-writer.lease"
+
     # ---- 2b. fresh-backup pre-flight: one-off urmailctl container ----------
     # The binary runs its own gate first (step 0 of upgrade fence), before any
     # systemd touch — a one-off container therefore yields the verdict even

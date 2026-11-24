@@ -96,8 +96,14 @@ services:
       retries: 12
 
   # §1.1 litestream, local-directory replica instead of S3 for this run.
-  # Started explicitly with `--profile sqlite`; no host port.
+  # No host port.  The base compose.yaml gates this service behind
+  # `profiles: ["sqlite"]` (SQLite is not the default data plane yet).  A plain
+  # `docker compose up -d` on the local test stack therefore skipped the backup
+  # sidecar on every restart (observed 2026-11-24: litestream stayed Exited(0)
+  # while the other 8 containers came back).  `!reset []` removes the profile in
+  # this LOCAL-ONLY override so the recreate/up path always includes 9/9.
   litestream:
+    profiles: !reset []
     image: litestream/litestream:0.3.13
     volumes:
       - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db

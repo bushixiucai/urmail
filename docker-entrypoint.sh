@@ -28,6 +28,57 @@ fi
 cmd="${1:-}"
 
 # --------------------------------------------------------------------------
+# Single-writer lease (P3-DW-01).  Exactly one urmaild may own a data root.
+# The lease is an exclusive flock(2) on <DATA_ROOT>/.urmail-writer.lease; the
+# kernel drops the lock when the holder dies, so a crashed writer is taken
+# over on the next boot while a LIVE writer can never be preempted.  The lock
+# fd stays open across `exec "$@"` and is released by the kernel on SIGTERM.
+# Metadata (pid/boot_id/version/started_at/container) is written for the
+# operator and for the install.sh/upgrade.sh pre-flight.
+# --------------------------------------------------------------------------
+acquire_writer_lease() {
+    lease="${URMAIL_WRITER_LEASE:-/srv/urmail/data-root/.urmail-writer.lease}"
+    boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)
+    version="${URMAIL_VERSION:-unknown}"
+    container="${URMAIL_WRITER_NAME:-$(cat /etc/hostname 2>/dev/null || echo unknown)}"
+    mkdir -p "$(dirname "$lease")" 2>/dev/null || true
+    # fd 9 is deliberately NOT close-on-exec: the lock must live as long as
+    # the daemon does, and the kernel releases it when the process exits.
+    if ! exec 9>>"$lease"; then
+        echo "[lease] FATAL: cannot open lease $lease" >&2
+        exit 73
+    fi
+    if ! flock -n 9; then
+        holder=$(tr '\n' ' ' < "$lease" 2>/dev/null || true)
+        echo "[lease] REFUSED: data root already has a live writer: ${holder:-metadata unreadable}" >&2
+        echo "[lease] lease=$lease; refusing to start a second writer (fail-closed)" >&2
+        exit 75
+    fi
+    prev=$(cat "$lease" 2>/dev/null || true)
+    prev_pid=$(printf '%s\n' "$prev" | sed -n 's/^pid=//p')
+    prev_boot=$(printf '%s\n' "$prev" | sed -n 's/^boot_id=//p')
+    if [ -n "$prev_pid" ]; then
+        if [ "$prev_boot" != "$boot_id" ]; then
+            echo "[lease] stale holder (boot_id ${prev_boot:-none} != $boot_id); taking over"
+        elif ! kill -0 "$prev_pid" 2>/dev/null; then
+            echo "[lease] stale holder (pid $prev_pid gone); taking over"
+        else
+            echo "[lease] previous holder pid $prev_pid not visible here; lock was free, taking over"
+        fi
+    fi
+    : > "$lease"
+    {
+        printf 'pid=%s\n' "$$"
+        printf 'boot_id=%s\n' "$boot_id"
+        printf 'version=%s\n' "$version"
+        printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'container=%s\n' "$container"
+    } >&9
+    echo "[lease] acquired $lease pid=$$ version=$version container=$container"
+}
+
+
+# --------------------------------------------------------------------------
 # First boot (ARCH-PLAN §1.3): real SQLite DB from the Phase 1 schema chain,
 # DKIM key, one-time admin bootstrap URL.  Idempotent: every step checks the
 # existing artifact first.  All paths live under the bind-mounted data root.
@@ -107,8 +158,16 @@ ensure_dkim() {
 ensure_admin_bootstrap() {
     domain="${URMAIL_PRIMARY_DOMAIN:-${URMAIL_MYHOSTNAME:-urmail.local}}"
     url_file="$CONFIG_DIR/admin-bootstrap.url"
+    existing_hash=$(state_get admin_bootstrap_token_hash 2>/dev/null || true)
     if [ -s "$url_file" ]; then
         echo "[entrypoint] admin bootstrap URL pending; urmaild will print it once"
+        return 0
+    fi
+    if [ -n "$existing_hash" ]; then
+        # urmaild removes the URL file after printing it.  A restart/upgrade
+        # must NOT mint a new admin token: the hash in SQLite is the durable
+        # "already issued" marker.
+        echo "[entrypoint] admin bootstrap already issued; not regenerating"
         return 0
     fi
     token=$(openssl rand -hex 32)
@@ -125,6 +184,10 @@ ensure_admin_bootstrap() {
 }
 
 if [ "$cmd" = "urmaild" ] || [ "$cmd" = "serve" ]; then
+    # P3-DW-01: take the data-root writer lease BEFORE touching the DB, the
+    # Maildir or the rendered config.  A live holder makes this container exit
+    # non-zero instead of becoming a second writer.
+    acquire_writer_lease
     CONFIG_DIR="${URMAIL_CONFIG_DIR:-/srv/urmail/config}"
     mkdir -p "$CONFIG_DIR"
     key="$CONFIG_DIR/master.key"
