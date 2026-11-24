@@ -22,7 +22,7 @@ import (
 
 // TestDeliveredHistoricalSchemaWitness creates a delivered recall row on the
 // real in-repo schema at version 17 (before the 0018 write guard, CHECK allows
-// delivered), upgrades the same database normally to 159, verifies the row was
+// delivered), upgrades the same database normally to the chain tip (0160), verifies the row was
 // not changed, and imports it through the product staging API: the published
 // SQLite row must match all 20 columns.
 func TestDeliveredHistoricalSchemaWitness(t *testing.T) {
@@ -77,8 +77,8 @@ func TestDeliveredHistoricalSchemaWitness(t *testing.T) {
 	if err := upgrader.Up(ctx); err != nil {
 		t.Fatalf("normal upgrade to head rejected the historical row: %v", err)
 	}
-	if v, _, err := upgrader.Version(); err != nil || v != 159 {
-		t.Fatalf("upgraded version=%d err=%v want 159", v, err)
+	if v, _, err := upgrader.Version(); err != nil || v != 160 {
+		t.Fatalf("upgraded version=%d err=%v want 160", v, err)
 	}
 	after := recallHash(t, ctx, dsn, 7001)
 	if before != after {
