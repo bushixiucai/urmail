@@ -75,7 +75,7 @@ func parseReadinessAttestFlags(setName string, args []string) (readinessAttestFl
 	probe := flags.String("probe", "", "readiness probe record to bind (required for sign)")
 	attest := flags.String("attest", "", "signed attestation payload (required for verify)")
 	key := flags.String("key", releaseSigningKeyPath, "existing ed25519 release signing key (never created)")
-	pub := flags.String("pubkey", "", "trusted ed25519 public key anchor (required for verify)")
+	pub := flags.String("pubkey", "", "test-only anchor override in tagged builds; the product uses a fixed trusted anchor")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return out, errors.New("usage: upgrade readiness-attest sign|verify --generation N --root-dir DIR [--database-url-env NAME|--sqlite PATH] [--required-file PATH ...] [--probe FILE] [--attest FILE] [--key PATH|--pubkey PATH]")
 	}
@@ -161,10 +161,7 @@ func runReadinessAttestVerify(ctx context.Context, args []string) error {
 	if f.attestPath == "" {
 		f.attestPath = filepath.Join(f.opts.rootDir, "upgrade_readiness_attest.json")
 	}
-	if f.pubKeyPath == "" {
-		return errors.New("readiness-attest verify requires a trusted --pubkey anchor")
-	}
-	pub, err := loadPublicAnchor(f.pubKeyPath)
+	pub, err := readinessVerifyAnchor(f.pubKeyPath)
 	if err != nil {
 		return err
 	}

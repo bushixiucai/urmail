@@ -1,3 +1,5 @@
+//go:build urmailreadinesstest
+
 package main
 
 import (
@@ -35,9 +37,10 @@ func newAttestFixture(t *testing.T) *attestFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	secure := secureTempDir(t)
 	f.key = priv
-	f.keyPath = filepath.Join(f.dir, "release.key")
-	f.pubPath = filepath.Join(f.dir, "release.pub")
+	f.keyPath = filepath.Join(secure, "release.key")
+	f.pubPath = filepath.Join(secure, "release.pub")
 	if err := os.WriteFile(f.keyPath, []byte(hex.EncodeToString(priv)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +58,8 @@ func newAttestFixture(t *testing.T) *attestFixture {
 		t.Fatal(err)
 	}
 	f.attestPath = filepath.Join(f.dir, "attest.json")
+	t.Setenv("URMAIL_ALLOW_TEST_USER", "1")
+	t.Setenv("URMAIL_READINESS_TEST_ANCHOR", f.pubPath)
 	return f
 }
 
@@ -89,7 +94,7 @@ func (f *attestFixture) signArgs() []string {
 }
 
 func (f *attestFixture) verifyArgs() []string {
-	return append(f.targetArgs(), "--attest", f.attestPath, "--pubkey", f.pubPath)
+	return append(f.targetArgs(), "--attest", f.attestPath)
 }
 
 func TestReadinessAttestSignVerifyLifecycle(t *testing.T) {
@@ -106,7 +111,7 @@ func TestReadinessAttestSignVerifyLifecycle(t *testing.T) {
 	}
 
 	// Missing attestation is never accepted.
-	if err := runReadinessAttestVerify(ctx, append(f.targetArgs(), "--attest", filepath.Join(f.dir, "absent.json"), "--pubkey", f.pubPath)); err == nil {
+	if err := runReadinessAttestVerify(ctx, append(f.targetArgs(), "--attest", filepath.Join(f.dir, "absent.json"))); err == nil {
 		t.Fatal("missing attestation accepted")
 	}
 	// Wrong trusted anchor.
@@ -114,13 +119,15 @@ func TestReadinessAttestSignVerifyLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other := filepath.Join(f.dir, "other.pub")
+	other := filepath.Join(secureTempDir(t), "other.pub")
 	if err := os.WriteFile(other, []byte(hex.EncodeToString(otherPub)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := runReadinessAttestVerify(ctx, append(f.targetArgs(), "--attest", f.attestPath, "--pubkey", other)); err == nil || !strings.Contains(err.Error(), "signature") {
+	t.Setenv("URMAIL_READINESS_TEST_ANCHOR", other)
+	if err := runReadinessAttestVerify(ctx, append(f.targetArgs(), "--attest", f.attestPath)); err == nil || !strings.Contains(err.Error(), "signature") {
 		t.Fatalf("wrong anchor accepted: %v", err)
 	}
+	t.Setenv("URMAIL_READINESS_TEST_ANCHOR", f.pubPath)
 	// Tampered signature.
 	sigPath := f.attestPath + ".sig"
 	sig, err := os.ReadFile(sigPath)
