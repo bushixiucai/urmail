@@ -98,7 +98,7 @@ func TestExecutionTimeEntitlementLossSkipsRecipient(t *testing.T) {
 func TestOutcomeReportAccumulates(t *testing.T) {
 	f := marketingFixture(t, 10, 3)
 	ctx := context.Background()
-	if _, err := store.New(f.platform.Pool).AddMarketingSuppression(ctx, store.AddMarketingSuppressionParams{TenantID: f.tenant, Email: "recipient-2@example.test", Reason: "unsubscribe"}); err != nil {
+	if _, err := store.New(f.platform.Pool).AddMarketingSuppression(testTenantCtx(f.tenant), store.AddMarketingSuppressionParams{TenantID: f.tenant, Email: "recipient-2@example.test", Reason: "unsubscribe"}); err != nil {
 		t.Fatal(err)
 	}
 	sender := func(_ context.Context, _ SMTPConfig, d Delivery) error {
@@ -117,7 +117,7 @@ func TestOutcomeReportAccumulates(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	report, err := store.New(tx).GetMarketingCampaignReport(ctx, store.GetMarketingCampaignReportParams{TenantID: f.tenant, ID: f.campaign})
+	report, err := store.New(tx).GetMarketingCampaignReport(testTenantCtx(f.tenant), store.GetMarketingCampaignReportParams{TenantID: f.tenant, ID: f.campaign})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -46,7 +46,7 @@ func TestFlowSenderSuppressionIsTerminalForAllSteps(t *testing.T) {
 	f := marketingFixture(t, 5, 1)
 	email := "recipient-0@example.test"
 	flowID := flowFixture(t, f, email)
-	if _, err := store.New(f.platform.Pool).AddMarketingSuppression(context.Background(), store.AddMarketingSuppressionParams{TenantID: f.tenant, Email: email, Reason: "unsubscribe"}); err != nil {
+	if _, err := store.New(f.platform.Pool).AddMarketingSuppression(testTenantCtx(f.tenant), store.AddMarketingSuppressionParams{TenantID: f.tenant, Email: email, Reason: "unsubscribe"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := flowSender(t, f).Send(context.Background(), f.tenant, flowID, email, "welcome"); err != nil {

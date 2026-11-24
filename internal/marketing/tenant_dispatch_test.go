@@ -1,7 +1,6 @@
 package marketing
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -91,7 +90,7 @@ func TestConcurrentTenantClaimsStayFencedAndDistinctPG(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			row, err := store.New(f.platform).PlatformClaimMarketingRecipient(context.Background(), fmt.Sprintf("parallel-%d", i))
+			row, err := store.New(f.platform).PlatformClaimMarketingRecipient(testPlatformCtx(), fmt.Sprintf("parallel-%d", i))
 			lock.Lock()
 			defer lock.Unlock()
 			if err != nil {
