@@ -298,7 +298,11 @@ func TestReleaseConsumeGateSameAttempt(t *testing.T) {
 	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err != nil {
 		t.Fatalf("interrupted same-attempt continuation refused: %v", err)
 	}
-	if err := markReleaseCompleted(f.root, mustHoldSHA(t, f.root)); err != nil {
+	holdSHA := mustHoldSHA(t, f.root)
+	if err := markReleaseCompleted(f.root, holdSHA); err != nil {
+		t.Fatal(err)
+	}
+	if err := maintenance.AppendUpgradeAudit(f.root, maintenance.UpgradeAuditEntry{Action: "release-completed", HoldSHA256: holdSHA, Generation: 6}); err != nil {
 		t.Fatal(err)
 	}
 	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err == nil || !strings.Contains(err.Error(), "already released") {
@@ -413,5 +417,62 @@ func TestReleaseAuditOrderingRecovery(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(other.root, "upgrade_release_attempt.json")); !os.IsNotExist(err) {
 		t.Fatalf("unproven attempt not discarded: %v", err)
+	}
+}
+
+// TestCompletedAttemptRequiresMatchingAudit covers F-AUDIT-2: a completed
+// attempt is only an idempotent success when the same-hold release-completed
+// audit still exists; deleted, unreadable or mismatched audits are manual.
+func TestCompletedAttemptRequiresMatchingAudit(t *testing.T) {
+	f := newAttestFixture(t)
+	ctx := context.Background()
+	if err := runReadinessAttestSign(ctx, f.signArgs()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReadinessAttestConsume(ctx, append(f.targetArgs(), "--attest", f.attestPath, "--request-id", "audit2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err != nil {
+		t.Fatal(err)
+	}
+	holdSHA := mustHoldSHA(t, f.root)
+	if err := markReleaseCompleted(f.root, holdSHA); err != nil {
+		t.Fatal(err)
+	}
+	auditPath := filepath.Join(f.root, maintenance.DefaultUpgradeAuditFile)
+	writeAudit := func(hold string) {
+		t.Helper()
+		entry, err := json.Marshal(maintenance.UpgradeAuditEntry{Action: "release-completed", HoldSHA256: hold, Generation: 6})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(auditPath, append(entry, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeAudit(holdSHA)
+	if already, err := noHoldReleaseOutcome(f.root, true); err != nil || !already {
+		t.Fatalf("matching audit not accepted: already=%t err=%v", already, err)
+	}
+	writeAudit("different-hold")
+	if already, err := noHoldReleaseOutcome(f.root, true); err == nil || already {
+		t.Fatalf("mismatched audit claimed success: already=%t err=%v", already, err)
+	}
+	if err := os.Remove(auditPath); err != nil {
+		t.Fatal(err)
+	}
+	if already, err := noHoldReleaseOutcome(f.root, true); err == nil || already {
+		t.Fatalf("deleted audit claimed success: already=%t err=%v", already, err)
+	}
+	if err := os.Mkdir(auditPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if already, err := noHoldReleaseOutcome(f.root, true); err == nil || already {
+		t.Fatalf("unreadable audit claimed success: already=%t err=%v", already, err)
+	}
+	_ = os.Remove(auditPath)
+	writeAudit(holdSHA)
+	if already, err := noHoldReleaseOutcome(f.root, true); err != nil || !already {
+		t.Fatalf("restored audit not accepted: already=%t err=%v", already, err)
 	}
 }

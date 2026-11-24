@@ -620,7 +620,12 @@ func noHoldReleaseOutcome(rootDir string, requireConsume bool) (bool, error) {
 		return false, errors.New("no active upgrade fence and the release attempt is unreadable; manual reconciliation required")
 	}
 	if attempt.State == "completed" {
-		return true, nil
+		// A completed claim alone is not success: the durable audit binding
+		// this exact hold must still exist and match.
+		if hasAudit(attempt.HoldSHA256) {
+			return true, nil
+		}
+		return false, errors.New("no active upgrade fence but the completed attempt lacks a matching release-completed audit; manual reconciliation required (not a successful release)")
 	}
 	// Crash after the durable audit but before marking completed: recover from
 	// the audit that binds this hold, never from the claim alone.
