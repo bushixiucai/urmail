@@ -36,7 +36,7 @@ func TestMD5UDFMatchesPG(t *testing.T) {
 	}
 	for _, tc := range cases {
 		var got string
-		if err := db.QueryRow("SELECT " + tc.expr).Scan(&got); err != nil {
+		if err := db.QueryRowContext(t.Context(), "SELECT "+tc.expr).Scan(&got); err != nil {
 			t.Fatalf("%s: %v", tc.expr, err)
 		}
 		if got != tc.want {
@@ -47,7 +47,7 @@ func TestMD5UDFMatchesPG(t *testing.T) {
 	// NULL in, NULL out — comparing a NULL password hash must never match a
 	// digest of the empty string.
 	var null sql.NullString
-	if err := db.QueryRow("SELECT md5(NULL)").Scan(&null); err != nil {
+	if err := db.QueryRowContext(t.Context(), "SELECT md5(NULL)").Scan(&null); err != nil {
 		t.Fatalf("md5(NULL): %v", err)
 	}
 	if null.Valid {
@@ -55,7 +55,7 @@ func TestMD5UDFMatchesPG(t *testing.T) {
 	}
 
 	// PG has md5(text) but no md5(integer); refuse rather than hash "1".
-	if _, err := db.Exec("SELECT md5(1)"); err == nil {
+	if _, err := db.ExecContext(t.Context(), "SELECT md5(1)"); err == nil {
 		t.Error("md5(integer) must fail like PG's undefined function")
 	}
 }

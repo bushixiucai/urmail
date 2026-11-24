@@ -68,7 +68,9 @@ func TestSelfSettingsStayBoundToTheSessionTenant(t *testing.T) {
 	login := func(address string) string {
 		t.Helper()
 		body, _ := json.Marshal(map[string]string{"email": address, "password": password})
-		resp, err := http.Post(server.URL+"/api/v1/mailbox/session", "application/json", bytes.NewReader(body))
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/v1/mailbox/session", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -83,7 +85,7 @@ func TestSelfSettingsStayBoundToTheSessionTenant(t *testing.T) {
 	}
 	settings := func(token string) (int, map[string]any) {
 		t.Helper()
-		req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/mailbox/settings", nil)
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/v1/mailbox/settings", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {

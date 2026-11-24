@@ -49,7 +49,7 @@ func TestDeliveredHistoricalSchemaWitness(t *testing.T) {
 		t.Fatalf("migrate synthetic source to v17: %v", err)
 	}
 	var version int
-	if err := conn.QueryRow("SELECT version FROM schema_migrations").Scan(&version); err != nil || version != 17 {
+	if err := conn.QueryRowContext(t.Context(), "SELECT version FROM schema_migrations").Scan(&version); err != nil || version != 17 {
 		t.Fatalf("schema version=%d err=%v want 17", version, err)
 	}
 	seed := []string{
@@ -60,7 +60,7 @@ func TestDeliveredHistoricalSchemaWitness(t *testing.T) {
 		 VALUES(7001,1,'hist-delivered','2','delivered','remote delivery confirmed before the reviewed guard existed')`,
 	}
 	for _, stmt := range seed {
-		if _, err := conn.Exec(stmt); err != nil {
+		if _, err := conn.ExecContext(t.Context(), stmt); err != nil {
 			t.Fatalf("v17 seed %q: %v", stmt, err)
 		}
 	}
@@ -92,7 +92,7 @@ func TestDeliveredHistoricalSchemaWitness(t *testing.T) {
 		`GRANT USAGE ON SCHEMA public TO urmail_migrate`,
 		`GRANT SELECT ON ALL TABLES IN SCHEMA public TO urmail_migrate`,
 	} {
-		if _, err := conn.Exec(stmt); err != nil {
+		if _, err := conn.ExecContext(t.Context(), stmt); err != nil {
 			t.Fatalf("grant %q: %v", stmt, err)
 		}
 	}
@@ -145,7 +145,6 @@ type recallRowHash struct {
 	createdText string
 }
 
-//nolint:revive // test helper keeps testing.T first by convention
 func recallHash(t *testing.T, ctx context.Context, dsn string, id int64) recallRowHash {
 	t.Helper()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -164,7 +163,7 @@ func recallHash(t *testing.T, ctx context.Context, dsn string, id int64) recallR
 func currentDatabase(t *testing.T, conn *sql.DB) string {
 	t.Helper()
 	var name string
-	if err := conn.QueryRow("SELECT current_database()").Scan(&name); err != nil {
+	if err := conn.QueryRowContext(t.Context(), "SELECT current_database()").Scan(&name); err != nil {
 		t.Fatal(err)
 	}
 	if strings.ContainsAny(name, "\"'") {

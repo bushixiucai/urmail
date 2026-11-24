@@ -329,7 +329,7 @@ func TestSQLiteQuerierAndWithTxIsolationMatrix(t *testing.T) {
 		t.Fatalf("DeleteSession tenant ctx err=%v", err)
 	}
 	var mfaVerified sql.NullInt64
-	if err := sqliteDB.QueryRow(`SELECT mfa_verified_at FROM sessions WHERE id='sess-active'`).Scan(&mfaVerified); err != nil || mfaVerified.Valid {
+	if err := sqliteDB.QueryRowContext(t.Context(), `SELECT mfa_verified_at FROM sessions WHERE id='sess-active'`).Scan(&mfaVerified); err != nil || mfaVerified.Valid {
 		t.Fatalf("session unexpectedly modified after rejected tenant call: valid=%v err=%v", mfaVerified.Valid, err)
 	}
 
@@ -337,7 +337,7 @@ func TestSQLiteQuerierAndWithTxIsolationMatrix(t *testing.T) {
 	if err := querier.MarkSessionMFAVerified(platformCtx, "sess-active"); err != nil {
 		t.Fatalf("platform MarkSessionMFAVerified failed: %v", err)
 	}
-	if err := sqliteDB.QueryRow(`SELECT mfa_verified_at FROM sessions WHERE id='sess-active'`).Scan(&mfaVerified); err != nil || !mfaVerified.Valid {
+	if err := sqliteDB.QueryRowContext(t.Context(), `SELECT mfa_verified_at FROM sessions WHERE id='sess-active'`).Scan(&mfaVerified); err != nil || !mfaVerified.Valid {
 		t.Fatalf("expected mfa_verified_at set: valid=%v err=%v", mfaVerified.Valid, err)
 	}
 	if err := querier.DeleteSession(platformCtx, "sess-active"); err != nil {
@@ -355,7 +355,7 @@ func TestSQLiteQuerierAndWithTxIsolationMatrix(t *testing.T) {
 		t.Fatalf("DeleteExpiredSessions system ctx failed: %v", err)
 	}
 	var remainingSessions int
-	if err := sqliteDB.QueryRow(`SELECT count(*) FROM sessions`).Scan(&remainingSessions); err != nil || remainingSessions != 0 {
+	if err := sqliteDB.QueryRowContext(t.Context(), `SELECT count(*) FROM sessions`).Scan(&remainingSessions); err != nil || remainingSessions != 0 {
 		t.Fatalf("expected 0 sessions remaining, got %d (err=%v)", remainingSessions, err)
 	}
 
@@ -389,7 +389,7 @@ func TestSQLiteQuerierAndWithTxIsolationMatrix(t *testing.T) {
 		t.Fatalf("ArchiveCasesCreate under valid tenant10 ctx with DBTXScopeHook failed: %v", err)
 	}
 	var caseCount int
-	if err := sqliteDB.QueryRow(`SELECT count(*) FROM archive_investigations WHERE tenant_id=10`).Scan(&caseCount); err != nil || caseCount != 2 {
+	if err := sqliteDB.QueryRowContext(t.Context(), `SELECT count(*) FROM archive_investigations WHERE tenant_id=10`).Scan(&caseCount); err != nil || caseCount != 2 {
 		t.Fatalf("expected 2 archive cases after the scoped creates, got %d (err=%v)", caseCount, err)
 	}
 

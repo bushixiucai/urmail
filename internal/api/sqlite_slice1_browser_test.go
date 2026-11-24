@@ -110,7 +110,7 @@ func TestSlice1SQLiteBrowserSession(t *testing.T) {
 	webDir := filepath.Join("..", "..", "web")
 	vitePort := freeTCPPort(t)
 	viteURL := "http://127.0.0.1:" + strconv.Itoa(vitePort)
-	vite := exec.Command("./node_modules/.bin/vite", "--host", "127.0.0.1", "--port", strconv.Itoa(vitePort), "--strictPort")
+	vite := exec.CommandContext(t.Context(), "./node_modules/.bin/vite", "--host", "127.0.0.1", "--port", strconv.Itoa(vitePort), "--strictPort")
 	vite.Dir = webDir
 	vite.Env = append(os.Environ(), "URMAIL_DEV_API="+apiServer.URL, "URMAIL_E2E_NATIVE_FIXTURE=1")
 	vite.Stdout, vite.Stderr = os.Stdout, os.Stderr
@@ -135,7 +135,7 @@ func TestSlice1SQLiteBrowserSession(t *testing.T) {
 	if spec == "" {
 		spec = "e2e/sqlite-session-browser.spec.ts"
 	}
-	playwright := exec.Command("./node_modules/.bin/playwright", "test", spec, "--workers=1")
+	playwright := exec.CommandContext(t.Context(), "./node_modules/.bin/playwright", "test", spec, "--workers=1")
 	playwright.Dir = webDir
 	playwright.Env = append(os.Environ(),
 		"URMAIL_E2E_SQLITE_BROWSER=1",
@@ -206,7 +206,7 @@ func TestSlice1SQLiteBrowserSession(t *testing.T) {
 
 func freeTCPPort(t *testing.T) int {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve loopback port: %v", err)
 	}
@@ -227,7 +227,8 @@ func waitForLoopback(t *testing.T, address string, processDone <-chan error) {
 			t.Fatalf("Vite exited before ready: %v", err)
 		default:
 		}
-		response, err := client.Get(address)
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, address, nil)
+		response, err := client.Do(req)
 		if err == nil {
 			_ = response.Body.Close()
 			if response.StatusCode == http.StatusOK {

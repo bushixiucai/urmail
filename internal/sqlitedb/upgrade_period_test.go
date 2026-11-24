@@ -21,7 +21,7 @@ func applyLegacyV3(t *testing.T, db *sql.DB, legacy bool) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(string(sqlBytes)); err != nil {
+		if _, err := db.ExecContext(t.Context(), string(sqlBytes)); err != nil {
 			t.Fatalf("apply %s: %v", name, err)
 		}
 	}
@@ -59,7 +59,7 @@ func applyLegacyV3(t *testing.T, db *sql.DB, legacy bool) {
 			period_start,period_end,successful,failed,failures)
 		 VALUES(1,1,printf('%064d',1),printf('%064d',2),printf('%064d',3),1000,1005,1,0,'[]')`,
 	} {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := db.ExecContext(t.Context(), stmt); err != nil {
 			t.Fatalf("legacy fixture %q: %v", stmt, err)
 		}
 	}
@@ -87,12 +87,12 @@ func TestUpgradeV3ReceivesCorrectedTLSPeriodCheck(t *testing.T) {
 	}
 	// Legal product period (8 days) must now be accepted on the upgraded DB;
 	// the old CHECK only allowed +8 micros.
-	if _, err := db.Exec(`INSERT INTO domain_tls_reports(tenant_id,domain_id,report_digest,reporter_digest,report_id_digest,
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO domain_tls_reports(tenant_id,domain_id,report_digest,reporter_digest,report_id_digest,
 		period_start,period_end,successful,failed,failures)
 		VALUES(1,1,printf('%064d',4),printf('%064d',5),printf('%064d',6),10000,10000+8*24*3600*1000000,1,0,'[]')`); err != nil {
 		t.Fatalf("legal 8-day period rejected after upgrade: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO domain_tls_reports(tenant_id,domain_id,report_digest,reporter_digest,report_id_digest,
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO domain_tls_reports(tenant_id,domain_id,report_digest,reporter_digest,report_id_digest,
 		period_start,period_end,successful,failed,failures)
 		VALUES(1,1,printf('%064d',7),printf('%064d',8),printf('%064d',9),20000,20000+8*24*3600*1000000+1,1,0,'[]')`); err == nil {
 		t.Fatal("over-limit period accepted")
@@ -139,7 +139,7 @@ func TestFailedTLSPeriodRebuildLeavesLegacyIntact(t *testing.T) {
 	if _, err := db.ExecContext(t.Context(), "PRAGMA ignore_check_constraints=ON"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO domain_tls_reports(tenant_id,domain_id,report_digest,reporter_digest,report_id_digest,
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO domain_tls_reports(tenant_id,domain_id,report_digest,reporter_digest,report_id_digest,
 		period_start,period_end,successful,failed,failures)
 		VALUES(1,1,printf('%064d',11),printf('%064d',12),printf('%064d',13),5000,5000+9*24*3600*1000000,1,0,'[]')`); err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestFailedTLSPeriodRebuildLeavesLegacyIntact(t *testing.T) {
 		t.Fatalf("version=%d err=%v want 5 (0006 rolled back) after failed migration", version, err)
 	}
 	// The legacy CHECK is still in force: no partial rebuild leaked.
-	if _, err := db.Exec(`INSERT INTO domain_tls_reports(tenant_id,domain_id,report_digest,reporter_digest,report_id_digest,
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO domain_tls_reports(tenant_id,domain_id,report_digest,reporter_digest,report_id_digest,
 		period_start,period_end,successful,failed,failures)
 		VALUES(1,1,printf('%064d',14),printf('%064d',15),printf('%064d',16),30000,30000+8*24*3600*1000000,1,0,'[]')`); err == nil {
 		t.Fatal("failed rebuild left the corrected CHECK behind")

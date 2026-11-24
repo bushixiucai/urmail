@@ -35,7 +35,7 @@ func TestBackupRunsOffsiteStateFidelity(t *testing.T) {
 		"s5-offsite-02": "uploaded",
 	} {
 		var got, uri string
-		if err = rawTarget.QueryRow("SELECT offsite_state,offsite_uri FROM backup_runs WHERE run_uid=?", uid).Scan(&got, &uri); err != nil {
+		if err = rawTarget.QueryRowContext(t.Context(), "SELECT offsite_state,offsite_uri FROM backup_runs WHERE run_uid=?", uid).Scan(&got, &uri); err != nil {
 			t.Fatalf("%s: %v", uid, err)
 		}
 		if got != want {

@@ -174,7 +174,7 @@ func TestSQLiteRequireTenantTxGetPostPutDeleteAndAudit(t *testing.T) {
 
 	// Verify transaction audit rows were written on SQLite for POST/PUT/DELETE.
 	var auditCount int
-	if err := sqliteDB.QueryRow(`SELECT count(*) FROM audit_logs WHERE tenant_id=?`, tid).Scan(&auditCount); err != nil || auditCount < 3 {
+	if err := sqliteDB.QueryRowContext(t.Context(), `SELECT count(*) FROM audit_logs WHERE tenant_id=?`, tid).Scan(&auditCount); err != nil || auditCount < 3 {
 		t.Fatalf("expected >=3 tenant audit rows on SQLite, got %d (err=%v)", auditCount, err)
 	}
 }
@@ -221,7 +221,7 @@ func TestSQLiteRequirePlatformTxWithIsolationHook(t *testing.T) {
 	}
 
 	var platAudit int
-	if err := sqliteDB.QueryRow(`SELECT count(*) FROM audit_logs WHERE target_type='platform' AND actor_user_id=?`, ownerID).Scan(&platAudit); err != nil || platAudit != 1 {
+	if err := sqliteDB.QueryRowContext(t.Context(), `SELECT count(*) FROM audit_logs WHERE target_type='platform' AND actor_user_id=?`, ownerID).Scan(&platAudit); err != nil || platAudit != 1 {
 		t.Fatalf("expected 1 platform audit row on SQLite, got %d (err=%v)", platAudit, err)
 	}
 }

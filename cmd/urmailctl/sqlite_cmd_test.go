@@ -60,7 +60,7 @@ func TestSQLiteMigrateUpV6ToV7(t *testing.T) {
 	}
 	defer func() { _ = reopened.Close() }()
 	var state string
-	if err = reopened.QueryRow("SELECT offsite_state FROM backup_runs WHERE run_uid='cli-v6-0001'").Scan(&state); err != nil || state != "" {
+	if err = reopened.QueryRowContext(t.Context(), "SELECT offsite_state FROM backup_runs WHERE run_uid='cli-v6-0001'").Scan(&state); err != nil || state != "" {
 		t.Fatalf("history state=%q err=%v", state, err)
 	}
 }

@@ -30,7 +30,7 @@ func TestBackupOffsiteStateUpgradesExistingV6(t *testing.T) {
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
-		if _, execErr := db.Exec(string(body)); execErr != nil {
+		if _, execErr := db.ExecContext(t.Context(), string(body)); execErr != nil {
 			t.Fatalf("apply %s: %v", name, execErr)
 		}
 	}
