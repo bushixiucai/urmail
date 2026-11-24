@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -24,6 +25,9 @@ type VersionedStore struct {
 
 // ReserveZoneSerial advances only when normalized zone content changes.
 func (s *VersionedStore) ReserveZoneSerial(ctx context.Context, domain, hash string, seed uint32) (uint32, error) {
+	// The persistent zone version is a platform-domain row; bind that scope at
+	// this trusted entry instead of leaking a caller context without one.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	serial, err := db.Queries(s.DB).ReserveDNSZoneVersion(ctx, store.ReserveDNSZoneVersionParams{Domain: domain, ContentHash: hash, Serial: (int64(seed) + 1) % 4294967296})
 	if err != nil {
 		return 0, err
