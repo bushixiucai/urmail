@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -96,6 +97,9 @@ func begin(ctx context.Context, pool *db.Pool, intent Intent) (pgx.Tx, Review, e
 	if pool == nil || !pool.IsPlatform() {
 		return nil, Review{}, ErrAuthority
 	}
+	// This maintenance entry owns the platform pool; its locks and reads are
+	// platform-scoped, and callers (CLI/scheduler) carry no DB scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	intent, err := normalize(intent)
 	if err != nil {
 		return nil, Review{}, err
@@ -159,6 +163,8 @@ func Apply(ctx context.Context, pool *db.Pool, intent Intent, expected string) (
 }
 
 func apply(ctx context.Context, pool *db.Pool, intent Intent, expected string, commit func(pgx.Tx) error) (Result, error) {
+	// The apply transaction writes platform-scoped alias and audit rows.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if len(expected) != 64 || strings.Trim(expected, "0123456789abcdef") != "" {
 		return Result{}, ErrInput
 	}
