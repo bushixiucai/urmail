@@ -53,7 +53,9 @@ services:
       # 现行 config.Load 强制 HTTP 绑回环（安全位）；跨容器反代接入是
       # 配置生成器阶段的监听规则改造点（ARCH-PLAN §1.1 internal :8080）。
       URMAIL_LISTEN_ADDR: 127.0.0.1:8080
-      URMAIL_MYHOSTNAME: ${URMAIL_MYHOSTNAME:-urmail.local}
+      # "-" (not ":-"): an explicitly empty value must reach setup so it can
+      # reject it; only an unset variable falls back to the default.
+      URMAIL_MYHOSTNAME: ${URMAIL_MYHOSTNAME-urmail.local}
       URMAIL_DATABASE_URL: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
       URMAIL_DATABASE_URL_PLATFORM: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
       URMAIL_DATABASE_URL_MIGRATE: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
