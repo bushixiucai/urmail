@@ -142,8 +142,9 @@ func TestSlice1SQLiteBrowserSession(t *testing.T) {
 		"URMAIL_E2E_SQLITE_SPEC="+spec,
 		"URMAIL_E2E_BASE_URL="+viteURL,
 		"URMAIL_E2E_SQLITE_CONTROL_URL="+control.URL,
-		"PLAYWRIGHT_BROWSERS_PATH=/var/lib/openbot/.cache/ms-playwright",
 	)
+	// Honour PLAYWRIGHT_BROWSERS_PATH from the environment; otherwise let
+	// Playwright resolve its own cache (CI installs into ~/.cache/ms-playwright).
 	playwright.Stdout, playwright.Stderr = os.Stdout, os.Stderr
 	playwrightErr := playwright.Run()
 
