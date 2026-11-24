@@ -67,4 +67,18 @@ func TestBackupOffsiteStateUpgradesExistingV6(t *testing.T) {
 	if fkRows.Next() {
 		t.Fatal("foreign_key_check reported a violation")
 	}
+	_ = fkRows.Close()
+	// A second migration is a no-op at the chain tip.
+	if err = sqlitedb.Migrate(context.Background(), db, migrations, "."); err != nil {
+		t.Fatalf("migrate at the chain tip: %v", err)
+	}
+	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != sqlitedb.ExpectedSchemaVersion {
+		t.Fatalf("rerun user_version=%d err=%v", version, err)
+	}
+	// The startup verification accepts the upgraded database.
+	checked, err := sqlitedb.OpenExisting(context.Background(), path, sqlitedb.ExpectedSchemaVersion)
+	if err != nil {
+		t.Fatalf("OpenExisting: %v", err)
+	}
+	_ = checked.Close()
 }
