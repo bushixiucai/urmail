@@ -126,6 +126,17 @@ jobs:
           restore-keys: |
             gobin-${{ runner.os }}-${{ runner.arch }}-
 
+      # The Go suite includes internal/api/sqlite_slice1_browser_test.go, which
+      # starts the real Vite dev server from web/ (`./node_modules/.bin/vite`).
+      # Install the web dependencies in this job; the test is not skipped.
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install web dependencies (browser test starts Vite)
+        working-directory: web
+        run: npm ci
+
       - name: Verify go.mod is tidy
         run: |
           go mod tidy
@@ -268,6 +279,16 @@ jobs:
           key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
           restore-keys: |
             gocache-${{ runner.os }}-${{ runner.arch }}-
+
+      # The core shard runs internal/api, whose browser test starts the real
+      # Vite dev server from web/ (`./node_modules/.bin/vite`).
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install web dependencies (browser test starts Vite)
+        working-directory: web
+        run: npm ci
 
       - name: Install recovery test tools
         run: sudo apt-get update && sudo apt-get install -y age postgresql-client-16
