@@ -562,6 +562,16 @@ systemctl reload nginx 2>/dev/null || systemctl restart nginx
 # Readiness still requires the applied generation and successful daemon probes.
 systemctl enable --now urmail-backup-auto.timer
 urmailctl config status --wait 240s
+# A reported success must not leave an in-flight configuration journal behind:
+# the next managed upgrade refuses such a host (fail-closed), and the operator
+# would see a successful install that cannot be upgraded. Wait, bounded, for
+# the agent to clear it; a journal that survives the bound is a real failure.
+pending_journal=/var/lib/urmail-agent/pending.json
+for _ in $(seq 1 120); do
+  [ ! -e "$pending_journal" ] && break
+  sleep 1
+done
+[ ! -e "$pending_journal" ] || die "Configuration apply journal did not settle; installation incomplete (journal retained)."
 
 log "urMail.cn is installed."
 cat <<'EOF'
