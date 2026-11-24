@@ -116,7 +116,14 @@ func adaptPostgresArgs(method string, args []any) []any {
 		}
 		switch value := out[index].(type) {
 		case int64:
-			out[index] = time.UnixMicro(value).UTC()
+			if value == 0 {
+				// The shared SQLite-era model uses 0 as the NULL sentinel for
+				// nullable timestamps; epoch 1970 must not reach a timestamptz
+				// column (it would break CHECK constraints such as ends>published).
+				out[index] = nil
+			} else {
+				out[index] = time.UnixMicro(value).UTC()
+			}
 		case sql.NullInt64:
 			// The shared SQLite-generated surface uses sql.NullInt64 micros
 			// for nullable timestamps; the PostgreSQL twin binds timestamptz.
