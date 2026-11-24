@@ -14,7 +14,7 @@ import (
 // unknown version is refused before any file is created.
 const (
 	S5SupportedPGSchemaMin = 159
-	S5SupportedPGSchemaMax = 159
+	S5SupportedPGSchemaMax = 160
 )
 
 // verifySourceSchema refuses dirty, older or unknown source schemas before
