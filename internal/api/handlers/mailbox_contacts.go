@@ -43,6 +43,7 @@ type contactRequest struct {
 }
 
 func (h MailboxContactsHandler) principal(c *gin.Context) (appcollab.Principal, bool) {
+	bindPlatformScope(c)
 	session, ok := middleware.GetMailboxSession(c)
 	if !ok || session.TenantID <= 0 || session.MailboxID <= 0 {
 		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")

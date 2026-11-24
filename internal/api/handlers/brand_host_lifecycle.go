@@ -32,6 +32,7 @@ type BrandHostLifecycleHandler struct {
 
 // Action never accepts a presented ownership token; it observes DNS itself.
 func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
+	bindPlatformScope(c)
 	host, ok := normalizeBrandHost(c.Param("hostname"))
 	var input struct {
 		Action  string `json:"action"`
@@ -170,6 +171,7 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 
 // Status returns persisted lifecycle and the current public certificate verdict.
 func (h *BrandHostLifecycleHandler) Status(c *gin.Context) {
+	bindPlatformScope(c)
 	host, ok := normalizeBrandHost(c.Param("hostname"))
 	if !ok || h.Pool == nil {
 		authError(c, 400, "INVALID_PARAMS")

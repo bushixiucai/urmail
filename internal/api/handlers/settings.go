@@ -191,6 +191,7 @@ func (h *PlatformHandler) BrandSettings(c *gin.Context) { h.brandSettings(c, fal
 // UpdateBrandSettings atomically changes only the selected brand's overrides.
 func (h *PlatformHandler) UpdateBrandSettings(c *gin.Context) { h.brandSettings(c, true) }
 func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
+	bindPlatformScope(c)
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
