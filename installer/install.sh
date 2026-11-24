@@ -162,8 +162,13 @@ if [ -f /etc/urmail/urmaild.env ]; then
   # window (the file must stay absent for five consecutive seconds); if it still
   # exists after the bound the refusal stays fail-closed at exit 1.
   journal=/var/lib/urmail-agent/pending.json
+  if [ -e "$journal" ]; then
+    log "pending journal present before the fence; waiting for the running agent to finish (max 60s)"
+  fi
+  waited=0
   stable=0
   for _ in $(seq 1 60); do
+    waited=$((waited + 1))
     if [ -e "$journal" ]; then
       stable=0
     else
@@ -172,6 +177,11 @@ if [ -f /etc/urmail/urmaild.env ]; then
     fi
     sleep 1
   done
+  if [ -e "$journal" ]; then
+    log "pending journal still present after ${waited}s; refusing (fence will keep it for recovery)"
+  else
+    log "pending journal absent after ${waited}s; continuing to fence"
+  fi
 
   PREFLIGHT_FLAGS=""
   if [ "${URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT:-0}" = "1" ]; then
