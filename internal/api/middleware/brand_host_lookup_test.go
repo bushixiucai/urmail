@@ -58,7 +58,7 @@ func runBoundary(t *testing.T, lookup BrandHostLookup, host string) (*httptest.R
 		ctx = c
 		c.Status(http.StatusOK)
 	})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	req.Host = host
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

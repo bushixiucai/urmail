@@ -45,6 +45,12 @@ linters:
         linters:
           - gosec
           - errcheck
+      # Test helpers keep testing.T first by convention and fill table
+      # callbacks with unused parameters; both rules stay on for product code.
+      - path: _test\.go
+        linters:
+          - revive
+        text: "unused-parameter|context-as-argument"
 
 formatters:
   exclusions:

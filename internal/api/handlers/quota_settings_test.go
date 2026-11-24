@@ -13,9 +13,9 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
-func newQuotaTestContext(w *httptest.ResponseRecorder) *gin.Context {
+func newQuotaTestContext(t *testing.T, w *httptest.ResponseRecorder) *gin.Context {
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/quota-test", nil)
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/quota-test", nil)
 	return c
 }
 
@@ -51,7 +51,7 @@ func (m *mockQuotaSettingsStore) PlatformGetSetting(_ context.Context, key strin
 func TestQuotaCheckDomainDefaultUnlimited(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
-	c := newQuotaTestContext(w)
+	c := newQuotaTestContext(t, w)
 	store := &mockQuotaSettingsStore{domains: 100}
 
 	if !quotaCheck(c, store, 1, "domain") {
@@ -70,7 +70,7 @@ func TestQuotaCheckDomainPlatformLimit(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	c := newQuotaTestContext(w)
+	c := newQuotaTestContext(t, w)
 	if quotaCheck(c, store, 1, "domain") {
 		t.Fatal("expected quotaCheck to fail when domains >= limit")
 	}
@@ -81,7 +81,7 @@ func TestQuotaCheckDomainPlatformLimit(t *testing.T) {
 	// Under limit should succeed
 	store.domains = 4
 	wUnder := httptest.NewRecorder()
-	cUnder := newQuotaTestContext(wUnder)
+	cUnder := newQuotaTestContext(t, wUnder)
 	if !quotaCheck(cUnder, store, 1, "domain") {
 		t.Fatal("expected quotaCheck to succeed when domains < limit")
 	}
@@ -97,7 +97,7 @@ func TestQuotaCheckTenantOverrideTakesPrecedence(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	c := newQuotaTestContext(w)
+	c := newQuotaTestContext(t, w)
 	if !quotaCheck(c, store, 1, "domain") {
 		t.Fatal("expected tenant override (10) to take precedence over platform (2)")
 	}
@@ -108,7 +108,7 @@ func TestQuotaCheckTenantOverrideTakesPrecedence(t *testing.T) {
 	store.domains = 3
 
 	wStrict := httptest.NewRecorder()
-	cStrict := newQuotaTestContext(wStrict)
+	cStrict := newQuotaTestContext(t, wStrict)
 	if quotaCheck(cStrict, store, 1, "domain") {
 		t.Fatal("expected tenant override (3) to be enforced over platform default (10)")
 	}
@@ -125,7 +125,7 @@ func TestQuotaCheckMailboxLimit(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	c := newQuotaTestContext(w)
+	c := newQuotaTestContext(t, w)
 	if quotaCheck(c, store, 1, "mailbox") {
 		t.Fatal("expected quotaCheck to fail when mailboxes >= limit")
 	}
@@ -135,7 +135,7 @@ func TestQuotaCheckMailboxLimit(t *testing.T) {
 
 	store.mailboxes = 19
 	wUnder := httptest.NewRecorder()
-	cUnder := newQuotaTestContext(wUnder)
+	cUnder := newQuotaTestContext(t, wUnder)
 	if !quotaCheck(cUnder, store, 1, "mailbox") {
 		t.Fatal("expected quotaCheck to pass when mailboxes < limit")
 	}
@@ -243,21 +243,21 @@ func TestTenantCurrentPlatformDefaultAndTenantOverride(t *testing.T) {
 		},
 	}
 	wDomainUnder := httptest.NewRecorder()
-	cDomainUnder := newQuotaTestContext(wDomainUnder)
+	cDomainUnder := newQuotaTestContext(t, wDomainUnder)
 	if !quotaCheck(cDomainUnder, quotaStore, 1, "domain") {
 		t.Fatal("quotaCheck should allow 5 domains under tenant override limit 10")
 	}
 
 	quotaStore.domains = 10
 	wDomainMax := httptest.NewRecorder()
-	cDomainMax := newQuotaTestContext(wDomainMax)
+	cDomainMax := newQuotaTestContext(t, wDomainMax)
 	if quotaCheck(cDomainMax, quotaStore, 1, "domain") {
 		t.Fatal("quotaCheck should block when domains reach tenant override limit 10")
 	}
 
 	quotaStore.mailboxes = 20
 	wMailboxMax := httptest.NewRecorder()
-	cMailboxMax := newQuotaTestContext(wMailboxMax)
+	cMailboxMax := newQuotaTestContext(t, wMailboxMax)
 	if quotaCheck(cMailboxMax, quotaStore, 1, "mailbox") {
 		t.Fatal("quotaCheck should block when mailboxes reach platform limit 20")
 	}
