@@ -68,6 +68,28 @@ proc_mount_fstype() { # longest-prefix mountpoint match in mountinfo
 }
 data_root_fs_preflight() {
     root=${1:-${DATA_ROOT:?DATA_ROOT not set}}
+    # A missing or unwritable data root cannot be fenced: the hold marker and
+    # the backup snapshot would be written somewhere the writers do not serve,
+    # and an upgrade could migrate an empty directory. Refuse before touching
+    # anything, with the path and the reason.
+    if [ ! -d "$root" ]; then
+        die "DATA_ROOT $root does not exist (or is not a directory): refusing, the fence and snapshot have no target"
+        return 4
+    fi
+    mode=$(stat -c '%a' "$root" 2>/dev/null || echo "")
+    if [ -n "$mode" ]; then
+        perm=$((0$mode))
+        if [ $((perm & 0222)) -eq 0 ]; then
+            die "DATA_ROOT $root is read-only (mode 0$mode): writers could not be paused or restarted reliably"
+            return 4
+        fi
+    fi
+    probe_file="$root/.urmail-preflight-probe.$$"
+    if ! : >"$probe_file" 2>/dev/null; then
+        die "DATA_ROOT $root is not writable (probe 0$mode): refusing, the fence marker cannot be created"
+        return 4
+    fi
+    rm -f "$probe_file"
     probe=$(realpath -m "$root")
     while [ ! -e "$probe" ] && [ "$probe" != "/" ] && [ "$probe" != "." ]; do
         probe=$(dirname "$probe")
