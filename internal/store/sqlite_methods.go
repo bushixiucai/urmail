@@ -2834,6 +2834,11 @@ SET status='suppressed',reserved=0,result_code='unsubscribed_mid_run',completed_
 // reserved slot and cancels the send (note: PG checks the lease owner and fence
 // but not lease expiry here).
 func (q *Queries) PlatformMarkMarketingRecipientRevoked(ctx context.Context, arg PlatformMarkMarketingRecipientRevokedParams) (bool, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformMarkMarketingRecipientRevoked(ctx, pgstore.PlatformMarkMarketingRecipientRevokedParams{
+			TenantID: arg.TenantID, RecipientID: arg.RecipientID, LeaseOwner: arg.LeaseOwner, Fence: arg.Fence,
+		})
+	}
 	if err := q.requireMarketingWorker(ctx); err != nil {
 		return false, err
 	}
@@ -2881,6 +2886,11 @@ var marketingSkipReasons = map[string]bool{
 // PlatformSkipMarketingRecipient mirrors urmail_skip_marketing_recipient: it
 // parks a leased recipient as canceled with the blocking reason.
 func (q *Queries) PlatformSkipMarketingRecipient(ctx context.Context, arg PlatformSkipMarketingRecipientParams) (bool, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformSkipMarketingRecipient(ctx, pgstore.PlatformSkipMarketingRecipientParams{
+			TenantID: arg.TenantID, RecipientID: arg.RecipientID, LeaseOwner: arg.LeaseOwner, Fence: arg.Fence, Reason: arg.Reason,
+		})
+	}
 	if !marketingSkipReasons[arg.Reason] {
 		return false, pgError("42501", "MARKETING_WORKER_REQUIRED")
 	}
