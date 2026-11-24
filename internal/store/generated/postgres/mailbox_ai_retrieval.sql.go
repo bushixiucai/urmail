@@ -31,15 +31,15 @@ func (q *Queries) DeleteMailboxAIChunkFolder(ctx context.Context, arg DeleteMail
 const deleteMailboxAIChunkMessages = `-- name: DeleteMailboxAIChunkMessages :execrows
 DELETE FROM mailbox_ai_chunks
 WHERE tenant_id = $1 AND mailbox_id = $2 AND folder = $3
-  AND folder_uidvalidity = $4 AND message_uid = ANY($5::bigint[])
+  AND folder_uidvalidity = $4 AND message_uid IN (SELECT CAST(value AS bigint) FROM json_array_elements_text(CAST($5 AS json)))
 `
 
 type DeleteMailboxAIChunkMessagesParams struct {
-	TenantID          int64   `json:"tenant_id"`
-	MailboxID         int64   `json:"mailbox_id"`
-	Folder            string  `json:"folder"`
-	FolderUidvalidity int64   `json:"folder_uidvalidity"`
-	Column5           []int64 `json:"column_5"`
+	TenantID          int64  `json:"tenant_id"`
+	MailboxID         int64  `json:"mailbox_id"`
+	Folder            string `json:"folder"`
+	FolderUidvalidity int64  `json:"folder_uidvalidity"`
+	Column5           []byte `json:"column_5"`
 }
 
 func (q *Queries) DeleteMailboxAIChunkMessages(ctx context.Context, arg DeleteMailboxAIChunkMessagesParams) (int64, error) {

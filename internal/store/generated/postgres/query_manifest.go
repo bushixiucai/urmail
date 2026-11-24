@@ -390,7 +390,7 @@ WHERE tenant_id = $1 AND mailbox_id = $2 AND folder = $3
 	"DeleteMailboxAIChunkMessages": `-- name: DeleteMailboxAIChunkMessages :execrows
 DELETE FROM mailbox_ai_chunks
 WHERE tenant_id = $1 AND mailbox_id = $2 AND folder = $3
-  AND folder_uidvalidity = $4 AND message_uid = ANY($5::bigint[])
+  AND folder_uidvalidity = $4 AND message_uid IN (SELECT CAST(value AS bigint) FROM json_array_elements_text(CAST($5 AS json)))
 `,
 	"DeleteOtherUserSessions": `-- name: DeleteOtherUserSessions :exec
 DELETE FROM sessions WHERE user_id = $1 AND id <> $2
