@@ -53,6 +53,17 @@ def schema_columns():
             not_null = "NOT NULL" in upper or "PRIMARY KEY" in upper
             cols.append((col, decl, not_null))
         out[table] = cols
+    # Incremental migrations add columns after the initial schema; include
+    # them so a struct with the new column still matches its table.
+    for path in sorted(SCHEMA.parent.glob("*.sql")):
+        if path.name == SCHEMA.name:
+            continue
+        for m in re.finditer(r'(?im)ALTER\s+TABLE\s+"?(\w+)"?\s+ADD\s+COLUMN\s+"?(\w+)"?\s+([A-Z]+)([^;]*)', path.read_text()):
+            table, col, decl, rest = m.group(1), m.group(2), m.group(3), m.group(4)
+            upper = rest.upper()
+            not_null = "NOT NULL" in upper
+            if table in out:
+                out[table].append((col, decl, not_null))
     return out
 
 

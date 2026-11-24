@@ -4791,11 +4791,11 @@ func (s *ScopedQuerier) PlatformLockArchivePurgeCandidate(ctx context.Context, a
 	return s.inner.PlatformLockArchivePurgeCandidate(ctx, arg)
 }
 
-func (s *ScopedQuerier) PlatformLockBillingTenant(ctx context.Context, p1 int64) error {
+func (s *ScopedQuerier) PlatformLockBillingTenant(ctx context.Context, tenantID int64) error {
 	if _, err := CheckMethod(ctx, "PlatformLockBillingTenant", ScopePlatform); err != nil {
 		return err
 	}
-	return s.inner.PlatformLockBillingTenant(ctx, p1)
+	return s.inner.PlatformLockBillingTenant(ctx, tenantID)
 }
 
 func (s *ScopedQuerier) PlatformLockBrandHost(ctx context.Context, hostname string) (store.BrandHosts, error) {
@@ -4830,11 +4830,11 @@ func (s *ScopedQuerier) PlatformLockCollectorCheckpoint(ctx context.Context, str
 	return s.inner.PlatformLockCollectorCheckpoint(ctx, stream)
 }
 
-func (s *ScopedQuerier) PlatformLockDataImport(ctx context.Context, p1 store.PlatformLockDataImportParams) error {
+func (s *ScopedQuerier) PlatformLockDataImport(ctx context.Context, arg store.PlatformLockDataImportParams) error {
 	if _, err := CheckMethod(ctx, "PlatformLockDataImport", ScopePlatform); err != nil {
 		return err
 	}
-	return s.inner.PlatformLockDataImport(ctx, p1)
+	return s.inner.PlatformLockDataImport(ctx, arg)
 }
 
 func (s *ScopedQuerier) PlatformLockLegacyDKIMDomains(ctx context.Context, arg store.PlatformLockLegacyDKIMDomainsParams) ([]store.PlatformLockLegacyDKIMDomainsRow, error) {
@@ -4893,11 +4893,11 @@ func (s *ScopedQuerier) PlatformLockRecallMailbox(ctx context.Context, arg store
 	return s.inner.PlatformLockRecallMailbox(ctx, arg)
 }
 
-func (s *ScopedQuerier) PlatformLockRecallTenant(ctx context.Context, p1 int64) error {
+func (s *ScopedQuerier) PlatformLockRecallTenant(ctx context.Context, tenantID int64) error {
 	if _, err := CheckMethod(ctx, "PlatformLockRecallTenant", ScopePlatform); err != nil {
 		return err
 	}
-	return s.inner.PlatformLockRecallTenant(ctx, p1)
+	return s.inner.PlatformLockRecallTenant(ctx, tenantID)
 }
 
 func (s *ScopedQuerier) PlatformLockRetentionPurgePolicy(ctx context.Context, arg store.PlatformLockRetentionPurgePolicyParams) (bool, error) {
@@ -4908,11 +4908,11 @@ func (s *ScopedQuerier) PlatformLockRetentionPurgePolicy(ctx context.Context, ar
 	return s.inner.PlatformLockRetentionPurgePolicy(ctx, arg)
 }
 
-func (s *ScopedQuerier) PlatformLockSendDraft(ctx context.Context, p1 store.PlatformLockSendDraftParams) error {
+func (s *ScopedQuerier) PlatformLockSendDraft(ctx context.Context, arg store.PlatformLockSendDraftParams) error {
 	if _, err := CheckMethod(ctx, "PlatformLockSendDraft", ScopePlatform); err != nil {
 		return err
 	}
-	return s.inner.PlatformLockSendDraft(ctx, p1)
+	return s.inner.PlatformLockSendDraft(ctx, arg)
 }
 
 func (s *ScopedQuerier) PlatformMailboxAccessStates(ctx context.Context) ([]store.PlatformMailboxAccessStatesRow, error) {

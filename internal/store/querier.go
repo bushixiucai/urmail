@@ -714,14 +714,14 @@ type Querier interface {
 	PlatformLockAliasSenderTarget(ctx context.Context, arg PlatformLockAliasSenderTargetParams) (PlatformLockAliasSenderTargetRow, error)
 	PlatformLockArchivePurgeCandidate(ctx context.Context, arg PlatformLockArchivePurgeCandidateParams) (PlatformLockArchivePurgeCandidateRow, error)
 	// PlatformLockBillingTenant：租户计费/配额写入由事务串行化互斥。
-	PlatformLockBillingTenant(_ context.Context, _ int64) error
+	PlatformLockBillingTenant(ctx context.Context, tenantID int64) error
 	PlatformLockBrandHost(ctx context.Context, hostname string) (BrandHosts, error)
 	PlatformLockBrandSettingsBrand(ctx context.Context, id int64) (int64, error)
 	PlatformLockCalendarInvitationEvent(ctx context.Context, arg PlatformLockCalendarInvitationEventParams) (MailboxEvents, error)
 	PlatformLockCollectorCheckpoint(ctx context.Context, stream string) (CollectorCheckpoints, error)
 	// PlatformLockDataImport（原 hashtextextended(tenant:mailbox:idempotency_key,782314)）：
 	// 同一幂等键的导入由事务串行化互斥。
-	PlatformLockDataImport(_ context.Context, _ PlatformLockDataImportParams) error
+	PlatformLockDataImport(ctx context.Context, arg PlatformLockDataImportParams) error
 	PlatformLockLegacyDKIMDomains(ctx context.Context, arg PlatformLockLegacyDKIMDomainsParams) ([]PlatformLockLegacyDKIMDomainsRow, error)
 	// Explicit migration operator authority; runtime API callers cannot invoke this workflow.
 	PlatformLockLegacyImportTarget(ctx context.Context, arg PlatformLockLegacyImportTargetParams) (int64, error)
@@ -731,11 +731,11 @@ type Querier interface {
 	PlatformLockRecallForExpunge(ctx context.Context, arg PlatformLockRecallForExpungeParams) (PlatformLockRecallForExpungeRow, error)
 	PlatformLockRecallMailbox(ctx context.Context, arg PlatformLockRecallMailboxParams) (string, error)
 	// PlatformLockRecallTenant：租户召回由事务串行化互斥。
-	PlatformLockRecallTenant(_ context.Context, _ int64) error
+	PlatformLockRecallTenant(ctx context.Context, tenantID int64) error
 	PlatformLockRetentionPurgePolicy(ctx context.Context, arg PlatformLockRetentionPurgePolicyParams) (bool, error)
 	// PlatformLockSendDraft（原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
 	// 草稿发送与草稿编辑互斥；PG 在事务级持锁，SQLite 用事务串行化。
-	PlatformLockSendDraft(_ context.Context, _ PlatformLockSendDraftParams) error
+	PlatformLockSendDraft(ctx context.Context, arg PlatformLockSendDraftParams) error
 	PlatformMailboxAccessStates(ctx context.Context) ([]PlatformMailboxAccessStatesRow, error)
 	// Mailbox self-service is bound to the independently authenticated webmail session.
 	// Native webmail login: resolve an active mailbox by address for password verification.
