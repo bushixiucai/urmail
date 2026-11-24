@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/miadbinventory"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -66,6 +67,8 @@ type Result struct {
 // The caller must retain the private source artifact and complete all remaining
 // Maildir, Sieve, groupware, DNS/TLS and protocol gates before any activation.
 func ApplyCore(ctx context.Context, pool *db.Pool, source *miadbinventory.ReviewedSource, options Options) (Result, error) {
+	// Reviewed operator import entry: the import statements are platform-scoped.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	result := Result{Phase: "source_preflight", CoreOnly: true, SievePending: true, CommitOutcome: "not_committed"}
 	if pool == nil || !pool.IsPlatform() || options.TenantID <= 0 || options.ActorID <= 0 {
 		return result, ErrAuthority

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -40,6 +41,8 @@ type ActivateMailResult struct {
 // active+ready so Postfix/Dovecot snapshots include mailboxes, while keeping
 // mode=delegated and dns_explicit=false so NSD stays external/preserved.
 func ActivateLegacyDelegatedMail(ctx context.Context, pool *db.Pool, options Options, coreProofSHA256 string, expectedDomains int) (ActivateMailResult, error) {
+	// Reviewed operator import entry: the import statements are platform-scoped.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	result := ActivateMailResult{
 		Phase:                "preflight",
 		CoreOnly:             true,
