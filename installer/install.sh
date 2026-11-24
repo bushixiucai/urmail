@@ -155,19 +155,12 @@ if [ -f /etc/urmail/urmaild.env ]; then
   # operator may also set URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT=1 to record
   # an explicit override in the fence reason (runbook: docs/operations/
   # upgrade-fence-preflight.md).
-  PREFLIGHT_FLAGS=""
-  if [ "${URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT:-0}" = "1" ]; then
-    log "URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT=1: forwarding --skip-preflight to upgrade fence"
-    PREFLIGHT_FLAGS="--skip-preflight"
-  fi
-  "$NEW_URMAILCTL" upgrade fence --reason "managed upgrade to $(basename "$TMP_DEB")" $PREFLIGHT_FLAGS
-
-  # Refuse unresolved recovery state and unsupported database identities before
-  # package, environment or schema changes. Never start the agent to recover here.
   # An apply that was already in flight when this upgrade started is not an
-  # unresolved journal: give the running agent a bounded window to finish it
-  # (the file must stay absent for five consecutive seconds), then refuse if it
-  # still exists. The refusal itself remains fail-closed at exit 1.
+  # unresolved journal. The fence stops urmaild-agent (drop-in guards), so this
+  # check must run BEFORE fencing: once the agent is stopped nothing can clear a
+  # journal written by the in-flight apply. Give the running agent a bounded
+  # window (the file must stay absent for five consecutive seconds); if it still
+  # exists after the bound the refusal stays fail-closed at exit 1.
   journal=/var/lib/urmail-agent/pending.json
   stable=0
   for _ in $(seq 1 60); do
@@ -179,6 +172,16 @@ if [ -f /etc/urmail/urmaild.env ]; then
     fi
     sleep 1
   done
+
+  PREFLIGHT_FLAGS=""
+  if [ "${URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT:-0}" = "1" ]; then
+    log "URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT=1: forwarding --skip-preflight to upgrade fence"
+    PREFLIGHT_FLAGS="--skip-preflight"
+  fi
+  "$NEW_URMAILCTL" upgrade fence --reason "managed upgrade to $(basename "$TMP_DEB")" $PREFLIGHT_FLAGS
+
+  # Refuse unresolved recovery state and unsupported database identities before
+  # package, environment or schema changes. Never start the agent to recover here.
   python3 - /etc/urmail/urmaild.env /var/lib/urmail-agent/pending.json <<'PYCODE'
 import os, stat, sys, urllib.parse
 try:
