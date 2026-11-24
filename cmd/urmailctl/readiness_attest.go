@@ -355,21 +355,32 @@ func readBoundedRegular(path string, limit int64) ([]byte, error) {
 // readinessConsumedRecord is the one-time attempt identity persisted under the
 // maintenance root. It binds the exact attestation and live inputs that were
 // accepted; a second consume refuses against this original.
+type readinessProbeInputs struct {
+	RootDir       string   `json:"root_dir"`
+	Generation    uint64   `json:"generation"`
+	DatabaseEnv   string   `json:"database_url_env,omitempty"`
+	SQLitePath    string   `json:"sqlite_path,omitempty"`
+	SQLiteVersion uint64   `json:"sqlite_generation,omitempty"`
+	RequiredFiles []string `json:"required_files,omitempty"`
+}
+
 type readinessConsumedRecord struct {
-	Format           string    `json:"format"`
-	ConsumedAt       time.Time `json:"consumed_at"`
-	RequestID        string    `json:"request_id"`
-	UID              int       `json:"uid"`
-	Hostname         string    `json:"hostname"`
-	AttestSHA256     string    `json:"attest_sha256"`
-	SignatureSHA256  string    `json:"signature_sha256"`
-	HoldSHA256       string    `json:"hold_sha256"`
-	ReceiptSHA256    string    `json:"receipt_sha256"`
-	Generation       uint64    `json:"generation"`
-	ProbeStateSHA256 string    `json:"probe_state_sha256"`
-	ProbeRevision    string    `json:"probe_source_revision"`
-	TargetDigest     string    `json:"target_digest"`
-	RequiredDigest   string    `json:"required_files_digest"`
+	Format           string               `json:"format"`
+	ConsumedAt       time.Time            `json:"consumed_at"`
+	RequestID        string               `json:"request_id"`
+	UID              int                  `json:"uid"`
+	Hostname         string               `json:"hostname"`
+	AttestSHA256     string               `json:"attest_sha256"`
+	SignatureSHA256  string               `json:"signature_sha256"`
+	HoldSHA256       string               `json:"hold_sha256"`
+	ReceiptSHA256    string               `json:"receipt_sha256"`
+	Generation       uint64               `json:"generation"`
+	ProbeStateSHA256 string               `json:"probe_state_sha256"`
+	ProbeRevision    string               `json:"probe_source_revision"`
+	TargetDigest     string               `json:"target_digest"`
+	RequiredDigest   string               `json:"required_files_digest"`
+	AttestPath       string               `json:"attest_path"`
+	Inputs           readinessProbeInputs `json:"probe_inputs"`
 }
 
 // runReadinessAttestConsume is the fixed consumption entry before a hold may be
@@ -414,6 +425,10 @@ func runReadinessAttestConsume(ctx context.Context, args []string) error {
 		HoldSHA256: payload.HoldSHA256, ReceiptSHA256: payload.ReceiptSHA256, Generation: payload.Generation,
 		ProbeStateSHA256: payload.ProbeStateSHA256, ProbeRevision: payload.ProbeSourceRevision,
 		TargetDigest: sha256Hex(targetRaw), RequiredDigest: sha256Hex(requiredRaw),
+		AttestPath: f.attestPath, Inputs: readinessProbeInputs{
+			RootDir: f.opts.rootDir, Generation: f.opts.generation, DatabaseEnv: f.opts.databaseEnv,
+			SQLitePath: f.opts.sqlitePath, SQLiteVersion: f.opts.sqliteVersion, RequiredFiles: f.opts.requiredFiles,
+		},
 	}
 	raw, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
@@ -434,4 +449,75 @@ func runReadinessAttestConsume(ctx context.Context, args []string) error {
 func sha256Hex(raw []byte) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+// verifyReleaseConsume is the actual release-side gate for the same attempt:
+// under the inherited operation lock it compares the one-time consume record
+// with the live hold/receipt, re-verifies the signed attestation and live
+// probe, then writes a release attempt record with O_EXCL to refuse replay.
+func verifyReleaseConsume(ctx context.Context, rootDir string, lockFD int) error {
+	if err := verifyOwnedOperationLock(rootDir, lockFD); err != nil {
+		return err
+	}
+	recordPath := filepath.Join(maintenance.Root(rootDir), "upgrade_readiness_consumed.json")
+	raw, err := readBoundedRegular(recordPath, 1<<20)
+	if err != nil {
+		return fmt.Errorf("release consume: %w", err)
+	}
+	var record readinessConsumedRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return fmt.Errorf("release consume: parse record: %w", err)
+	}
+	if record.Format != "urmail-readiness-consumed-v1" {
+		return fmt.Errorf("release consume: unsupported record format %q", record.Format)
+	}
+	holdRaw, receiptRaw, err := maintenance.ReadUpgradeFenceRaw(rootDir)
+	if err != nil {
+		return fmt.Errorf("release consume: read live fence: %w", err)
+	}
+	var receipt maintenance.UpgradeReceipt
+	if err := json.Unmarshal(receiptRaw, &receipt); err != nil {
+		return fmt.Errorf("release consume: parse receipt: %w", err)
+	}
+	if record.HoldSHA256 != sha256Hex(holdRaw) || record.ReceiptSHA256 != sha256Hex(receiptRaw) {
+		return errors.New("release consume: record does not bind the live hold/receipt (wrong round)")
+	}
+	if record.Generation != receipt.Generation {
+		return fmt.Errorf("release consume: record generation %d does not match live receipt generation %d", record.Generation, receipt.Generation)
+	}
+	opts := readinessProbeOptions{
+		rootDir: record.Inputs.RootDir, generation: record.Inputs.Generation, databaseEnv: record.Inputs.DatabaseEnv,
+		sqlitePath: record.Inputs.SQLitePath, sqliteVersion: record.Inputs.SQLiteVersion,
+		requiredFiles: record.Inputs.RequiredFiles, requireLock: true, lockFD: lockFD,
+	}
+	payload, err := verifyReadinessAttestation(ctx, readinessAttestFlags{opts: opts, attestPath: record.AttestPath})
+	if err != nil {
+		return fmt.Errorf("release consume: %w", err)
+	}
+	targetRaw, _ := json.Marshal(payload.Target)
+	requiredRaw, _ := json.Marshal(payload.RequiredFiles)
+	if payload.HoldSHA256 != record.HoldSHA256 || payload.ReceiptSHA256 != record.ReceiptSHA256 ||
+		payload.Generation != record.Generation || payload.ProbeStateSHA256 != record.ProbeStateSHA256 ||
+		sha256Hex(targetRaw) != record.TargetDigest || sha256Hex(requiredRaw) != record.RequiredDigest {
+		return errors.New("release consume: live attestation no longer matches the consumed record")
+	}
+	attempt := map[string]any{
+		"format": "urmail-release-attempt-v1", "attempted_at": time.Now().UTC(), "request_id": record.RequestID,
+		"consume_sha256": sha256Hex(raw), "hold_sha256": record.HoldSHA256, "receipt_sha256": record.ReceiptSHA256,
+		"generation": record.Generation, "probe_state_sha256": record.ProbeStateSHA256,
+	}
+	attemptRaw, err := json.MarshalIndent(attempt, "", "  ")
+	if err != nil {
+		return err
+	}
+	attemptPath := filepath.Join(maintenance.Root(rootDir), "upgrade_release_attempt.json")
+	if err := writePrivateExclusive(attemptPath, attemptRaw); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			existing, _ := readBoundedRegular(attemptPath, 1<<20)
+			return fmt.Errorf("release consume: this hold was already released once (attempt %s sha256 %s); refusing replay", attemptPath, sha256Hex(existing))
+		}
+		return err
+	}
+	fmt.Printf("CONSUME_VERIFIED request_id=%s hold_sha256=%s generation=%d\n", record.RequestID, record.HoldSHA256, record.Generation)
+	return nil
 }

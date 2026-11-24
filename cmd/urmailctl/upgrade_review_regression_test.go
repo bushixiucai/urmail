@@ -28,7 +28,7 @@ func TestReleaseRuntimeFailureRefencesAllWriters(t *testing.T) {
 		active["dovecot.service"] = true // dependency started outside original receipt
 		return errors.New("injected protocol failure")
 	}
-	err := releaseUpgradeInternal(t.Context(), env.maintDir, env.dropInDir, 0, false, false, false)
+	err := releaseUpgradeInternal(t.Context(), env.maintDir, env.dropInDir, 0, false, false, false, -1, false)
 	if err == nil || !strings.Contains(err.Error(), "protocol readiness") {
 		t.Fatalf("expected protocol failure: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestReleaseRejectsPreparedManifestChangedSinceSigning(t *testing.T) {
 	activeAgentConfigStatus = func(context.Context) (*readinessAgentSnapshot, error) {
 		return &readinessAgentSnapshot{Step: "prepared", Desired: "gen-155", ManifestSHA256: strings.Repeat("b", 64)}, nil
 	}
-	if err := releaseUpgradeInternal(t.Context(), env.maintDir, env.dropInDir, 0, false, false, false); err == nil || !strings.Contains(err.Error(), "changed since signing") {
+	if err := releaseUpgradeInternal(t.Context(), env.maintDir, env.dropInDir, 0, false, false, false, -1, false); err == nil || !strings.Contains(err.Error(), "changed since signing") {
 		t.Fatalf("expected manifest drift refusal: %v", err)
 	}
 	if !maintenance.IsUpgradeHeld(env.maintDir) {
@@ -87,7 +87,7 @@ func TestReleaseRejectsAbnormalHoldWithoutRemovingGuards(t *testing.T) {
 			if _, err = maintenance.InstallDropInGuards(env.dropInDir, hold, maintenance.DropInGuardedUnits); err != nil {
 				t.Fatal(err)
 			}
-			if err = releaseUpgradeInternal(t.Context(), env.maintDir, env.dropInDir, 0, false, false, false); err == nil {
+			if err = releaseUpgradeInternal(t.Context(), env.maintDir, env.dropInDir, 0, false, false, false, -1, false); err == nil {
 				t.Fatal("accepted abnormal hold")
 			}
 			guards, err := maintenance.CheckDropInGuards(env.dropInDir, maintenance.DropInGuardedUnits)

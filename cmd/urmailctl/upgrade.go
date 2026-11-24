@@ -253,22 +253,35 @@ func runUpgradeRelease(ctx context.Context, args []string) error {
 	skipRestart := flags.Bool("skip-restart", false, "skip restarting originally active units")
 	breakGlass := flags.Bool("break-glass", false, "explicit break-glass acknowledgment to release without the signed readiness receipt")
 	ackRisk := flags.Bool("ack-risk", false, "acknowledge risk of manual release without full protocol readiness receipt")
+	lockFD := flags.Int("lock-fd", -1, "inherited exclusive operation-lock descriptor (same-attempt release)")
+	requireConsume := flags.Bool("require-consume", false, "require the one-time readiness consume record and same-attempt lock")
 	rootDir := flags.String("root-dir", currentMaintenanceRoot(), "maintenance root directory")
 	dropInDir := flags.String("drop-in-dir", maintenance.DefaultDropInDir, "systemd drop-in directory")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	return releaseUpgradeInternal(ctx, *rootDir, *dropInDir, *timeout, *skipRestart, *breakGlass, *ackRisk)
+	return releaseUpgradeInternal(ctx, *rootDir, *dropInDir, *timeout, *skipRestart, *breakGlass, *ackRisk, *lockFD, *requireConsume)
 }
 
-func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, timeout time.Duration, skipRestart, breakGlass, ackRisk bool) error {
-	// 1. Acquire operation.lock with timeout
-	lock, err := maintenance.AcquireLockWithTimeout(ctx, rootDir, maintenance.DefaultLockName, timeout)
-	if err != nil {
-		return fmt.Errorf("acquire operation lock: %w", err)
+func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, timeout time.Duration, skipRestart, breakGlass, ackRisk bool, lockFD int, requireConsume bool) error {
+	// 1. Same-attempt release inherits the orchestrator's exclusive lock; the
+	// legacy path still acquires it itself.
+	var err error
+	if lockFD >= 0 {
+		if err := verifyOwnedOperationLock(rootDir, lockFD); err != nil {
+			return err
+		}
+	} else {
+		lock, err := maintenance.AcquireLockWithTimeout(ctx, rootDir, maintenance.DefaultLockName, timeout)
+		if err != nil {
+			return fmt.Errorf("acquire operation lock: %w", err)
+		}
+		defer func() { _ = maintenance.ReleaseLock(lock) }()
 	}
-	defer func() { _ = maintenance.ReleaseLock(lock) }()
+	if requireConsume && lockFD < 0 {
+		return errors.New("release --require-consume requires the inherited operation-lock descriptor (--lock-fd)")
+	}
 
 	// 2. Verify fence exists (idempotent if already released). Errors are NOT swallowed.
 	held, holdErr := maintenance.UpgradeHoldState(rootDir)
@@ -298,6 +311,14 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 	}
 	fenceV2 := status.Meta != nil && status.Meta.Version >= 2
 	glass := breakGlass && ackRisk
+	if requireConsume {
+		if glass {
+			return errors.New("release --require-consume cannot be combined with break-glass")
+		}
+		if err := verifyReleaseConsume(ctx, rootDir, lockFD); err != nil {
+			return err
+		}
+	}
 
 	// 5. Default release consumes the signed readiness receipt bound to the
 	// live fence bytes, the live schema generation and the freshness window.

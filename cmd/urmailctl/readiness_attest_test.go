@@ -271,3 +271,49 @@ func TestReadinessAttestConsumeOnce(t *testing.T) {
 		t.Fatalf("original record lost after refusal: %v", err)
 	}
 }
+
+// TestReleaseConsumeGateSameAttempt proves the release-side gate compares the
+// consumed record with the live hold/receipt, re-verifies the attestation under
+// the inherited lock, and refuses a second release attempt.
+func TestReleaseConsumeGateSameAttempt(t *testing.T) {
+	f := newAttestFixture(t)
+	ctx := context.Background()
+	if err := runReadinessAttestSign(ctx, f.signArgs()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReadinessAttestConsume(ctx, append(f.targetArgs(), "--attest", f.attestPath, "--request-id", "release-one")); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err != nil {
+		t.Fatalf("release consume gate: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.root, "upgrade_release_attempt.json")); err != nil {
+		t.Fatalf("release attempt missing: %v", err)
+	}
+	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err == nil || !strings.Contains(err.Error(), "already released") {
+		t.Fatalf("replayed release accepted: %v", err)
+	}
+
+	// A record from another round must not release this hold.
+	other := newAttestFixture(t)
+	if err := runReadinessAttestSign(ctx, other.signArgs()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReadinessAttestConsume(ctx, append(other.targetArgs(), "--attest", other.attestPath, "--request-id", "other")); err != nil {
+		t.Fatal(err)
+	}
+	otherRecord, err := os.ReadFile(filepath.Join(other.root, "upgrade_readiness_consumed.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.root, "upgrade_readiness_consumed.json"), otherRecord, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(filepath.Join(f.root, "upgrade_release_attempt.json"))
+	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err == nil || !strings.Contains(err.Error(), "wrong round") {
+		t.Fatalf("foreign-round consume accepted: %v", err)
+	}
+	if err := verifyReleaseConsume(ctx, f.root, -1); err == nil || !strings.Contains(err.Error(), "inherited") {
+		t.Fatalf("missing lock accepted: %v", err)
+	}
+}
