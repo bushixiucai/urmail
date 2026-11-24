@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -97,6 +98,9 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	if !w.opts.Enabled || w.opts.DevMode || w.opts.Quarantined {
 		return false, ErrDisabled
 	}
+	// The campaign worker runs platform-domain recovery/claim statements on
+	// behalf of the scheduler; bind that scope once at the trusted entry.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	q := db.Queries(w.opts.Pool)
 	count, err := q.PlatformRecoverMarketingSubmissions(ctx)
 	if err != nil {
