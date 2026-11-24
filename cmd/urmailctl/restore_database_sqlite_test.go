@@ -98,3 +98,45 @@ func TestRestoreSQLiteSnapshotRefusesWrongVersionAndCorruption(t *testing.T) {
 		t.Fatalf("valid snapshot after failed attempts: %v", err)
 	}
 }
+// TestEndToEndSQLiteBackupThenRestore exercises the product pair: snapshot the
+// live database, change it, restore the snapshot, and compare the rows.
+func TestEndToEndSQLiteBackupThenRestore(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	live := buildRestoreFixture(t, dir, "urmail.sqlite", 1)
+	snapshot := filepath.Join(dir, "urmail-20260101T000000Z.sqlite")
+	if err := createSQLiteSnapshot(ctx, live, snapshot); err != nil {
+		t.Fatalf("backup: %v", err)
+	}
+	db, err := sqlitedb.OpenExisting(ctx, live, sqlitedb.ExpectedSchemaVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, `INSERT INTO brands(id,slug,name) VALUES(9,'later','Later')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, `DELETE FROM brands WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = restoreSQLiteSnapshot(ctx, snapshot, live, sqlitedb.ExpectedSchemaVersion); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	db, err = sqlitedb.OpenExisting(ctx, live, sqlitedb.ExpectedSchemaVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var original, later int
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM brands WHERE id=1`).Scan(&original); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM brands WHERE id=9`).Scan(&later); err != nil {
+		t.Fatal(err)
+	}
+	if original != 1 || later != 0 {
+		t.Fatalf("after restore original=%d later=%d, want 1/0", original, later)
+	}
+}
