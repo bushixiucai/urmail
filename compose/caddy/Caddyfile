@@ -1,0 +1,5 @@
+# urMail compose skeleton placeholder (agent-rendered Caddyfile replaces this).
+# Static placeholder only: prove host-network caddy boots and serves :80.
+:80 {
+	respond "urmail compose skeleton: control plane up; reverse proxy wiring lands with the config generator" 200
+}

@@ -1,0 +1,230 @@
+# urMail compose skeleton (Phase 2, ARCH-PLAN-SQLITE-COMPOSE-20261119 §1.1–§1.2).
+# 单一发行形态：任何满足前置条件的 Linux 机器 `docker compose build && up -d`。
+# 本轮为骨架证明（组网可行 + healthz 200）：
+#   - 数据层仍用 PG 容器占位（SQLite 由 Phase 1 接入，届时 pg 服务退役、
+#     litestream 转正，plan §1.1「退役」清单）；
+#   - postfix/dovecot/caddy 配置为静态占位件（Backend 的配置生成器渲染后替换，
+#     挂载点与 §1.2 数据布局保持一致）；
+#   - profiles 延后启用：agent / signer / spam / litestream —— 依赖配置生成器、
+#     urmail-milter 二进制与 SQLite 数据层，详见 compose/README.md。
+name: urmail
+
+x-data-root: &data_root ${URMAIL_DATA_ROOT:-./data}
+
+services:
+  pg:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${URMAIL_PG_USER:-urmail}
+      POSTGRES_PASSWORD: ${URMAIL_PG_PASSWORD:?set URMAIL_PG_PASSWORD in .env}
+      POSTGRES_DB: ${URMAIL_PG_DB:-urmail}
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/db/pg:/var/lib/postgresql/data
+      # 集群角色一次性引导（urmail_migrate/app/platform/dovecot，幂等）；
+      # 迁移 0001 依赖这些角色存在（internal/db/bootstrap.sql）。
+      - ./internal/db/bootstrap.sql:/docker-entrypoint-initdb.d/01-bootstrap.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${URMAIL_PG_USER:-urmail} -d ${URMAIL_PG_DB:-urmail}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  urmaild:
+    build:
+      context: .
+      args:
+        VERSION: ${URMAIL_IMAGE_VERSION:-snapshot}
+        https_proxy: ${COMPOSE_BUILD_https_proxy:-}
+        http_proxy: ${COMPOSE_BUILD_http_proxy:-}
+        no_proxy: ${COMPOSE_BUILD_no_proxy:-}
+        NO_PROXY: ${COMPOSE_BUILD_no_proxy:-}
+    image: urmail-local:${URMAIL_IMAGE_VERSION:-snapshot}
+    restart: unless-stopped
+    # 非 root 运行（QA P1-5）：uid=数据目录属主（install 侧需 chown 5000:5000）
+    user: "5000:5000"
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment:
+      # urmaild 在 hold 期间必须可启动（探针/readiness-record 需要），故不设 hold 门
+      URMAIL_HOLD_GUARD: "0"
+      URMAIL_MAINTENANCE_ROOT: /srv/urmail/data/maintenance
+      # 现行 config.Load 强制 HTTP 绑回环（安全位）；跨容器反代接入是
+      # 配置生成器阶段的监听规则改造点（ARCH-PLAN §1.1 internal :8080）。
+      URMAIL_LISTEN_ADDR: 127.0.0.1:8080
+      # "-" (not ":-"): an explicitly empty value must reach setup so it can
+      # reject it; only an unset variable falls back to the default.
+      URMAIL_MYHOSTNAME: ${URMAIL_MYHOSTNAME-urmail.local}
+      URMAIL_DATABASE_URL: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
+      URMAIL_DATABASE_URL_PLATFORM: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
+      URMAIL_DATABASE_URL_MIGRATE: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
+      URMAIL_DATABASE_URL_DOVECOT: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
+      URMAIL_AUTO_MIGRATE: ${URMAIL_AUTO_MIGRATE:-1}
+      URMAIL_POLICY_ENABLED: "true"
+      # policy sock 挪进 5000 可写卷（默认 /run/urmail-policy 对非 root 不可写）
+      URMAIL_POLICY_SOCKET: /srv/urmail/config/run/policy.sock
+      # Loopback-only machine metrics credential for Prometheus (§1.1).
+      # Empty = /internal/metrics stays 403 (MetricsAccess requires >=32 chars).
+      URMAIL_METRICS_TOKEN: ${URMAIL_METRICS_TOKEN:-}
+      URMAIL_STORAGE_ROOT: /srv/urmail/data/mail
+      URMAIL_PRIMARY_DOMAIN: ${URMAIL_PRIMARY_DOMAIN:-urmail.local}
+      # P3-DW-01 single-writer lease: one urmaild per data root.  The lease is
+      # an exclusive flock on <DATA_ROOT>/.urmail-writer.lease, taken by the
+      # entrypoint before it touches the DB; a second writer exits non-zero.
+      URMAIL_WRITER_LEASE: /srv/urmail/data-root/.urmail-writer.lease
+      URMAIL_VERSION: ${URMAIL_IMAGE_VERSION:-snapshot}
+      URMAIL_WRITER_NAME: ${URMAIL_WRITER_NAME:-}
+      URMAIL_WEBMAIL_NATIVE: "true"
+      URMAIL_ROUNDCUBE_ENABLED: "false"
+    volumes:
+      # 容器内挂载点为固定路径（与宿主 URMAIL_DATA_ROOT 无关，勿插值化）
+      - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/config
+      - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+      - ${URMAIL_DATA_ROOT:-./data}/backup:/srv/urmail/data/backup
+      # readiness-record 的 maintenance 根（独立子目录，不进 backup 卷枚举面）
+      - ${URMAIL_DATA_ROOT:-./data}/maintenance:/srv/urmail/data/maintenance
+      # archive 工作根（代码固定 /var/lib/urmail/archive[-spool]；不挂则 uid
+      # 5000 在 /var/lib 下建目录被拒，见 firstboot-urmaild.log 的历史缺陷）
+      - ${URMAIL_DATA_ROOT:-./data}/archive:/var/lib/urmail
+      # privileged agent 的 unix socket 目录（agent 以 profile 延后启用）
+      - ${URMAIL_DATA_ROOT:-./data}/agent-run:/run/urmail
+      # P3-DW-01: the whole data root (rw) so the writer lease lives at
+      # <DATA_ROOT>/.urmail-writer.lease.  Only urmaild gets this mount; the
+      # MTA/IMAP containers keep their narrow per-directory mounts.
+      - ${URMAIL_DATA_ROOT:-./data}:/srv/urmail/data-root
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+
+  # DKIM 签名 milter（§1.1）：需要 urmail-milter sign 二进制（Phase 2 后续），
+  # 当前镜像内尚无该二进制，故 profile 延后启用。
+  urmail-signer:
+    image: urmail-local:${URMAIL_IMAGE_VERSION:-snapshot}
+    profiles: ["milter"]
+    command: ["urmail-milter", "sign"]
+    restart: unless-stopped
+    environment:
+      URMAIL_MILTER_LISTEN: 0.0.0.0:12301
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/config
+      - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+
+  # 垃圾判定 milter（§1.1）：需要 urmail-milter spam 二进制；当前 urmaild 进程
+  # 内嵌 loopback 版本（main.go spamMilter），独立服务待二进制拆出后启用。
+  urmail-spam:
+    image: urmail-local:${URMAIL_IMAGE_VERSION:-snapshot}
+    profiles: ["milter"]
+    command: ["urmail-milter", "spam"]
+    restart: unless-stopped
+    environment:
+      URMAIL_MILTER_LISTEN: 0.0.0.0:11339
+
+  # 特权代理（§1.1）：只写配置卷，绝不挂 docker sock；真实启用需 agent 渲染的
+  # 配置生成器（Backend 负责），当前以 profile 延后。
+  urmail-agent:
+    image: urmail-local:${URMAIL_IMAGE_VERSION:-snapshot}
+    profiles: ["agent"]
+    command: ["urmaild-agent"]
+    # §1.1: the agent is the privileged helper; it refuses to start unless
+    # euid==0 (cmd/urmaild-agent/main.go) and writes rendered config only.
+    user: "0:0"
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      URMAIL_CONFIG_DIR: /srv/urmail/config
+      URMAIL_ENV_FILE: /srv/urmail/config/urmail.env
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/config
+      - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+      - ${URMAIL_DATA_ROOT:-./data}/certs:/srv/urmail/data/certs
+      - ${URMAIL_DATA_ROOT:-./data}/backup:/srv/urmail/data/backup
+      - ${URMAIL_DATA_ROOT:-./data}/agent-run:/run/urmail
+
+  # host network：保源 IP 与投递语义（plan 裁定⑥）。配置为静态占位件，
+  # agent 配置生成器落地后由 data/config/postfix 渲染卷替换。
+  postfix:
+    image: urmail-local:${URMAIL_IMAGE_VERSION:-snapshot}
+    network_mode: host
+    restart: unless-stopped
+    command: ["postfix", "-c", "/srv/urmail/config/postfix", "start-fg"]
+    depends_on:
+      urmail-signer:
+        # milter profile 未启用时不阻塞 postfix（required=false；启用后变为硬依赖）
+        condition: service_started
+        required: false
+      urmail-spam:
+        condition: service_started
+        required: false
+    volumes:
+      - ./compose/postfix:/srv/urmail/config/postfix:ro
+      - ${URMAIL_DATA_ROOT:-./data}/config/spool:/var/spool/postfix
+      # hold 门（QA 终判③+复审 CONDITION）：只 ro 挂 holds/ 子目录，
+      # 绝不把含 master.key/db 的整数据根暴露给 MTA 容器
+      - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
+    healthcheck:
+      test: ["CMD", "postfix", "-c", "/srv/urmail/config/postfix", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # host network；占位配置仅监听 127.0.0.1 且 ssl=no（骨架安全性优先，
+  # 真实证书/993 由配置生成器渲染）。
+  dovecot:
+    image: urmail-local:${URMAIL_IMAGE_VERSION:-snapshot}
+    network_mode: host
+    restart: unless-stopped
+    command: ["dovecot", "-F", "-c", "/srv/urmail/config/dovecot/dovecot.conf"]
+    volumes:
+      - ./compose/dovecot:/srv/urmail/config/dovecot:ro
+      - ${URMAIL_DATA_ROOT:-./data}/mail:/srv/urmail/data/mail
+      - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
+    healthcheck:
+      # doveadm process status talks to the running master; Dovecot 2.3 has
+      # no `doveadm ping` subcommand, so the earlier check always exited 64.
+      test: ["CMD", "doveadm", "-c", "/srv/urmail/config/dovecot/dovecot.conf", "process", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # host network；Caddyfile 为静态占位（渲染归 Go 配置生成器，Backend 负责）。
+  caddy:
+    image: caddy:2
+    network_mode: host
+    restart: unless-stopped
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile"]
+    volumes:
+      - ./compose/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${URMAIL_DATA_ROOT:-./data}/certs:/srv/urmail/data/certs
+      - ${URMAIL_DATA_ROOT:-./data}/config/caddy:/srv/urmail/data/config/caddy
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # SQLite 阶段转正（§1.2 db/urmail.sqlite → S3）；PG 占位期间仅定义不启用。
+  litestream:
+    image: litestream/litestream:latest
+    profiles: ["sqlite"]
+    command: ["replicate", "-config", "/etc/litestream.yml"]
+    restart: unless-stopped
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+      - ./compose/litestream.yml:/etc/litestream.yml:ro
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    volumes:
+      - ./compose/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${URMAIL_DATA_ROOT:-./data}/prometheus:/prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    volumes:
+      - ./compose/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro

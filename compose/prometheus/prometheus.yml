@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 30s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+  # urmaild:8080 加入抓取需等监听规则改造（现行 config 强制回环绑定）
+

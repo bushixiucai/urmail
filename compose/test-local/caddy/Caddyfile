@@ -1,0 +1,10 @@
+# LOCAL TEST Caddyfile (compose/test-local).  :80/:443 inside the container,
+# published as 8080/8443 on the host.  tls internal keeps it offline.
+:80 {
+	respond "urmail phase2 local test: control plane up" 200
+}
+
+:443 {
+	tls internal
+	respond "urmail phase2 local test: tls up" 200
+}

@@ -1,0 +1,16 @@
+# Build anything that must not enter the build context.
+web/node_modules
+node_modules
+web/dist
+dist
+bin
+output
+data
+*.deb
+*.tar.gz
+docs/reviews
+docs/planning
+# secrets must never enter the context (QA P1-3); keep the example
+.env
+.env.*
+!.env.example
