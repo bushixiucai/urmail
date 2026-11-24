@@ -1,7 +1,6 @@
 package agentd
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -35,7 +34,7 @@ func (m *ApplyManager) brandNginxDomains() ([]nginx.DomainConfig, error) {
 	if m.pool == nil {
 		return nil, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := platformContext(5 * time.Second)
 	defer cancel()
 	rows, err := db.Queries(m.pool).PlatformListBrandHosts(ctx)
 	if err != nil {
@@ -94,8 +93,10 @@ func (m *ApplyManager) ActivateBrandHost(raw json.RawMessage) (string, string, e
 	if !validation.IsValidHostname(p.Hostname) || p.BrandID <= 0 || p.ActorID <= 0 || p.VerifiedAt.IsZero() || m.pool == nil {
 		return "", "", fmt.Errorf("%w: invalid brand identity", ErrRejected)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := platformContext(3 * time.Minute)
 	defer cancel()
+	// Trusted platform entry: the actor is verified as a platform admin below
+	// and every store call in this method is platform-scoped.
 	q := db.Queries(m.pool)
 	reserved, reservedErr := q.PlatformBrandHostReserved(ctx, p.Hostname)
 	if reservedErr != nil || reserved || p.Hostname == m.hostname() {

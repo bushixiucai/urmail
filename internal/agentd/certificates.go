@@ -197,7 +197,7 @@ func (m *ApplyManager) brandHostCertEligible(domain string) bool {
 	if m.pool == nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := platformContext(3 * time.Second)
 	defer cancel()
 	eligible, err := db.Queries(m.pool.Pool).PlatformBrandHostCertEligible(ctx, domain)
 	return err == nil && eligible
@@ -533,7 +533,7 @@ func (m *ApplyManager) certificateProvisioningAllowed(domain string) bool {
 	if domain == m.hostname() || m.pool == nil {
 		return true
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := platformContext(3 * time.Second)
 	defer cancel()
 	allowed, err := db.Queries(m.pool.Pool).PlatformProvisioningCertificateAllowed(ctx, domain)
 	return err == nil && allowed

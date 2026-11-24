@@ -1315,6 +1315,18 @@ func (q *Queries) PlatformRotatePanelPassword(ctx context.Context, arg PlatformR
 // session and returns the new credential generation. Mirrors
 // urmail_change_panel_mfa.
 func (q *Queries) PlatformChangePanelMFA(ctx context.Context, arg PlatformChangePanelMFAParams) (int64, error) {
+	if !isSQLiteDBTX(q.db) {
+		// The PostgreSQL twin is the stored procedure; the panel_* statements
+		// below are SQLite-only and carry no `-- name:` label.
+		return pgstore.New(q.db).PlatformChangePanelMFA(ctx, pgstore.PlatformChangePanelMFAParams{
+			UserID:          arg.UserID,
+			ExpectedVersion: arg.ExpectedVersion,
+			Secret:          arg.Secret,
+			Enabled:         arg.Enabled,
+			Codes:           arg.Codes,
+			KeepSession:     arg.KeepSession,
+		})
+	}
 	now := timeutil.NowMicro()
 	err := q.requireCredentialRow(ctx, panelUserCredentialSQL, arg.UserID, arg.ExpectedVersion)
 	if errors.Is(err, pgx.ErrNoRows) {

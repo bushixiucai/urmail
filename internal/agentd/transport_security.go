@@ -19,7 +19,7 @@ func (m *ApplyManager) transportHosts(domains []postfix.Domain) ([]string, error
 	if m.pool == nil {
 		return nil, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := platformContext(3 * time.Second)
 	defer cancel()
 	rows, err := db.Queries(m.pool).PlatformListTransportSecurity(ctx)
 	if err != nil {
