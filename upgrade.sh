@@ -147,6 +147,7 @@ PLAN
     [ -f scripts/writer-lease-preflight.sh ] || die "scripts/writer-lease-preflight.sh missing from this checkout"
     # shellcheck source=scripts/writer-lease-preflight.sh
     . scripts/writer-lease-preflight.sh
+    data_root_fs_preflight "$DATA_ROOT"
     lease_preflight "$DATA_ROOT/.urmail-writer.lease"
 
     # ---- 2b. fresh-backup pre-flight: one-off urmailctl container ----------

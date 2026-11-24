@@ -195,6 +195,7 @@ install -d -o 5000 -g 5000 -m 0750 "$DATA_ROOT"
 [ -f scripts/writer-lease-preflight.sh ] || die "scripts/writer-lease-preflight.sh missing from this checkout"
 # shellcheck source=scripts/writer-lease-preflight.sh
 . scripts/writer-lease-preflight.sh
+data_root_fs_preflight "$DATA_ROOT"
 lease_preflight "$DATA_ROOT/.urmail-writer.lease"
 
 # ---- 4./5. caddy render + build + up ------------------------------------
