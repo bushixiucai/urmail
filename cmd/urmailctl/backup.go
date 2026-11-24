@@ -58,7 +58,9 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	if includeMail && !maintenance {
 		return fmt.Errorf("complete mail backups require --maintenance")
 	}
-	if backupWritersHeld() {
+	if held, heldErr := backupWritersHeldChecked(); heldErr != nil {
+		return heldErr
+	} else if held {
 		return errors.New("backup refused during restore or upgrade hold")
 	}
 	if os.Geteuid() != 0 && os.Getenv("URMAIL_ALLOW_TEST_USER") == "" {
@@ -70,7 +72,9 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 			return lockErr
 		}
 		defer func() { _ = operationLock.Close() }()
-		if backupWritersHeld() {
+		if held, heldErr := backupWritersHeldChecked(); heldErr != nil {
+			return heldErr
+		} else if held {
 			return errors.New("backup refused during restore or upgrade hold")
 		}
 		ctx = context.WithValue(ctx, backupOperationContext{}, true)

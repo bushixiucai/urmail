@@ -88,7 +88,9 @@ func runBackupAuto(ctx context.Context, args []string) error {
 	if os.Geteuid() != 0 || len(args) != 0 {
 		return errors.New("backup-auto requires root and no arguments")
 	}
-	if backupWritersHeld() {
+	if held, heldErr := backupWritersHeldChecked(); heldErr != nil {
+		return heldErr
+	} else if held {
 		fmt.Println("automatic backup disabled by restore or upgrade hold")
 		return nil
 	}
@@ -97,7 +99,9 @@ func runBackupAuto(ctx context.Context, args []string) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
-	if backupWritersHeld() {
+	if held, heldErr := backupWritersHeldChecked(); heldErr != nil {
+		return heldErr
+	} else if held {
 		fmt.Println("automatic backup disabled by restore or upgrade hold")
 		return nil
 	}
