@@ -54,3 +54,29 @@ func TestCreateSQLiteSnapshotWritesConsistentCopy(t *testing.T) {
 		t.Fatal("existing snapshot target was overwritten")
 	}
 }
+
+// TestCreateSQLiteSnapshotRemovesTargetWhenChmodFails proves the failure path
+// leaves no half-finished snapshot behind.
+func TestCreateSQLiteSnapshotRemovesTargetWhenChmodFails(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.sqlite")
+	db, err := sqlitedb.Open(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = sqlitedb.Migrate(ctx, db, migrations_sqlite.FS, "."); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	previous := sqliteSnapshotChmod
+	sqliteSnapshotChmod = func(string, os.FileMode) error { return os.ErrPermission }
+	t.Cleanup(func() { sqliteSnapshotChmod = previous })
+	target := filepath.Join(t.TempDir(), "snapshot", "half.sqlite")
+	if err = createSQLiteSnapshot(ctx, source, target); err == nil {
+		t.Fatal("chmod failure was not reported")
+	}
+	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		t.Fatalf("failed snapshot left %s behind (err=%v)", target, statErr)
+	}
+}

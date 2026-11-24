@@ -47,7 +47,7 @@ func TestBackupDatabaseArtifactEngineExclusive(t *testing.T) {
 }
 
 func TestRequirePostgresRestoreEngine(t *testing.T) {
-	if err := requirePostgresRestoreEngine(&config.Config{DBEngine: "sqlite", SQLitePath: "/tmp/x.sqlite"}); err == nil || !strings.Contains(err.Error(), "S6 auth-snapshot executor") {
+	if err := requirePostgresRestoreEngine(&config.Config{DBEngine: "sqlite", SQLitePath: "/tmp/x.sqlite"}); err == nil || !strings.Contains(err.Error(), "S6 auth-snapshot delivery") {
 		t.Fatalf("sqlite restore guard err=%v", err)
 	}
 	if err := requirePostgresRestoreEngine(&config.Config{DatabaseURLPlatform: "postgres://urmail@127.0.0.1/urmail"}); err != nil {

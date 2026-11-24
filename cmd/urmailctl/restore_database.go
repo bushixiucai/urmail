@@ -98,7 +98,7 @@ func restoreDatabaseArchive(ctx context.Context, databaseURL, dump, directory st
 // (database + auth snapshot as one atomic generation), never here.
 func requirePostgresRestoreEngine(cfg *config.Config) error {
 	if cfg != nil && cfg.IsSQLite() {
-		return errors.New("SQLite restore is delegated to the S6 auth-snapshot executor (runSQLiteRestoreExecutor); the PostgreSQL archive path is not used in single-engine mode")
+		return errors.New("SQLite restore execution is not provided by this tree yet (planned with the S6 auth-snapshot delivery); the PostgreSQL archive path is not used in single-engine mode")
 	}
 	return nil
 }
