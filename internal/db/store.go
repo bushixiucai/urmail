@@ -86,7 +86,7 @@ func Queries(tx store.DBTX) *store.Queries {
 	return q
 }
 
-// Querier returns the S3 scope-enforced store.Querier surface (702 methods)
+// Querier returns the S3 scope-enforced store.Querier surface (703 methods)
 // backed by db.Queries(tx) and wrapped by isolation.WrapQuerier.
 func Querier(tx store.DBTX) store.Querier {
 	q := Queries(tx)

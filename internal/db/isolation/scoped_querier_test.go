@@ -141,9 +141,9 @@ func extractCallError(t *testing.T, results []reflect.Value) error {
 	return err
 }
 
-func TestScopedQuerierAll702MethodsMatrix(t *testing.T) {
+func TestScopedQuerierAllMethodsMatrix(t *testing.T) {
 	querierType := reflect.TypeOf((*store.Querier)(nil)).Elem()
-	const wantMethods = 702
+	const wantMethods = 703
 	if querierType.NumMethod() != wantMethods {
 		t.Fatalf("store.Querier has %d methods, want %d", querierType.NumMethod(), wantMethods)
 	}

@@ -1,4 +1,4 @@
-// Code generated for S3 702-method Querier matrix tests.
+// Code generated for S3 703-method Querier matrix tests.
 package isolation
 
 import (
@@ -1533,6 +1533,11 @@ func (s *spyQuerier) PlatformCreateAnnouncement(ctx context.Context, arg store.P
 
 func (s *spyQuerier) PlatformCreateDNSAction(ctx context.Context, arg store.PlatformCreateDNSActionParams) error {
 	return s.record("PlatformCreateDNSAction")
+}
+
+func (s *spyQuerier) PlatformCreateFirstDomain(ctx context.Context, arg store.PlatformCreateFirstDomainParams) (int64, error) {
+	var zero int64
+	return zero, s.record("PlatformCreateFirstDomain")
 }
 
 func (s *spyQuerier) PlatformCreateInvestigation(ctx context.Context, arg store.PlatformCreateInvestigationParams) (int64, error) {

@@ -3349,6 +3349,19 @@ func (s *ScopedQuerier) PlatformCreateDNSAction(ctx context.Context, arg store.P
 	return s.inner.PlatformCreateDNSAction(ctx, arg)
 }
 
+func (s *ScopedQuerier) PlatformCreateFirstDomain(ctx context.Context, arg store.PlatformCreateFirstDomainParams) (int64, error) {
+	sc, err := CheckMethod(ctx, "PlatformCreateFirstDomain", ScopeTenant)
+	if err != nil {
+		var zero int64
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "PlatformCreateFirstDomain", arg.TenantID); err != nil {
+		var zero int64
+		return zero, err
+	}
+	return s.inner.PlatformCreateFirstDomain(ctx, arg)
+}
+
 func (s *ScopedQuerier) PlatformCreateInvestigation(ctx context.Context, arg store.PlatformCreateInvestigationParams) (int64, error) {
 	if _, err := CheckMethod(ctx, "PlatformCreateInvestigation", ScopePlatform); err != nil {
 		var zero int64

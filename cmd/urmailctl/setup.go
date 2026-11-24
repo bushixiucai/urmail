@@ -409,7 +409,10 @@ func runSetupFirstDomain(ctx context.Context, cfg *config.Config, fqdn, email st
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	tenantCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tenantID})
-	if _, err = db.Queries(tx).PlatformCreateFirstDomain(tenantCtx, store.PlatformCreateFirstDomainParams{
+	// Use the generated ScopedQuerier surface so the guard carries both
+	// CheckMethod and CheckTenantMatch: a context tenant that disagrees with
+	// the parameter tenant is refused before the INSERT runs.
+	if _, err = db.Querier(tx).PlatformCreateFirstDomain(tenantCtx, store.PlatformCreateFirstDomainParams{
 		TenantID: tenantID, Fqdn: fqdn, Mode: "delegated", Status: "pending_dns",
 		VerificationToken: verification, TlsMode: "letsencrypt", DkimSelector: dkim.Selector, DkimPrivateKey: dkim.PrivateKey,
 	}); err != nil {

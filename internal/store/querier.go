@@ -483,6 +483,7 @@ type Querier interface {
 	PlatformCountRecentTLSReports(ctx context.Context, arg PlatformCountRecentTLSReportsParams) (int64, error)
 	PlatformCreateAnnouncement(ctx context.Context, arg PlatformCreateAnnouncementParams) (Announcements, error)
 	PlatformCreateDNSAction(ctx context.Context, arg PlatformCreateDNSActionParams) error
+	PlatformCreateFirstDomain(ctx context.Context, arg PlatformCreateFirstDomainParams) (int64, error)
 	PlatformCreateInvestigation(ctx context.Context, arg PlatformCreateInvestigationParams) (int64, error)
 	PlatformCreateLegacyAlias(ctx context.Context, arg PlatformCreateLegacyAliasParams) (MailboxAliases, error)
 	PlatformCreateLegacyDomain(ctx context.Context, arg PlatformCreateLegacyDomainParams) (int64, error)

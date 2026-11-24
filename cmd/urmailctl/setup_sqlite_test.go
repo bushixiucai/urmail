@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,5 +186,65 @@ func TestSetupDomainPathKeepsScopeAndHostnameGuards(t *testing.T) {
 				t.Fatalf("refused --domain changed the database: %s -> %s", before, after)
 			}
 		})
+	}
+}
+
+// TestFirstDomainCreationRejectsCrossTenantContext pins the setup --domain
+// write behind the generated ScopedQuerier: a context tenant that disagrees
+// with the parameter tenant is refused before the INSERT, and the same call
+// with a matching tenant still creates the row.
+func TestFirstDomainCreationRejectsCrossTenantContext(t *testing.T) {
+	_, raw := newSetupSQLite(t)
+	ctx := context.Background()
+	if err := runSetup(ctx, []string{"--email", "admin@drill.test", "--password", "drill-password-123", "--brand", "default", "--tenant", "default"}); err != nil {
+		t.Fatalf("seed setup: %v", err)
+	}
+	var tenantID int64
+	if err := raw.QueryRow(`SELECT id FROM tenants WHERE slug='default'`).Scan(&tenantID); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.NewSQLitePool(raw, isolation.ScopeTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := func(tenant int64) store.PlatformCreateFirstDomainParams {
+		return store.PlatformCreateFirstDomainParams{
+			TenantID: tenant, Fqdn: "guard.example.test", Mode: "delegated", Status: "pending_dns",
+			VerificationToken: "guard-token", TlsMode: "letsencrypt", DkimSelector: "mail",
+			DkimPrivateKey: "-----BEGIN RSA PRIVATE KEY-----\nguard\n-----END RSA PRIVATE KEY-----",
+		}
+	}
+	requestCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tenantID})
+
+	tx, err := pool.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Querier(tx).PlatformCreateFirstDomain(requestCtx, params(tenantID+1)); !errors.Is(err, isolation.ErrCrossTenantAccess) {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("cross-tenant create err=%v, want ErrCrossTenantAccess", err)
+	}
+	if err = tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var crossed int
+	if err := raw.QueryRow(`SELECT count(*) FROM domains WHERE fqdn='guard.example.test'`).Scan(&crossed); err != nil || crossed != 0 {
+		t.Fatalf("refused cross-tenant write left %d rows (err=%v)", crossed, err)
+	}
+
+	tx, err = pool.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Querier(tx).PlatformCreateFirstDomain(requestCtx, params(tenantID)); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("matching tenant create: %v", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var created int
+	if err := raw.QueryRow(`SELECT count(*) FROM domains WHERE fqdn='guard.example.test' AND tenant_id=?`, tenantID).Scan(&created); err != nil || created != 1 {
+		t.Fatalf("matching-tenant write left %d rows (err=%v)", created, err)
 	}
 }

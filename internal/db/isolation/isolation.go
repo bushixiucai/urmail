@@ -4,7 +4,7 @@
 // scripts/sqlite/method_scopes.json is mirrored here as an embedded registry so
 // runtime and compile-time checks share one authoritative map of every
 // store.Querier method to its required scope (tenant, platform, system,
-// pre-auth). ScopedQuerier wraps store.Querier across all 702 methods at
+// pre-auth). ScopedQuerier wraps store.Querier across all 703 methods at
 // db.Querier, and DBTXScopeHook enforces context scope across *store.Queries
 // and (*store.Queries).WithTx at db.Queries.
 package isolation
@@ -255,7 +255,7 @@ type Hook func(tx store.DBTX, q *store.Queries) *store.Queries
 type QuerierHook func(tx store.DBTX, q store.Querier) store.Querier
 
 // ScopedQuerier is the S3 scope-enforcing store.Querier decorator covering all
-// 702 methods in internal/store/querier.go.
+// 703 methods in internal/store/querier.go.
 type ScopedQuerier struct {
 	inner store.Querier
 }

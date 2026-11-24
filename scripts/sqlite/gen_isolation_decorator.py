@@ -2,7 +2,7 @@
 """gen_isolation_decorator.py — generate internal/db/isolation/scoped_querier_gen.go.
 
 Reads:
-  - internal/store/querier.go (authoritative 702-method store.Querier surface)
+  - internal/store/querier.go (authoritative store.Querier surface)
   - internal/store/*.go non-test parameter structs (to detect TenantID fields)
   - internal/db/isolation/method_scopes.json (authoritative scope registry)
 
