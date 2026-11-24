@@ -156,11 +156,44 @@ if [ "$cmd" = "urmaild" ] || [ "$cmd" = "serve" ]; then
         : > "$URMAIL_ENV_FILE"
         chmod 600 "$URMAIL_ENV_FILE"
     fi
-    init_sqlite
-    if [ "${URMAIL_AUTO_MIGRATE:-1}" = "1" ]; then
-        echo "[entrypoint] applying pending schema migrations (urmailctl migrate up)"
-        urmailctl migrate up
+    # Engine selection is explicit and fail-closed.  DB_ENGINE wins; otherwise
+    # any PostgreSQL DSN selects the PG assembly, and the absence of all of
+    # them selects the SQLite assembly.  The two migrations never run for the
+    # other engine.
+    engine="${DB_ENGINE:-}"
+    if [ -z "$engine" ]; then
+        if [ -n "${URMAIL_DATABASE_URL_MIGRATE:-}${URMAIL_DATABASE_URL_PLATFORM:-}${URMAIL_DATABASE_URL:-}" ]; then
+            engine=postgres
+        else
+            engine=sqlite
+        fi
     fi
+    case "$engine" in
+        sqlite)
+            if [ -n "${URMAIL_DATABASE_URL_MIGRATE:-}${URMAIL_DATABASE_URL_PLATFORM:-}${URMAIL_DATABASE_URL:-}" ]; then
+                echo "[entrypoint] engine=sqlite conflicts with PostgreSQL database URLs; refusing to start" >&2
+                exit 1
+            fi
+            init_sqlite
+            ;;
+        postgres)
+            if [ -n "${URMAIL_SQLITE_PATH:-}" ]; then
+                echo "[entrypoint] engine=postgres; ignoring URMAIL_SQLITE_PATH (no SQLite assembly in this container)"
+                unset URMAIL_SQLITE_PATH
+            fi
+            if [ "${URMAIL_AUTO_MIGRATE:-1}" = "1" ] && \
+               { [ -n "${URMAIL_DATABASE_URL_MIGRATE:-}" ] || [ -n "${URMAIL_DATABASE_URL_PLATFORM:-}" ]; }; then
+                echo "[entrypoint] applying pending PG schema migrations (urmailctl migrate up)"
+                urmailctl migrate up
+            else
+                echo "[entrypoint] PG migration skipped (engine=postgres, auto-migrate off or no migrate/platform DSN)"
+            fi
+            ;;
+        *)
+            echo "[entrypoint] unknown DB_ENGINE='$engine' (want sqlite or postgres); refusing to start" >&2
+            exit 1
+            ;;
+    esac
 fi
 
 exec "$@"
