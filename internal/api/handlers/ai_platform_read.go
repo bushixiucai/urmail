@@ -51,7 +51,7 @@ func (h *AIConfigurationHandler) PlatformGet(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	policy, err := aiTargetPolicy(c, q, cfg)
+	policy, err := aiTargetPolicy(c.Request.Context(), q, cfg)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

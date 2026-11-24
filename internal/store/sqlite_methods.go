@@ -3224,6 +3224,12 @@ func (q *Queries) PlatformConfigureTenantAI(ctx context.Context, arg PlatformCon
 	if arg.LocalOnly && arg.Provider != "ollama" {
 		return pgError("23514", "AI_CONFIGURATION_INVALID")
 	}
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformConfigureTenantAI(ctx, pgstore.PlatformConfigureTenantAIParams{
+			Mode: arg.Mode, Provider: arg.Provider, Endpoint: arg.Endpoint, Model: arg.Model,
+			EncryptedKey: arg.EncryptedKey, Enabled: arg.Enabled, LocalOnly: arg.LocalOnly,
+		})
+	}
 	return q.runTx(ctx, func(tx *Queries) error {
 		tenant, actor, _, err := tx.sessionActor(ctx)
 		if err != nil {
@@ -3357,6 +3363,11 @@ func (q *Queries) PlatformConfigureTenantAIGovernance(ctx context.Context, arg P
 	encoded, err := json.Marshal(endpoints)
 	if err != nil {
 		return pgError("23514", "AI_GOVERNANCE_INVALID")
+	}
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformConfigureTenantAIGovernance(ctx, pgstore.PlatformConfigureTenantAIGovernanceParams{
+			PersonalMode: arg.PersonalMode, ApprovedEndpoints: arg.ApprovedEndpoints,
+		})
 	}
 	return q.runTx(ctx, func(tx *Queries) error {
 		tenant, actor, _, err := tx.sessionActor(ctx)
@@ -3587,6 +3598,11 @@ WHERE tenant_id=?2`
 // snapshots. That rewrites mode/provider/endpoint/model, so the digest must be
 // recomputed or an existing cloud consent would survive the switch.
 func (q *Queries) PlatformSetActiveAIService(ctx context.Context, arg PlatformSetActiveAIServiceParams) error {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformSetActiveAIService(ctx, pgstore.PlatformSetActiveAIServiceParams{
+			ActiveService: arg.ActiveService, TenantID: arg.TenantID,
+		})
+	}
 	return q.runTx(ctx, func(tx *Queries) error {
 		if _, err := tx.db.Exec(ctx, aiSetActiveServiceSQL, arg.ActiveService, arg.TenantID); err != nil {
 			return err
@@ -3619,7 +3635,13 @@ func (q *Queries) LockMailboxEASSync(_ context.Context, _ LockMailboxEASSyncPara
 func (q *Queries) LockMailboxImportTenantBudget(_ context.Context, _ int64) error { return nil }
 
 // PlatformLockBillingTenant：租户计费/配额写入由事务串行化互斥。
-func (q *Queries) PlatformLockBillingTenant(_ context.Context, _ int64) error { return nil }
+func (q *Queries) PlatformLockBillingTenant(ctx context.Context, tenantID int64) error {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformLockBillingTenant(ctx, tenantID)
+	}
+	// SQLite serializes each write transaction, so this tenant lock is implicit.
+	return nil
+}
 
 // PlatformLockSendDraft（原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
 // 草稿发送与草稿编辑互斥；PG 在事务级持锁，SQLite 用事务串行化。

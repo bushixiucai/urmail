@@ -256,7 +256,7 @@ func (r *AIUsageReservation) Settle(providerErr error, usageKnown bool, promptTo
 	}
 	tenant, id, pool, kind := r.tenant, r.id, r.pool, r.kind
 	go func() {
-		settleCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		settleCtx, cancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform}), 5*time.Second)
 		defer cancel()
 		status := "uncertain"
 		var actualTokens, actualCost int64

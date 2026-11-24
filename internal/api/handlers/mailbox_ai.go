@@ -384,7 +384,7 @@ func (h *AIConfigurationHandler) Get(c *gin.Context) {
 	for key, value := range aiConfigurationQuotaFields(cfg) {
 		configuration[key] = value
 	}
-	policy, policyErr := aiTargetPolicy(c, db.Queries(h.Pool), cfg)
+	policy, policyErr := aiTargetPolicy(c.Request.Context(), db.Queries(h.Pool), cfg)
 	if policyErr != nil {
 		authError(c, 503, "DB_ERROR")
 		return

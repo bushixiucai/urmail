@@ -204,7 +204,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 			authError(c, 503, "DB_ERROR")
 			return
 		default:
-			response, cfgErr = aiTargetPolicy(c, q, cfg)
+			response, cfgErr = aiTargetPolicy(c.Request.Context(), q, cfg)
 			if cfgErr != nil {
 				authError(c, 503, "DB_ERROR")
 				return
