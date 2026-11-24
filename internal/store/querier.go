@@ -346,7 +346,7 @@ type Querier interface {
 	// PlatformAcquireDraftSessionLock blocks until this process owns the key. It
 	// replaces pg_advisory_lock: the caller must pair it with
 	// PlatformReleaseDraftSessionLock, and cancellation while waiting is honored
-	// (PG's blocking acquire is cancelled by statement_timeout/context too).
+	// (PG's blocking acquire is canceled by statement_timeout/context too).
 	PlatformAcquireDraftSessionLock(ctx context.Context, arg PlatformAcquireDraftSessionLockParams) error
 	// Promote imported delegated domains for mail routing without claiming managed DNS.
 	// mode and dns_explicit stay delegated/false so NSD reconcile emits no zones.
