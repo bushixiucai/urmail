@@ -152,6 +152,19 @@ def main():
             state["mode"] = mode
             env = dict(os.environ)
             env.pop("URMAIL_PACKAGE", None)
+            if mode == "fixed":
+                # A managed upgrade refuses to fence without a fresh complete
+                # backup run (R1 gate); the disposable host starts with none.
+                # Produce a real local-only generation through the product
+                # worker instead of overriding the gate.
+                seedEnv = dict(os.environ)
+                seedEnv["URMAIL_BACKUP_ALLOW_LOCAL_ONLY"] = "1"
+                seed = subprocess.run(["/usr/bin/urmailctl", "backup-auto"],
+                                      env=seedEnv, capture_output=True, timeout=900)
+                Path(logs, "fixed-backup-auto.log").write_bytes(seed.stdout + seed.stderr)
+                if seed.returncode != 0:
+                    print_failure_output(seed.stdout + seed.stderr, seedEnv)
+                assert seed.returncode == 0, f"{mode}: seeding a local-only backup failed (exit {seed.returncode})"
             env.update(URMAIL_VERSION="latest" if mode == "latest" else "v" + args.version,
                        URMAIL_REPO=base, URMAIL_MIRROR="" if mode == "latest" else base)
             result = subprocess.run(["bash", str(installer)], env=env, capture_output=True, timeout=900)
