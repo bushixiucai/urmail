@@ -113,7 +113,7 @@ func auditRecord(c *gin.Context) store.CreateAuditLogParams {
 	return store.CreateAuditLogParams{
 		TenantID:    pgtype.Int8{Int64: tenantID, Valid: tenantOK},
 		ActorUserID: pgtype.Int8{Int64: userID, Valid: userOK && userID > 0},
-		ActorIp:     actorIP, Action: c.Request.Method + " " + c.FullPath(),
+		ActorIP:     actorIP, Action: c.Request.Method + " " + c.FullPath(),
 		TargetType: pgtype.Text{String: "http", Valid: true},
 		TargetID:   pgtype.Text{String: c.Request.URL.Path, Valid: true}, Detail: detail,
 	}
@@ -134,7 +134,7 @@ func prepareTransactionAudit(c *gin.Context, tx pgx.Tx) error {
 	auditState(c).preparedStatus = status
 	return db.Queries(tx).RecordTenantAudit(c.Request.Context(), store.RecordTenantAuditParams{
 		TenantID: record.TenantID.Int64, UserID: record.ActorUserID.Int64,
-		ActorIp: record.ActorIp, Action: record.Action, Target: record.TargetID.String,
+		ActorIP: record.ActorIP, Action: record.Action, Target: record.TargetID.String,
 		Status: int32(status),
 	})
 }

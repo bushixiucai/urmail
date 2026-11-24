@@ -26,6 +26,7 @@ import (
 // Scope identifies the authorization boundary required by a sqlc method.
 type Scope string
 
+// Scope constants identify the trusted context a call runs under.
 const (
 	ScopeTenant   Scope = "tenant"
 	ScopePlatform Scope = "platform"

@@ -545,7 +545,7 @@ var auditActionPattern = regexp.MustCompile(`^[A-Za-z]{3,10} [A-Za-z0-9/{}:._~-]
 type RecordTenantAuditParams struct {
 	TenantID int64       `json:"tenant_id"`
 	UserID   int64       `json:"user_id"`
-	ActorIp  *netip.Addr `json:"actor_ip"`
+	ActorIP  *netip.Addr `json:"actor_ip"`
 	Action   string      `json:"action"`
 	Target   string      `json:"target"`
 	Status   int32       `json:"status"`
@@ -570,7 +570,7 @@ func (q *Queries) RecordTenantAudit(ctx context.Context, arg RecordTenantAuditPa
 	}
 	if !isSQLiteDBTX(q.db) {
 		return pgstore.New(q.db).RecordTenantAudit(ctx, pgstore.RecordTenantAuditParams{
-			TenantID: arg.TenantID, UserID: arg.UserID, ActorIp: arg.ActorIp,
+			TenantID: arg.TenantID, UserID: arg.UserID, ActorIP: arg.ActorIP,
 			Action: arg.Action, Target: arg.Target, Status: arg.Status,
 		})
 	}
@@ -587,8 +587,8 @@ func (q *Queries) RecordTenantAudit(ctx context.Context, arg RecordTenantAuditPa
 		return err
 	}
 	var ip any
-	if arg.ActorIp != nil {
-		ip = arg.ActorIp.String()
+	if arg.ActorIP != nil {
+		ip = arg.ActorIP.String()
 	}
 	var out int64
 	return q.db.QueryRow(ctx, recordTenantAuditInsertSQL, arg.TenantID, arg.UserID, ip, arg.Action, arg.Target, string(detail)).Scan(&out)

@@ -214,7 +214,7 @@ type AuditLogs struct {
 	ID          int64              `json:"id"`
 	TenantID    pgtype.Int8        `json:"tenant_id"`
 	ActorUserID pgtype.Int8        `json:"actor_user_id"`
-	ActorIp     *netip.Addr        `json:"actor_ip"`
+	ActorIP     *netip.Addr        `json:"actor_ip"`
 	Action      string             `json:"action"`
 	TargetType  pgtype.Text        `json:"target_type"`
 	TargetID    pgtype.Text        `json:"target_id"`
