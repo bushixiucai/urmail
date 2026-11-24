@@ -43,10 +43,23 @@ class QuiescenceAndV2BindingTests(fixtures.CheckpointTests):
 
     def test_active_unit_pre_capture_rejected(self):
         self.v2fence()
-        with self.assertRaisesRegex(ValueError, "writer unit not inactive: nginx.service"):
+        with self.assertRaisesRegex(ValueError, "writer unit not quiescent: nginx.service"):
             self.helper.create(self.name, lambda: b"urmail\t1\tarm64\tinstalled\n",
                                lambda unit: "active" if unit == "nginx.service" else "inactive")
         self.assertFalse((self.directory / "COMPLETE").exists())
+
+    def test_failed_oneshot_unit_is_quiescent(self):
+        # A one-shot unit that exited unsuccessfully (e.g. urmail-usage-sync)
+        # is not writing; the checkpoint must not be blocked by its failed
+        # state, but every active unit still fails closed.
+        self.v2fence()
+        self.helper.create(self.name, lambda: b"urmail\t1\tarm64\tinstalled\n",
+                           lambda unit: "failed" if unit == "urmail-usage-sync.service" else "inactive")
+        manifest = self.helper.verify(self.name)
+        self.assertEqual(manifest["version"], 2)
+        states = {e["unit"]: e["state"] for e in manifest["quiescence_attestation"]["units"]}
+        self.assertEqual(states["urmail-usage-sync.service"], "failed")
+        self.assertTrue((self.directory / "COMPLETE").exists())
 
     def test_active_unit_post_capture_rejected(self):
         self.v2fence()
@@ -56,7 +69,7 @@ class QuiescenceAndV2BindingTests(fixtures.CheckpointTests):
             calls["n"] += 1
             return "active" if calls["n"] > len(cp.QUIESCENCE_UNITS) else "inactive"
 
-        with self.assertRaisesRegex(ValueError, "writer unit not inactive"):
+        with self.assertRaisesRegex(ValueError, "writer unit not quiescent"):
             self.helper.create(self.name, lambda: b"urmail\t1\tarm64\tinstalled\n", query)
         self.assertFalse((self.directory / "COMPLETE").exists())
 
@@ -79,7 +92,7 @@ class QuiescenceAndV2BindingTests(fixtures.CheckpointTests):
     def test_attestation_unit_tamper_rejected(self):
         self.create_v2()
         self.rewrite_manifest(lambda m: m["quiescence_attestation"]["units"][0].update(state="active"))
-        with self.assertRaisesRegex(ValueError, "pre-capture attestation unit not inactive"):
+        with self.assertRaisesRegex(ValueError, "pre-capture attestation unit not quiescent"):
             self.helper.verify(self.name)
 
     def test_attestation_digest_binding_rejected(self):
