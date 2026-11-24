@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -100,10 +102,15 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	// session, so this read is a trusted platform entry; without the scope the
 	// isolation hook rejects it and the handler would misreport a 404.
 	tenant, err := q.GetTenantByID(platformCtx(c), tenantID)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": gin.H{"code": "TENANT_NOT_FOUND", "message": "tenant.not_found"},
 		})
+		return
+	}
+	if err != nil {
+		// A scope or driver failure is not "missing": never disguise it as 404.
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
 
@@ -138,7 +145,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	// with the platform/brand/tenant settings entries keyed "theme".
 	var theme *domainSettings.EffectiveTheme
 	if h.Platform != nil {
-		if brandRow, err := h.Platform.PlatformGetBrandThemeByTenant(c.Request.Context(), tenantID); err == nil {
+		if brandRow, err := h.Platform.PlatformGetBrandThemeByTenant(platformCtx(c), tenantID); err == nil {
 			src := domainSettings.BrandThemeSource{
 				BrandID:      brandRow.BrandID,
 				BrandSlug:    brandRow.BrandSlug,
