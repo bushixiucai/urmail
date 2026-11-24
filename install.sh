@@ -168,7 +168,7 @@ if [ -f .env ] && grep -qE '^URMAIL_DATA_ROOT=' .env; then
 elif [ -f .env ]; then
     warn ".env has no URMAIL_DATA_ROOT key; compose will default to ./data"
 fi
-[ -n "$ADMIN_EMAIL" ] || { warn "--admin-email not given; first-boot bootstrap URL will be printed by urmaild"; }
+[ -n "$ADMIN_EMAIL" ] || { warn "--admin-email not given; create the first administrator later with: urmailctl setup --email <admin>"; }
 
 # Mounted service configs must be world-readable: the official Prometheus and
 # Alertmanager images run as nobody, so a checkout made with umask 077 would
@@ -230,9 +230,9 @@ echo
 cat <<HINT
 
 Bootstrap & DNS checklist (domain: $PRIMARY_DOMAIN)
-  admin bootstrap : open https://$PRIMARY_DOMAIN and follow the one-time
-                    admin URL printed by urmaild on first boot
-                    (docker compose logs urmaild | grep -i bootstrap)
+  admin bootstrap : docker compose exec urmaild urmailctl setup \
+                      --email ${ADMIN_EMAIL:-<admin@$PRIMARY_DOMAIN>} --brand default --tenant default
+                    (set URMAIL_SETUP_PASSWORD, at least 12 bytes, in the container env)
                     ${ADMIN_EMAIL:+admin email: $ADMIN_EMAIL}
   MX   : $PRIMARY_DOMAIN.  IN MX 10 $DOMAIN.
   SPF  : $PRIMARY_DOMAIN.  IN TXT "v=spf1 mx -all"

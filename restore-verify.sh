@@ -6,7 +6,7 @@
 #   2. restored SQLite: PRAGMA integrity_check, user_version, table count
 #   3. Maildir: per-file sha256 of a random sample vs the restored files
 #   4. one random message fetched by Message-ID over IMAPS and compared
-#   5. DKIM key sha256 and admin bootstrap hash unchanged
+#   5. DKIM key sha256 and admin credential rows unchanged
 # Fail-closed: any failed check exits non-zero.
 #
 # Usage:
@@ -78,8 +78,10 @@ TAB=$(sqlq "SELECT count(*) FROM sqlite_master WHERE type='table';" | head -n1)
 [ "$INT" = ok ] && ok "integrity_check=ok" || bad "integrity_check=$INT"
 [ "$UV" = "$(meta sqlite_user_version)" ] && ok "user_version=$UV (matches snapshot)" || bad "user_version=$UV != snapshot $(meta sqlite_user_version)"
 [ "$TAB" = "$(meta sqlite_tables)" ] && ok "tables=$TAB (matches snapshot)" || bad "tables=$TAB != snapshot $(meta sqlite_tables)"
-AH=$(sqlq "SELECT value FROM firstboot_state WHERE key='admin_bootstrap_token_hash';" | head -n1 || true)
-[ -n "$AH" ] && [ "$AH" = "$(meta admin_bootstrap_token_hash)" ] && ok "admin bootstrap hash unchanged" || bad "admin hash differs"
+PW=$(sqlq "SELECT count(*) FROM users WHERE password_hash IS NOT NULL AND password_hash<>'';" | head -n1)
+PA=$(sqlq "SELECT count(*) FROM platform_admins;" | head -n1)
+[ "$PW" = "$(meta admin_password_hash_rows)" ] && ok "admin password hashes=$PW (matches snapshot)" || bad "admin password hash rows=$PW != snapshot $(meta admin_password_hash_rows)"
+[ "$PA" = "$(meta platform_admin_rows)" ] && ok "platform admins=$PA (matches snapshot)" || bad "platform admin rows=$PA != snapshot $(meta platform_admin_rows)"
 DKIM_KEY=$(find "$TARGET/config/dkim" -name '*.key' 2>/dev/null | head -n1)
 DKIM_SHA=$([ -n "$DKIM_KEY" ] && sha256sum "$DKIM_KEY" | cut -d' ' -f1 || true)
 [ -n "$DKIM_SHA" ] && [ "$DKIM_SHA" = "$(meta dkim_key_sha256)" ] && ok "DKIM private key sha256 unchanged" || bad "DKIM key missing or changed"

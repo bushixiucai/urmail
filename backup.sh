@@ -126,14 +126,15 @@ INT=$(sqlite_snap_query "PRAGMA integrity_check;" | head -n1)
 [ "$INT" = "ok" ] || die "snapshot SQLite integrity_check=$INT"
 UV=$(sqlite_snap_query "PRAGMA user_version;" | head -n1)
 TAB=$(sqlite_snap_query "SELECT count(*) FROM sqlite_master WHERE type='table';" | head -n1)
-AH=$(sqlite_snap_query "SELECT value FROM firstboot_state WHERE key='admin_bootstrap_token_hash';" 2>/dev/null | head -n1 || true)
+AH=$(sqlite_snap_query "SELECT count(*) FROM users WHERE password_hash IS NOT NULL AND password_hash<>'';" 2>/dev/null | head -n1 || true)
+PA=$(sqlite_snap_query "SELECT count(*) FROM platform_admins;" 2>/dev/null | head -n1 || true)
 SRC_AFTER=$(src_digest)
 SRC_NAMES_AFTER=$(src_names)
 NEW_SOURCE_FILES=$(comm -13 <(printf '%s\n' "$SRC_NAMES_BEFORE") <(printf '%s\n' "$SRC_NAMES_AFTER") | grep -c . || true)
 SOURCE_UNCHANGED=yes
 [ "$SRC_BEFORE" = "$SRC_AFTER" ] && [ "$SRC_AFTER_COPY" = "$SRC_AFTER" ] && [ "${NEW_SOURCE_FILES:-0}" = "0" ] || SOURCE_UNCHANGED=no
 [ "$SOURCE_UNCHANGED" = yes ] || die "the SQLite source changed during the export (new_file_count=$NEW_SOURCE_FILES); snapshot is not quiescent"
-log "sqlite: integrity=ok user_version=$UV tables=$TAB admin_hash=${AH:0:16}..."
+log "sqlite: integrity=ok user_version=$UV tables=$TAB admin_credentials=${AH:-0} platform_admins=${PA:-0}"
 
 # ---- 2. Maildir / config / archive ---------------------------------------
 mail_list() { find "$DATA_ROOT/mail" -type f -printf '%p %s %T@\n' 2>/dev/null | sort; }
@@ -193,7 +194,8 @@ sqlite_sha256=$SQLITE_SHA
 sqlite_user_version=$UV
 sqlite_tables=$TAB
 sqlite_integrity=$INT
-admin_bootstrap_token_hash=$AH
+admin_password_hash_rows=${AH:-0}
+platform_admin_rows=${PA:-0}
 dkim_key_path=${DKIM_KEY#"$OUT"/}
 dkim_key_sha256=$DKIM_SHA
 mail_files=$MAIL_FILES
