@@ -42,6 +42,15 @@ import (
 // reportVersion narrows a database version counter into the report fact field
 // without silent truncation: negative values and values beyond int32 are
 // rejected so a malformed ledger row fails the read instead of corrupting it.
+// marketingRetryBackoffMicros clamps the retry attempt counter before it
+// becomes a shift: negative counters mean "first retry" and anything above ten
+// attempts is capped at the same 1024s ceiling, so the value can never overflow
+// or shift by an out-of-range count.
+func marketingRetryBackoffMicros(attempts int64) int64 {
+	shift := min(max(attempts, 0), 10)
+	return int64(1) << shift
+}
+
 func reportVersion(version int64) (int32, error) {
 	if version < 0 || version > math.MaxInt32 {
 		return 0, fmt.Errorf("report version %d out of int32 range", version)
@@ -2602,11 +2611,7 @@ func (q *Queries) finishMarketingSend(ctx context.Context, arg PlatformFinishMar
 			return false, err
 		}
 	}
-	shift := min(r.Attempts, 10)
-	if shift < 0 {
-		shift = 0
-	}
-	backoff := int64(1) << shift
+	backoff := marketingRetryBackoffMicros(r.Attempts)
 	if _, err := q.db.Exec(ctx, marketingRecipientFinishSQL, arg.TenantID, arg.RecipientID,
 		arg.Result, now, now+backoff*1000000); err != nil {
 		return false, err
