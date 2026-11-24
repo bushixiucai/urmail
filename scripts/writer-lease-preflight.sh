@@ -46,21 +46,43 @@ lease_preflight() {
 
 # DATA_ROOT must be on a LOCAL filesystem: flock(2) is only reliable there.
 # Network filesystems (NFS/SMB/9p/sshfs/…) may silently allow two holders, so
-# the lease above would be worthless.  Fail-closed on a known network FS.
+# the lease above would be worthless.  FAIL-CLOSED: if the filesystem type
+# cannot be determined (no findmnt, no usable /proc/self/mountinfo entry) the
+# caller must not proceed.  URMAIL_MOUNTINFO overrides the mount table (tests,
+# containers with a hidden /proc).
+proc_mount_fstype() { # longest-prefix mountpoint match in mountinfo
+    local mf="${URMAIL_MOUNTINFO:-/proc/self/mountinfo}"
+    command -v awk >/dev/null 2>&1 || return 1
+    [ -r "$mf" ] || return 1
+    awk -v p="$1" '
+        {
+            mp = $5
+            sep = 0
+            for (i = 6; i <= NF; i++) if ($i == "-") { sep = i; break }
+            if (!sep) next
+            fstype = $(sep + 1)
+            hit = (mp == p) || (p ~ ("^" mp "/")) || (mp == "/")
+            if (hit && length(mp) > best) { best = length(mp); got = fstype }
+        }
+        END { if (got == "") exit 1; print got }' "$mf"
+}
 data_root_fs_preflight() {
     root=${1:-${DATA_ROOT:?DATA_ROOT not set}}
-    if ! command -v findmnt >/dev/null 2>&1; then
-        warn "findmnt missing; cannot verify the filesystem type of $root"
-        return 0
-    fi
     probe=$(realpath -m "$root")
     while [ ! -e "$probe" ] && [ "$probe" != "/" ] && [ "$probe" != "." ]; do
         probe=$(dirname "$probe")
     done
-    fs=$(findmnt -no FSTYPE --target "$probe" 2>/dev/null | head -n1 || true)
+    fs=""
+    if command -v findmnt >/dev/null 2>&1; then
+        fs=$(findmnt -no FSTYPE --target "$probe" 2>/dev/null | head -n1 || true)
+    fi
     if [ -z "$fs" ]; then
-        warn "cannot determine the filesystem type for $root (probe=$probe)"
-        return 0
+        fs=$(proc_mount_fstype "$probe" 2>/dev/null || true)
+        [ -n "$fs" ] && log "filesystem type resolved from mountinfo: $fs"
+    fi
+    if [ -z "$fs" ]; then
+        die "cannot determine the filesystem type for $root (probe=$probe; findmnt and mountinfo both unavailable) — refusing, the local-disk check is fail-closed"
+        return 4
     fi
     case "$fs" in
         nfs|nfs4|cifs|smb3|smbfs|9p|afs|ceph|glusterfs|sshfs|fuse.*)
