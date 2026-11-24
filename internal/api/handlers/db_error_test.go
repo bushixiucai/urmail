@@ -17,11 +17,11 @@ import (
 	"github.com/bushixiucai/urmail/internal/db/dberr"
 )
 
-func testGinContext() (*gin.Context, *httptest.ResponseRecorder) {
+func testGinContext(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/archive/cases", nil)
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/archive/cases", nil)
 	return c, recorder
 }
 
@@ -43,7 +43,7 @@ func TestWriteDatabaseErrorMapsFrozenStatuses(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c, recorder := testGinContext()
+			c, recorder := testGinContext(t)
 			writeDatabaseError(c, tc.err, tc.conflictCode)
 			if recorder.Code != tc.status {
 				t.Fatalf("status=%d want=%d body=%s", recorder.Code, tc.status, recorder.Body.String())
@@ -65,11 +65,10 @@ func TestWriteDatabaseErrorLogsRawError(t *testing.T) {
 	encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
 	core := zapcore.NewCore(encoder, zapcore.AddSync(&buffer), zapcore.DebugLevel)
 	logger := zap.New(core)
-	previous := zap.L()
-	zap.ReplaceGlobals(logger)
-	defer zap.ReplaceGlobals(previous)
+	undo := zap.ReplaceGlobals(logger)
+	defer undo()
 
-	c, recorder := testGinContext()
+	c, recorder := testGinContext(t)
 	writeDatabaseError(c, errors.New("driver exploded: disk I/O error"), "TEST_STALE")
 	if recorder.Code != 500 {
 		t.Fatalf("status=%d want 500", recorder.Code)
@@ -88,22 +87,22 @@ func TestWriteDatabaseErrorLogsRawError(t *testing.T) {
 }
 
 func TestCatchAllDelegatesToTheSingleMapping(t *testing.T) {
-	c, recorder := testGinContext()
+	c, recorder := testGinContext(t)
 	recallProductError(c, pgx.ErrNoRows)
 	if recorder.Code != 409 || !strings.Contains(recorder.Body.String(), "RECALL_REVIEW_STALE") {
 		t.Fatalf("recall no-rows: %d %s", recorder.Code, recorder.Body.String())
 	}
-	c, recorder = testGinContext()
+	c, recorder = testGinContext(t)
 	archiveCaseError(c, pgx.ErrNoRows)
 	if recorder.Code != 404 || !strings.Contains(recorder.Body.String(), "NOT_FOUND") {
 		t.Fatalf("archive no-rows: %d %s", recorder.Code, recorder.Body.String())
 	}
-	c, recorder = testGinContext()
+	c, recorder = testGinContext(t)
 	archiveCaseError(c, errors.New("opaque failure"))
 	if recorder.Code != 500 {
 		t.Fatalf("archive unclassified: %d %s", recorder.Code, recorder.Body.String())
 	}
-	c, recorder = testGinContext()
+	c, recorder = testGinContext(t)
 	recallProductError(c, &pgconn.PgError{Code: "42501"})
 	if recorder.Code != 403 {
 		t.Fatalf("recall permission: %d %s", recorder.Code, recorder.Body.String())

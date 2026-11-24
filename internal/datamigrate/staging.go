@@ -138,7 +138,7 @@ func (r pgxRows) Columns() ([]string, error) {
 	fds := r.FieldDescriptions()
 	names := make([]string, len(fds))
 	for i, fd := range fds {
-		names[i] = string(fd.Name)
+		names[i] = fd.Name
 	}
 	return names, nil
 }
@@ -180,6 +180,9 @@ func ImportRecallStaging(ctx context.Context, opts StagingOptions) (StagingRepor
 		return report, fmt.Errorf("stat staging target: %w", err)
 	}
 	lockPath := target + ".lock"
+	if !filepath.IsAbs(lockPath) || filepath.Dir(filepath.Clean(lockPath)) != filepath.Dir(filepath.Clean(target)) {
+		return report, fmt.Errorf("staging lock path escapes the staging directory: %s", filepath.Base(lockPath))
+	}
 	if err := reclaimStaleLock(lockPath); err != nil {
 		return report, err
 	}
@@ -484,7 +487,7 @@ func countRows(ctx context.Context, db *sql.DB, query string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("run %s: %w", query, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // read-only rows
 	var n int64
 	for rows.Next() {
 		n++
@@ -496,6 +499,9 @@ func countRows(ctx context.Context, db *sql.DB, query string) (int64, error) {
 }
 
 func removeSQLiteFiles(path string) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return
+	}
 	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
 		_ = os.Remove(path + suffix)
 	}
@@ -506,9 +512,12 @@ func syncFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("open staging file for sync: %w", err)
 	}
-	defer f.Close()
 	if err := f.Sync(); err != nil {
+		_ = f.Close()
 		return fmt.Errorf("fsync staging file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close staging file after fsync: %w", err)
 	}
 	return nil
 }
@@ -518,9 +527,12 @@ func syncDir(path string) error {
 	if err != nil {
 		return fmt.Errorf("open staging directory for sync: %w", err)
 	}
-	defer d.Close()
 	if err := d.Sync(); err != nil {
+		_ = d.Close()
 		return fmt.Errorf("fsync staging directory: %w", err)
+	}
+	if err := d.Close(); err != nil {
+		return fmt.Errorf("close staging directory after fsync: %w", err)
 	}
 	return nil
 }

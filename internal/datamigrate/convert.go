@@ -211,10 +211,6 @@ func ConvertJSONArray(v any) (any, error) {
 	}
 }
 
-func normalizeJSON(raw []byte) (any, error) {
-	return normalizeJSONOpt(raw, false)
-}
-
 func normalizeJSONOpt(raw []byte, stringFallback bool) (any, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" {

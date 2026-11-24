@@ -3,11 +3,12 @@ package telemetry
 import (
 	"context"
 	"errors"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/db"

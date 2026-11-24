@@ -8,7 +8,6 @@ package caldav
 import (
 	"context"
 	"encoding/xml"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/domain/collab"

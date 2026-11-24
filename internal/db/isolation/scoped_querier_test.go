@@ -96,13 +96,14 @@ func buildCallArgs(t *testing.T, m reflect.Method, ctx context.Context, position
 	for i := 1; i < mt.NumIn(); i++ {
 		pt := mt.In(i)
 		v := reflect.New(pt).Elem()
-		if pt == reflect.TypeOf(int64(0)) && i == 1 && positionalTID {
+		switch {
+		case pt == reflect.TypeOf(int64(0)) && i == 1 && positionalTID:
 			v.SetInt(tenantID)
 			hasTenantArg = true
-		} else if pt == reflect.TypeOf(pgtype.Int8{}) && i == 1 && positionalTID {
+		case pt == reflect.TypeOf(pgtype.Int8{}) && i == 1 && positionalTID:
 			v.Set(reflect.ValueOf(pgtype.Int8{Int64: tenantID, Valid: valid}))
 			hasTenantArg = true
-		} else if pt.Kind() == reflect.Struct {
+		case pt.Kind() == reflect.Struct:
 			if field, ok := paramTenantOverrides(t)[m.Name]; ok {
 				if tf := v.FieldByName(field); tf.IsValid() && tf.Type() == reflect.TypeOf(int64(0)) {
 					tf.SetInt(tenantID)

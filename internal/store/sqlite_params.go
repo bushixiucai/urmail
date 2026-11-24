@@ -14,6 +14,7 @@ import "github.com/jackc/pgx/v5/pgtype"
 // by field name and the store round-trips the json tags.
 // ---------------------------------------------------------------------------
 
+// ArchiveCasesCreateParams is a SQLite query parameter row.
 type ArchiveCasesCreateParams struct {
 	TenantID   int64  `json:"tenant_id"`
 	ActorID    int64  `json:"actor_id"`
@@ -23,6 +24,7 @@ type ArchiveCasesCreateParams struct {
 	RequestKey string `json:"request_key"`
 }
 
+// RecordMarketingFlowAuditParams is a SQLite query parameter row.
 type RecordMarketingFlowAuditParams struct {
 	PTenant     int64  `json:"p_tenant"`
 	PDefinition int64  `json:"p_definition"`
@@ -30,6 +32,7 @@ type RecordMarketingFlowAuditParams struct {
 	PDetail     []byte `json:"p_detail"`
 }
 
+// RetryMarketingFlowInstanceParams is a SQLite query parameter row.
 type RetryMarketingFlowInstanceParams struct {
 	PTenant               int64 `json:"p_tenant"`
 	PDefinition           int64 `json:"p_definition"`
@@ -37,11 +40,13 @@ type RetryMarketingFlowInstanceParams struct {
 	PConfirmedNotAccepted bool  `json:"p_confirmed_not_accepted"`
 }
 
+// SoftDeleteArchiveEntryParams is a SQLite query parameter row.
 type SoftDeleteArchiveEntryParams struct {
 	TenantID int64 `json:"tenant_id"`
 	ID       int64 `json:"id"`
 }
 
+// ConfirmRecallReviewRow is a SQLite query parameter row.
 type ConfirmRecallReviewRow struct {
 	ID               int64       `json:"id"`
 	TenantID         int64       `json:"tenant_id"`
@@ -65,6 +70,9 @@ type ConfirmRecallReviewRow struct {
 	ResultHistory    []byte      `json:"result_history"`
 }
 
+// StoreRecallReviewPreviewRow is a SQLite query parameter row.
+//
+//nolint:revive // method name generated from sqlc query; renaming requires query rename + regen of recall_product.sql.go/querier.go
 type StoreRecallReviewPreviewRow struct {
 	ID               int64       `json:"id"`
 	TenantID         int64       `json:"tenant_id"`
@@ -88,12 +96,14 @@ type StoreRecallReviewPreviewRow struct {
 	ResultHistory    []byte      `json:"result_history"`
 }
 
+// ScheduleMarketingCampaignParams is a SQLite query parameter row.
 type ScheduleMarketingCampaignParams struct {
 	TenantID    int64 `json:"tenant_id"`
 	CampaignID  int64 `json:"campaign_id"`
 	ScheduledAt int64 `json:"scheduled_at"`
 }
 
+// CreateRecallRow is a SQLite query parameter row.
 type CreateRecallRow struct {
 	ID               int64       `json:"id"`
 	TenantID         int64       `json:"tenant_id"`
@@ -117,24 +127,28 @@ type CreateRecallRow struct {
 	ResultHistory    []byte      `json:"result_history"`
 }
 
+// AbandonDNSPlanParams is a SQLite query parameter row.
 type AbandonDNSPlanParams struct {
 	TenantID int64       `json:"tenant_id"`
 	ID       pgtype.UUID `json:"id"`
 	Reason   string      `json:"reason"`
 }
 
+// CancelDNSPlanParams is a SQLite query parameter row.
 type CancelDNSPlanParams struct {
 	TenantID int64       `json:"tenant_id"`
 	ID       pgtype.UUID `json:"id"`
 	Reason   string      `json:"reason"`
 }
 
+// ConfirmDNSPlanParams is a SQLite query parameter row.
 type ConfirmDNSPlanParams struct {
 	TenantID     int64       `json:"tenant_id"`
 	ID           pgtype.UUID `json:"id"`
 	SourceDigest string      `json:"source_digest"`
 }
 
+// CreateDNSPlanParams is a SQLite query parameter row.
 type CreateDNSPlanParams struct {
 	ID                pgtype.UUID `json:"id"`
 	TenantID          int64       `json:"tenant_id"`
@@ -149,29 +163,34 @@ type CreateDNSPlanParams struct {
 	Changes           []byte      `json:"changes"`
 }
 
+// RequestDNSRollbackParams is a SQLite query parameter row.
 type RequestDNSRollbackParams struct {
 	TenantID int64       `json:"tenant_id"`
 	ID       pgtype.UUID `json:"id"`
 	Reason   string      `json:"reason"`
 }
 
+// RequestOnboardingRetryParams is a SQLite query parameter row.
 type RequestOnboardingRetryParams struct {
 	TenantID int64  `json:"tenant_id"`
 	DomainID int64  `json:"domain_id"`
 	Reason   string `json:"reason"`
 }
 
+// ReviewDNSPlanParams is a SQLite query parameter row.
 type ReviewDNSPlanParams struct {
 	TenantID int64       `json:"tenant_id"`
 	ID       pgtype.UUID `json:"id"`
 	Reason   string      `json:"reason"`
 }
 
+// RevokeDNSCredentialParams is a SQLite query parameter row.
 type RevokeDNSCredentialParams struct {
 	TenantID int64 `json:"tenant_id"`
 	DomainID int64 `json:"domain_id"`
 }
 
+// SaveDNSCredentialParams is a SQLite query parameter row.
 type SaveDNSCredentialParams struct {
 	TenantID        int64  `json:"tenant_id"`
 	DomainID        int64  `json:"domain_id"`

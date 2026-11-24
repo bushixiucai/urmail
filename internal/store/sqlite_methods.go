@@ -39,6 +39,25 @@ import (
 	"github.com/bushixiucai/urmail/internal/timeutil"
 )
 
+// reportVersion narrows a database version counter into the report fact field
+// without silent truncation: negative values and values beyond int32 are
+// rejected so a malformed ledger row fails the read instead of corrupting it.
+// marketingRetryBackoffMicros clamps the retry attempt counter before it
+// becomes a shift: negative counters mean "first retry" and anything above ten
+// attempts is capped at the same 1024s ceiling, so the value can never overflow
+// or shift by an out-of-range count.
+func marketingRetryBackoffMicros(attempts int64) int64 {
+	shift := min(max(attempts, 0), 10)
+	return int64(1) << shift
+}
+
+func reportVersion(version int64) (int32, error) {
+	if version < 0 || version > math.MaxInt32 {
+		return 0, fmt.Errorf("report version %d out of int32 range", version)
+	}
+	return int32(version), nil
+}
+
 const revokeMailboxSessionsSQL = `UPDATE mailbox_sessions
 SET revoked_at=COALESCE(revoked_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
 WHERE tenant_id=$1 AND mailbox_id=$2`
@@ -545,7 +564,7 @@ var auditActionPattern = regexp.MustCompile(`^[A-Za-z]{3,10} [A-Za-z0-9/{}:._~-]
 type RecordTenantAuditParams struct {
 	TenantID int64       `json:"tenant_id"`
 	UserID   int64       `json:"user_id"`
-	ActorIp  *netip.Addr `json:"actor_ip"`
+	ActorIp  *netip.Addr `json:"actor_ip"` //nolint:revive // exported field name pinned by sqlc-generated surface (audit.sql.go/models.go); renaming requires override+regen
 	Action   string      `json:"action"`
 	Target   string      `json:"target"`
 	Status   int32       `json:"status"`
@@ -1395,8 +1414,8 @@ func (q *Queries) PlatformChangePanelMFA(ctx context.Context, arg PlatformChange
 // S4 batch C: DNS credential / change-plan procedures (dns_onboarding.sql).
 // Faithful port of the urmail_*_dns_* plpgsql functions:
 //   * pg_advisory_xact_lock(51,hashtext(domain)) -> SQLite's single-writer
-//     transaction serialisation (no session semantics are dropped: the lock
-//     only ever serialised writers, never carried data).
+//     transaction serialization (no session semantics are dropped: the lock
+//     only ever serialized writers, never carried data).
 //   * urmail_dns_actor keeps its role/actor gate by reading the S2 decorator's
 //     session settings (current_setting('urmail.user_id')), which is how the PG
 //     function saw the caller. That seam is app_pending: the tenant self-check
@@ -1603,7 +1622,7 @@ type dnsPlanRow struct {
 	ExpiresAt         int64
 }
 
-// dnsPlan loads the plan inside the caller's transaction (SQLite serialises
+// dnsPlan loads the plan inside the caller's transaction (SQLite serializes
 // writers, so the PG FOR UPDATE is unnecessary).
 func (q *Queries) dnsPlan(ctx context.Context, tenant int64, id string) (dnsPlanRow, error) {
 	var p dnsPlanRow
@@ -1881,7 +1900,7 @@ func (q *Queries) AbandonDNSPlan(ctx context.Context, arg AbandonDNSPlanParams) 
 // procedures, never silently dropped.
 //
 // pg_advisory_xact_lock(tenant) calls are replaced by SQLite's single-writer
-// transaction serialisation; the lock only ever ordered writers and carried no
+// transaction serialization; the lock only ever ordered writers and carried no
 // data.
 // ---------------------------------------------------------------------------
 
@@ -2072,7 +2091,6 @@ func (q *Queries) marketingReserveSend(ctx context.Context, tenant int64, now, d
 		Scan(&w.ID, &w.EndsAt, &w.Timezone, &w.UsedCount, &w.NextSendAt)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		err = nil
 		w.ID = 0
 	case err != nil:
 		return "", 0, false, err
@@ -2387,12 +2405,12 @@ func (q *Queries) RecordMarketingFlowAudit(ctx context.Context, arg RecordMarket
 		// tenant admin, definition existence, action whitelist and payload.
 		_, err := q.db.Exec(ctx,
 			`SELECT urmail_record_marketing_flow_audit($1::bigint,$2::bigint,$3::text,$4::jsonb)`,
-			arg.PTenant, arg.PDefinition, arg.PAction, string(compact.Bytes()))
+			arg.PTenant, arg.PDefinition, arg.PAction, compact.String())
 		return err
 	}
 	_, err = q.db.Exec(ctx, marketingFlowAuditInsertSQL, arg.PTenant, actor,
 		"marketing.flow."+arg.PAction, strconv.FormatInt(arg.PDefinition, 10),
-		string(compact.Bytes()))
+		compact.String())
 	return err
 }
 
@@ -2600,7 +2618,7 @@ func (q *Queries) finishMarketingSend(ctx context.Context, arg PlatformFinishMar
 			return false, err
 		}
 	}
-	backoff := int64(1) << uint(min(r.Attempts, 10))
+	backoff := marketingRetryBackoffMicros(r.Attempts)
 	if _, err := q.db.Exec(ctx, marketingRecipientFinishSQL, arg.TenantID, arg.RecipientID,
 		arg.Result, now, now+backoff*1000000); err != nil {
 		return false, err
@@ -3645,15 +3663,15 @@ func (q *Queries) PlatformSetActiveAIService(ctx context.Context, arg PlatformSe
 //     即原 PG 的服务端作用域。
 // ---------------------------------------------------------------------------
 
-// LockMailboxEASSync（原 hashtextextended(tenant:mailbox:device,421932)）：
+// LockMailboxEASSync locks one device (原 hashtextextended(tenant:mailbox:device,421932)）：
 // 同一设备 EAS 同步由事务串行化互斥。
 func (q *Queries) LockMailboxEASSync(_ context.Context, _ LockMailboxEASSyncParams) error { return nil }
 
-// LockMailboxImportTenantBudget（原 hashtextextended('urmail/mailimport/'||tenant,0)）：
+// LockMailboxImportTenantBudget locks the import budget (原 hashtextextended('urmail/mailimport/'||tenant,0)）：
 // 同一租户导入预算由事务串行化互斥。
 func (q *Queries) LockMailboxImportTenantBudget(_ context.Context, _ int64) error { return nil }
 
-// PlatformLockBillingTenant：租户计费/配额写入由事务串行化互斥。
+// PlatformLockBillingTenant locks billing writes：租户计费/配额写入由事务串行化互斥。
 func (q *Queries) PlatformLockBillingTenant(ctx context.Context, tenantID int64) error {
 	if !isSQLiteDBTX(q.db) {
 		return pgstore.New(q.db).PlatformLockBillingTenant(ctx, tenantID)
@@ -3662,16 +3680,14 @@ func (q *Queries) PlatformLockBillingTenant(ctx context.Context, tenantID int64)
 	return nil
 }
 
-// PlatformCreateFirstDomain creates the setup's first domain on either
-// engine through the product query surface, so the tenant method guard and
-// the SQLite/PG twins stay in one place.
+// PlatformCreateFirstDomainParams configures the setup's first domain.
 type PlatformCreateFirstDomainParams struct {
 	TenantID          int64
 	Fqdn              string
 	Mode              string
 	Status            string
 	VerificationToken string
-	TlsMode           string
+	TlsMode           string //nolint:revive // wire key derived from field name; explicit tag would change the serialization contract
 	DkimSelector      string
 	DkimPrivateKey    string
 }
@@ -3680,6 +3696,9 @@ const platformCreateFirstDomainSQL = `-- name: PlatformCreateFirstDomain :one
 INSERT INTO domains(tenant_id,fqdn,mode,status,verification_token,tls_mode,dkim_selector,dkim_private_key)
 VALUES(?,?,?,?,?,?,?,?) RETURNING id`
 
+// PlatformCreateFirstDomain creates the setup's first domain through the
+// product query surface, so the tenant guard and the SQLite/PG twins stay in
+// one place.
 func (q *Queries) PlatformCreateFirstDomain(ctx context.Context, arg PlatformCreateFirstDomainParams) (int64, error) {
 	if !isSQLiteDBTX(q.db) {
 		row, err := pgstore.New(q.db).CreateDomain(ctx, pgstore.CreateDomainParams{
@@ -3696,7 +3715,7 @@ func (q *Queries) PlatformCreateFirstDomain(ctx context.Context, arg PlatformCre
 	return id, err
 }
 
-// PlatformLockSendDraft（原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
+// PlatformLockSendDraft locks draft sending (原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
 // 草稿发送与草稿编辑互斥；PG 在事务级持锁，SQLite 用事务串行化。
 func (q *Queries) PlatformLockSendDraft(ctx context.Context, arg PlatformLockSendDraftParams) error {
 	if !isSQLiteDBTX(q.db) {
@@ -3709,7 +3728,7 @@ func (q *Queries) PlatformLockSendDraft(ctx context.Context, arg PlatformLockSen
 	return nil
 }
 
-// PlatformLockDataImport（原 hashtextextended(tenant:mailbox:idempotency_key,782314)）：
+// PlatformLockDataImport locks one import key (原 hashtextextended(tenant:mailbox:idempotency_key,782314)）：
 // 同一幂等键的导入由事务串行化互斥。
 func (q *Queries) PlatformLockDataImport(ctx context.Context, arg PlatformLockDataImportParams) error {
 	if !isSQLiteDBTX(q.db) {
@@ -3721,7 +3740,7 @@ func (q *Queries) PlatformLockDataImport(ctx context.Context, arg PlatformLockDa
 	return nil
 }
 
-// PlatformLockRecallTenant：租户召回由事务串行化互斥。
+// PlatformLockRecallTenant locks recall writes：租户召回由事务串行化互斥。
 func (q *Queries) PlatformLockRecallTenant(ctx context.Context, tenantID int64) error {
 	if !isSQLiteDBTX(q.db) {
 		return pgstore.New(q.db).PlatformLockRecallTenant(ctx, tenantID)
@@ -3751,7 +3770,7 @@ func draftSessionLockKey(tenant, mailbox, folder, validity, uid string) string {
 // PlatformAcquireDraftSessionLock blocks until this process owns the key. It
 // replaces pg_advisory_lock: the caller must pair it with
 // PlatformReleaseDraftSessionLock, and cancellation while waiting is honored
-// (PG's blocking acquire is cancelled by statement_timeout/context too).
+// (PG's blocking acquire is canceled by statement_timeout/context too).
 func (q *Queries) PlatformAcquireDraftSessionLock(ctx context.Context, arg PlatformAcquireDraftSessionLockParams) error {
 	key := draftSessionLockKey(arg.TenantID, arg.MailboxID, arg.Folder, arg.Validity, arg.Uid)
 	reg := &draftSessionLocks
@@ -4033,8 +4052,13 @@ WHERE e.tenant_id=$1 AND e.definition_id=$2 AND e.created_at>=$3 AND e.created_a
 			rows.Close()
 			return nil, err
 		}
+		narrowed, err := reportVersion(version)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
 		facts = append(facts, report.Fact{
-			RecordKind: "entry", RecordID: strconv.FormatInt(id, 10), Version: int32(version),
+			RecordKind: "entry", RecordID: strconv.FormatInt(id, 10), Version: narrowed,
 			State: source, ResultCode: eventKey, OccurredAt: time.UnixMicro(created).UTC(), Weight: count,
 		})
 	}
@@ -4090,8 +4114,13 @@ WHERE p.tenant_id=$1 AND e.definition_id=$2 AND e.created_at>=$3 AND e.created_a
 			rows.Close()
 			return nil, err
 		}
+		narrowed, err := reportVersion(version)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
 		facts = append(facts, report.Fact{
-			RecordKind: "instance", RecordID: strconv.FormatInt(id, 10), Version: int32(version),
+			RecordKind: "instance", RecordID: strconv.FormatInt(id, 10), Version: narrowed,
 			InstanceID: id, Email: email, State: state, ResultCode: lastError,
 			OccurredAt: time.UnixMicro(enteredMicro).UTC(), Weight: 1,
 			Suppressed: suppressed[email], Uncertain: boolValue(uncertain),
@@ -4117,8 +4146,13 @@ WHERE x.tenant_id=$1 AND e.definition_id=$2 AND e.created_at>=$3 AND e.created_a
 			rows.Close()
 			return nil, err
 		}
+		narrowed, err := reportVersion(version)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
 		facts = append(facts, report.Fact{
-			RecordKind: "execution", RecordID: strconv.FormatInt(id, 10), Version: int32(version),
+			RecordKind: "execution", RecordID: strconv.FormatInt(id, 10), Version: narrowed,
 			InstanceID: position, Email: email, State: status, ResultCode: errorCode,
 			OccurredAt: time.UnixMicro(created).UTC(), Weight: 1,
 			Uncertain: status == "uncertain",
@@ -4155,4 +4189,4 @@ func (q *Queries) marketingSuppressed(ctx context.Context, tenant int64) (map[st
 // timeout; the bounded window and the 10001-row probe already cap the work, and
 // the connection-level busy_timeout bounds waiting. Keeping the method (rather
 // than deleting it) preserves the handler's fail-closed sequence.
-func (q *Queries) SetMarketingReportBudget(ctx context.Context) error { return nil }
+func (q *Queries) SetMarketingReportBudget(_ context.Context) error { return nil }

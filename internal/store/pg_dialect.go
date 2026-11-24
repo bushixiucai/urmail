@@ -16,6 +16,7 @@ import (
 	pgstore "github.com/bushixiucai/urmail/internal/store/generated/postgres"
 )
 
+// ErrPostgreSQLQueryUnavailable reports a method with no PostgreSQL variant.
 var ErrPostgreSQLQueryUnavailable = errors.New("store: PostgreSQL query variant unavailable")
 
 // errNilPGXRows is returned when the PostgreSQL handle reports success without

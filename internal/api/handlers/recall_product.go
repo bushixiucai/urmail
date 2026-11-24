@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/db/isolation"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -214,7 +215,7 @@ func (h *RecallHandler) Preview(c *gin.Context) {
 				recallProductError(c, saveErr)
 				return
 			}
-			row := store.RecallRequests(stored)
+			row := stored
 			projection := recallPreviewProjection(row)
 			projection["entry_id"] = source.ID
 			if row.Status == "pending" {
@@ -382,7 +383,7 @@ func (h *RecallHandler) confirmReviewed(c *gin.Context) {
 				recallProductError(c, e)
 				return
 			}
-			row := store.RecallRequests(confirmed)
+			row := confirmed
 			if !recallAudit(c, q, tenant, actor, row.ID, "compliance.recall.confirm", gin.H{"epoch": row.AttemptEpoch, "digest": row.PreviewDigest, "copy_keys": target.CopyKeys, "scope": "local_mailbox"}) {
 				return
 			}

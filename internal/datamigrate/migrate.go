@@ -29,14 +29,6 @@ type Source interface {
 	Query(ctx context.Context, sql string, args ...any) (Rows, error)
 }
 
-// dbHandle unwraps the underlying database handle for transaction control.
-func (t *Target) dbHandle() SQLDB {
-	if db, ok := t.DB.(sqlDBHandle); ok {
-		return db.db
-	}
-	return nil
-}
-
 // SQLDB is the subset of *sql.DB the migrator uses.
 type SQLDB interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
@@ -45,24 +37,9 @@ type SQLDB interface {
 }
 
 // Target is the SQLite side. DB is either the concrete *sql.DB or a
-// transaction-scoped adapter (sqlDBHandle / sqlTxHandle below).
+// transaction-scoped adapter (sqlTxHandle below).
 type Target struct {
 	DB SQLDB
-}
-
-type sqlDBHandle struct{ db *sql.DB }
-
-func (h sqlDBHandle) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return h.db.ExecContext(ctx, query, args...)
-}
-func (h sqlDBHandle) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return h.db.QueryContext(ctx, query, args...)
-}
-func (h sqlDBHandle) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return h.db.QueryRowContext(ctx, query, args...)
-}
-func (h sqlDBHandle) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
-	return h.db.BeginTx(ctx, opts)
 }
 
 type sqlTxHandle struct{ tx *sql.Tx }
@@ -520,16 +497,16 @@ func suppressTriggers(ctx context.Context, t *Target, table string) (func(contex
 	for rows.Next() {
 		var tr trig
 		if err := rows.Scan(&tr.name, &tr.sqlText); err != nil {
-			rows.Close()
+			_ = rows.Close() // read-only rows
 			return nil, err
 		}
 		trigs = append(trigs, tr)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close() // read-only rows
 		return nil, err
 	}
-	rows.Close()
+	_ = rows.Close() // read-only rows
 	for _, tr := range trigs {
 		if _, err := t.DB.ExecContext(ctx, "DROP TRIGGER \""+tr.name+"\""); err != nil {
 			return nil, err
@@ -557,16 +534,16 @@ func ResetSequences(ctx context.Context, t *Target) (int, error) {
 	for rows.Next() {
 		var n string
 		if err := rows.Scan(&n); err != nil {
-			rows.Close()
+			_ = rows.Close() // read-only rows
 			return 0, err
 		}
 		names = append(names, n)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close() // read-only rows
 		return 0, err
 	}
-	rows.Close()
+	_ = rows.Close() // read-only rows
 
 	reset := 0
 	for _, name := range names {
@@ -582,7 +559,7 @@ func ResetSequences(ctx context.Context, t *Target) (int, error) {
 	return reset, nil
 }
 
-func quoteList(cols []string, qualified bool) string {
+func quoteList(cols []string, _ bool) string {
 	parts := make([]string, len(cols))
 	for i, c := range cols {
 		parts[i] = `"` + c + `"`

@@ -73,13 +73,7 @@ func (h *MailboxNativeHandler) acquireDraftJournal(c *gin.Context, session webma
 	// releasing the connection alone would leak it. Explicit release first, then
 	// return the connection to the pool.
 	release := func() {
-		_, _ = db.Queries(conn).PlatformReleaseDraftSessionLock(context.Background(), store.PlatformReleaseDraftSessionLockParams{
-			TenantID:  args.TenantID,
-			MailboxID: args.MailboxID,
-			Folder:    args.Folder,
-			Validity:  args.Validity,
-			Uid:       args.Uid,
-		})
+		_, _ = db.Queries(conn).PlatformReleaseDraftSessionLock(context.Background(), store.PlatformReleaseDraftSessionLockParams(args))
 		conn.Release()
 	}
 	return conn, release, true

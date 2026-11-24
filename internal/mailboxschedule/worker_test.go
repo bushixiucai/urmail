@@ -3,11 +3,12 @@ package mailboxschedule
 import (
 	"context"
 	"errors"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/jackc/pgx/v5"
 

@@ -7,9 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/db/isolation"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"

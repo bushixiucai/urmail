@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/db"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"

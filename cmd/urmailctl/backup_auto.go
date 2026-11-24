@@ -160,7 +160,6 @@ func runBackupAuto(ctx context.Context, args []string) error {
 				}
 				return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
 			}
-			uri, creds = "", backupauto.Credentials{}
 		}
 		if recipient == "" {
 			recipient = resolvedRecipient

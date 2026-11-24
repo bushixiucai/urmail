@@ -303,7 +303,7 @@ func TestSQLiteS3AuthRequireAuthTenantTxAndPlatformTxEndToEnd(t *testing.T) {
 	}
 
 	var auditRows int
-	if err := sqliteDB.QueryRow(`SELECT count(*) FROM audit_logs`).Scan(&auditRows); err != nil || auditRows < 4 {
+	if err := sqliteDB.QueryRowContext(t.Context(), `SELECT count(*) FROM audit_logs`).Scan(&auditRows); err != nil || auditRows < 4 {
 		t.Fatalf("expected >=4 committed audit_logs rows across tenant/platform calls, got %d (err=%v)", auditRows, err)
 	}
 }

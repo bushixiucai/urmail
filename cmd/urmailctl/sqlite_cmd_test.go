@@ -28,14 +28,14 @@ func openV6SQLite(t *testing.T) (string, *sql.DB) {
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
-		if _, execErr := db.Exec(string(body)); execErr != nil {
+		if _, execErr := db.ExecContext(t.Context(), string(body)); execErr != nil {
 			t.Fatalf("apply %s: %v", name, execErr)
 		}
 	}
-	if _, err = db.Exec("PRAGMA user_version=6"); err != nil {
+	if _, err = db.ExecContext(t.Context(), "PRAGMA user_version=6"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec("INSERT INTO backup_runs(run_uid,state,scope) VALUES('cli-v6-0001','success','local-mail-and-metadata')"); err != nil {
+	if _, err = db.ExecContext(t.Context(), "INSERT INTO backup_runs(run_uid,state,scope) VALUES('cli-v6-0001','success','local-mail-and-metadata')"); err != nil {
 		t.Fatal(err)
 	}
 	return path, db
@@ -60,14 +60,14 @@ func TestSQLiteMigrateUpV6ToV7(t *testing.T) {
 	}
 	defer func() { _ = reopened.Close() }()
 	var state string
-	if err = reopened.QueryRow("SELECT offsite_state FROM backup_runs WHERE run_uid='cli-v6-0001'").Scan(&state); err != nil || state != "" {
+	if err = reopened.QueryRowContext(t.Context(), "SELECT offsite_state FROM backup_runs WHERE run_uid='cli-v6-0001'").Scan(&state); err != nil || state != "" {
 		t.Fatalf("history state=%q err=%v", state, err)
 	}
 }
 
 func TestSQLiteMigrateRefusesAheadOrBadUsage(t *testing.T) {
 	path, db := openV6SQLite(t)
-	if _, err := db.Exec("PRAGMA user_version=99"); err != nil {
+	if _, err := db.ExecContext(t.Context(), "PRAGMA user_version=99"); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()

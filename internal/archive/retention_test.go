@@ -3,12 +3,13 @@ package archive
 import (
 	"bytes"
 	"context"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/jackc/pgx/v5/pgtype"
 

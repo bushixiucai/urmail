@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"net/mail"
@@ -11,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"

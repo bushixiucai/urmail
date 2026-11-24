@@ -3,13 +3,14 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pquerna/otp/totp"

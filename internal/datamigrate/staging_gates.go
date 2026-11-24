@@ -258,7 +258,7 @@ func runRuntimeRecallGates(ctx context.Context, db *sql.DB) (RuntimeGateReport, 
 			return RuntimeGateReport{}, fmt.Errorf("runtime gate negative %q was accepted", neg.name)
 		}
 		if !strings.Contains(err.Error(), neg.want) {
-			return RuntimeGateReport{}, fmt.Errorf("runtime gate negative %q rejected with %v, want %s", neg.name, err, neg.want)
+			return RuntimeGateReport{}, fmt.Errorf("runtime gate negative %q rejected with %w, want %s", neg.name, err, neg.want)
 		}
 		checked++
 	}
@@ -289,7 +289,7 @@ func guardFingerprint(ctx context.Context, q interface {
 	if err != nil {
 		return "", fmt.Errorf("guard fingerprint: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // read-only rows
 	var b strings.Builder
 	for rows.Next() {
 		var line string

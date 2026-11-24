@@ -180,7 +180,7 @@ service stats {
 		if err = tx.Commit(ctx); err != nil {
 			t.Fatal(err)
 		}
-		return store.RecallRequests(confirmed)
+		return confirmed
 	}
 	first := review(func(recall.Copy) bool { return true })
 	partial := f.execute(t, first)

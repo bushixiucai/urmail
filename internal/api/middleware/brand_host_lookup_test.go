@@ -17,17 +17,17 @@ import (
 )
 
 type fakeBrandLookup struct {
-	brandID         int64
-	status          string
-	found           bool
-	lifecycleErr    error
-	eligible        bool
-	eligibleErr     error
-	lifecycleCalls  int
-	eligibleCalls   int
+	brandID        int64
+	status         string
+	found          bool
+	lifecycleErr   error
+	eligible       bool
+	eligibleErr    error
+	lifecycleCalls int
+	eligibleCalls  int
 }
 
-func (f *fakeBrandLookup) BrandHostLifecycle(ctx context.Context, host string) (int64, string, bool, error) {
+func (f *fakeBrandLookup) BrandHostLifecycle(_ context.Context, _ string) (int64, string, bool, error) {
 	f.lifecycleCalls++
 	if f.lifecycleErr != nil {
 		return 0, "", false, f.lifecycleErr
@@ -38,7 +38,7 @@ func (f *fakeBrandLookup) BrandHostLifecycle(ctx context.Context, host string) (
 	return f.brandID, f.status, true, nil
 }
 
-func (f *fakeBrandLookup) BrandHostCertEligible(ctx context.Context, host string) (bool, error) {
+func (f *fakeBrandLookup) BrandHostCertEligible(_ context.Context, _ string) (bool, error) {
 	f.eligibleCalls++
 	if f.eligibleErr != nil {
 		return false, f.eligibleErr
@@ -58,7 +58,7 @@ func runBoundary(t *testing.T, lookup BrandHostLookup, host string) (*httptest.R
 		ctx = c
 		c.Status(http.StatusOK)
 	})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	req.Host = host
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -129,7 +129,7 @@ func TestBrandBoundaryInactiveHostRejected(t *testing.T) {
 
 func TestBrandBoundaryCertEligibilityFailuresRejected(t *testing.T) {
 	for name, mutate := range map[string]func(*fakeBrandLookup){
-		"not-eligible": func(f *fakeBrandLookup) { f.eligible = false },
+		"not-eligible":      func(f *fakeBrandLookup) { f.eligible = false },
 		"eligibility-error": func(f *fakeBrandLookup) { f.eligibleErr = errors.New("boom") },
 	} {
 		t.Run(name, func(t *testing.T) {

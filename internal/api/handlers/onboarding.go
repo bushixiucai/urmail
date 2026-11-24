@@ -2,8 +2,9 @@ package handlers
 
 import (
 	"context"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 

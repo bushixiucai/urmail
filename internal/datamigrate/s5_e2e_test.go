@@ -40,7 +40,7 @@ func (w pgxRowsWrap) Columns() ([]string, error) {
 	fds := w.FieldDescriptions()
 	names := make([]string, len(fds))
 	for i, fd := range fds {
-		names[i] = string(fd.Name)
+		names[i] = fd.Name
 	}
 	return names, nil
 }
@@ -113,14 +113,13 @@ func TestS5MigratorFullSampleZeroDiff(t *testing.T) {
 	}
 	src := pgSource{pool: pool}
 
-	sample := seedSyntheticSample(t, ctx, pool, tm, 3)
+	sample := seedSyntheticSample(ctx, t, pool, tm, 3)
 
 	// Explicit must-migrate set: every type-map table that exists in the
 	// source catalog, minus engine metadata (schema_migrations) and the two
 	// trigger-maintained tables (rows are created by engine triggers on
 	// parents; the migrator still copies whatever exists on disk). The
 	// coverage check is per-table set equality — no count thresholds.
-	const recallRequestsGap = "PG pending-only INSERT vs SQLite preview+epoch-1-only insert: no representable form — migrator refuses with evidence (schema-port defect reported)"
 	triggerMaintained := map[string]string{
 		"platform_marketing_dispatch":  "singleton rows created by tenants triggers on PG",
 		"mailbox_storage_reservations": "reservation rows created by mailboxes triggers on PG",
@@ -255,14 +254,14 @@ func TestS5MigratorFullSampleZeroDiff(t *testing.T) {
 		t.Fatalf("schema diff: %v", err)
 	}
 	if len(schemaDiff) != 0 {
-		t.Fatalf("schema diff non-empty (%d): %v", len(schemaDiff), schemaDiff[:min(5, len(schemaDiff))])
+		t.Fatalf("schema diff non-empty (%d): %v", len(schemaDiff), schemaDiff[:minInt(5, len(schemaDiff))])
 	}
 	indexDiff, err := DiffIndexes(ctx, src, tgt, tm)
 	if err != nil {
 		t.Fatalf("index diff: %v", err)
 	}
 	if len(indexDiff) != 0 {
-		t.Fatalf("unique index diff non-empty (%d): %v", len(indexDiff), indexDiff[:min(5, len(indexDiff))])
+		t.Fatalf("unique index diff non-empty (%d): %v", len(indexDiff), indexDiff[:minInt(5, len(indexDiff))])
 	}
 	// Dedicated recall gate: explicit column-by-column comparison of recall
 	// rows (generic hash path skipped for recall's lifecycle-specific
@@ -427,7 +426,7 @@ func TestS5PrecheckNOCASEAbort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedSyntheticSample(t, ctx, pool, tm, 3)
+	seedSyntheticSample(ctx, t, pool, tm, 3)
 
 	// A legal finite 9999-CE timestamp must NOT trip the sentinel audit
 	// (MaxFiniteUnixMicro is a real int64, far from the int64max sentinel).
@@ -488,7 +487,7 @@ func TestS5StoreNewGate(t *testing.T) {
 	}
 }
 
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
@@ -546,7 +545,7 @@ func TestS5SQLitePeriodBoundary(t *testing.T) {
 		{"eight_days_plus_one_micro", 691_200_000_001, true},
 	}
 	for i, c := range cases {
-		start := int64(1800000000000000 + int64(i)*86_400_000_000)
+		start := int64(1800000000000000) + int64(i)*86_400_000_000
 		_, err := raw.ExecContext(ctx,
 			`INSERT INTO domain_tls_reports(id, tenant_id, domain_id, report_digest, reporter_digest, report_id_digest, period_start, period_end, successful, failed, failures)
 			 VALUES ($1,1,1,$2,$2,$2,$3,$4,1,0,'{}')`,
@@ -586,7 +585,7 @@ func TestS5FailureRollbackNoDone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedSyntheticSample(t, ctx, pool, tm, 2)
+	seedSyntheticSample(ctx, t, pool, tm, 2)
 	src := pgSource{pool: pool}
 
 	failing := &Target{DB: raw}

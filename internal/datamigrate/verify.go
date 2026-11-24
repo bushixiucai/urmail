@@ -111,7 +111,6 @@ func VerifyRowHashes(ctx context.Context, src Source, t *Target, tm TypeMap, cfg
 			srcOK := srcRows.Next()
 			tgtOK := tgtRows.Next()
 			if !srcOK && !tgtOK {
-				advanced = false
 				break
 			}
 			report.RowsCompared++
@@ -125,18 +124,18 @@ func VerifyRowHashes(ctx context.Context, src Source, t *Target, tm TypeMap, cfg
 			}
 			if err := srcRows.Scan(srcPtrs...); err != nil {
 				srcRows.Close()
-				tgtRows.Close()
+				_ = tgtRows.Close() // read-only rows
 				return report, fmt.Errorf("table %s source scan: %w", ti.Name, err)
 			}
 			if err := tgtRows.Scan(tgtPtrs...); err != nil {
 				srcRows.Close()
-				tgtRows.Close()
+				_ = tgtRows.Close() // read-only rows
 				return report, fmt.Errorf("table %s target scan: %w", ti.Name, err)
 			}
 			equal, err := compare()
 			if err != nil {
 				srcRows.Close()
-				tgtRows.Close()
+				_ = tgtRows.Close() // read-only rows
 				return report, fmt.Errorf("table %s hash: %w", ti.Name, err)
 			}
 			if !equal {
@@ -144,7 +143,7 @@ func VerifyRowHashes(ctx context.Context, src Source, t *Target, tm TypeMap, cfg
 			}
 		}
 		srcRows.Close()
-		tgtRows.Close()
+		_ = tgtRows.Close() // read-only rows
 		if err := srcRows.Err(); err != nil {
 			return report, err
 		}
@@ -209,7 +208,7 @@ func sqliteHasTable(ctx context.Context, t *Target, name string) (bool, error) {
 // DiffSchema compares, per type-map table, the column name sets and the
 // mapped SQLite type classes of the PG source against the target PRAGMA. It
 // appends human-readable differences to the report.
-func DiffSchema(ctx context.Context, src Source, t *Target, tm TypeMap) ([]string, error) {
+func DiffSchema(ctx context.Context, _ Source, t *Target, tm TypeMap) ([]string, error) {
 	var diffs []string
 	for _, table := range tm.Tables() {
 		present, err := sqliteHasTable(ctx, t, table)
@@ -232,16 +231,16 @@ func DiffSchema(ctx context.Context, src Source, t *Target, tm TypeMap) ([]strin
 			var notNull, pk int
 			var dflt sql.NullString
 			if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
-				rows.Close()
+				_ = rows.Close() // read-only rows
 				return nil, err
 			}
 			tgtCols[strings.ToLower(name)] = strings.ToUpper(strings.TrimSpace(ctype))
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close() // read-only rows
 			return nil, err
 		}
-		rows.Close()
+		_ = rows.Close() // read-only rows
 
 		// Source columns via the type map (the authoritative contract).
 		for _, col := range tm.Columns(table) {
@@ -320,13 +319,13 @@ WHERE n.nspname = 'public' AND con.contype = 'u'`)
 			var name string
 			var unique, origin, partial any
 			if err := idxRows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
-				idxRows.Close()
+				_ = idxRows.Close() // read-only rows
 				return nil, err
 			}
 			u, _ := unique.(int64)
 			idxs = append(idxs, idx{name: name, unique: u == 1})
 		}
-		idxRows.Close()
+		_ = idxRows.Close() // read-only rows
 		if err := idxRows.Err(); err != nil {
 			return nil, err
 		}
@@ -345,12 +344,12 @@ WHERE n.nspname = 'public' AND con.contype = 'u'`)
 				var seqno, cid int
 				var cname sql.NullString
 				if err := cols.Scan(&seqno, &cid, &cname); err != nil {
-					cols.Close()
+					_ = cols.Close() // read-only rows
 					return nil, err
 				}
 				parts = append(parts, strings.ToLower(cname.String))
 			}
-			cols.Close()
+			_ = cols.Close() // read-only rows
 			sort.Strings(parts)
 			tgtUnique[strings.Join(parts, ",")] = true
 		}
@@ -401,7 +400,7 @@ func VerifyGoldenQueries(ctx context.Context, src Source, t *Target, tm TypeMap,
 			return report, fmt.Errorf("golden %s sqlite: %w", gq.Name, err)
 		}
 		tgtHash, tgtCount, _, err := hashGoldenSide(sqlRowsWrap{Rows: tgtRows}, nil)
-		tgtRows.Close()
+		_ = tgtRows.Close() // read-only rows
 		if err != nil {
 			return report, fmt.Errorf("golden %s sqlite: %w", gq.Name, err)
 		}
@@ -438,7 +437,7 @@ func VerifyRecallMigration(ctx context.Context, src Source, t *Target) ([]string
 	if err != nil {
 		return nil, fmt.Errorf("recall target: %w", err)
 	}
-	defer tgtRows.Close()
+	defer func() { _ = tgtRows.Close() }() // read-only rows
 
 	type row map[string]any
 	srcMap := map[int64]row{}

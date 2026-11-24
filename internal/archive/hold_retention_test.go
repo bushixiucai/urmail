@@ -3,7 +3,6 @@ package archive
 import (
 	"context"
 	"fmt"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/jackc/pgx/v5"
 

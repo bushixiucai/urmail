@@ -5,10 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/jackc/pgx/v5"
 

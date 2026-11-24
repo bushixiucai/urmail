@@ -3,12 +3,13 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

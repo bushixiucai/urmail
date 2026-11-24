@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"

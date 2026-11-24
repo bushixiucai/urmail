@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"

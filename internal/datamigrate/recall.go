@@ -92,7 +92,7 @@ func sha256Hex(b []byte) string {
 // (caller-owned transaction). It returns refusal evidence for illegal rows;
 // when any row is refused the caller blocks the import (transaction rolls
 // back, no done marker).
-func migrateRecallTable(ctx context.Context, src Source, t *Target, tm TypeMap, ti TableInfo) (RecallImportStats, []RecallRefusal, error) {
+func migrateRecallTable(ctx context.Context, src Source, t *Target, tm TypeMap, _ TableInfo) (RecallImportStats, []RecallRefusal, error) {
 	stats := RecallImportStats{StatusCounts: map[string]int64{}}
 	cm, ok := tm["recall_requests"]
 	if !ok {
@@ -182,7 +182,7 @@ func migrateRecallTable(ctx context.Context, src Source, t *Target, tm TypeMap, 
 	}
 	// Restore verbatim from the captured DDL regardless of the copy outcome.
 	if _, err := t.DB.ExecContext(ctx, baseline.SQL); err != nil {
-		return stats, nil, fmt.Errorf("restore %s: %w (copy error: %v)", recallInsertGuard, err, copyErr)
+		return stats, nil, fmt.Errorf("restore %s: %w (copy error: %w)", recallInsertGuard, err, copyErr)
 	}
 	if copyErr != nil {
 		return stats, nil, copyErr
@@ -399,7 +399,7 @@ func verifyRecallStaging(ctx context.Context, t *Target, stats RecallImportStats
 	if err != nil {
 		return fmt.Errorf("staging readback: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // read-only rows
 	var (
 		n        int
 		counts   = map[string]int64{}

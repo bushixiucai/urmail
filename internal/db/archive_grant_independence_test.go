@@ -3,10 +3,11 @@ package db_test
 import (
 	"context"
 	"errors"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"

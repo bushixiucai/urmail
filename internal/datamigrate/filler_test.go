@@ -187,7 +187,7 @@ type testingT interface {
 
 type pgxpoolShim = pgxpool.Pool
 
-func seedSyntheticSample(t testingT, ctx context.Context, pool *pgxpoolShim, tm TypeMap, rowsPer int) syntheticSample {
+func seedSyntheticSample(ctx context.Context, t testingT, pool *pgxpoolShim, tm TypeMap, rowsPer int) syntheticSample {
 	t.Helper()
 	src := pgSource{pool: pool}
 	plan, _, err := IntrospectSource(ctx, src)
@@ -269,7 +269,7 @@ WHERE table_schema='public'`)
 		}
 		return strings.Repeat("0", n-len(digits)) + digits
 	}
-	uuidLike := func(n int, col string) string {
+	uuidLike := func(int, string) string {
 		base := hexOf(32)
 		u := fmt.Sprintf("%s-%s-4%s-8%s-%s", base[:8], base[8:12], base[12:15], base[17:20], base[20:32])
 		return u
@@ -277,29 +277,29 @@ WHERE table_schema='public'`)
 
 	// table-specific value chains (no catalog FK edges to lean on).
 	overrides := map[string]func(rowIdx int, parentLookups map[string]int64, tenantID int64) (any, error){
-		"restore_quarantine.reason": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"restore_quarantine.reason": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			return "restore", nil
 		},
-		"user_tenant_roles.role": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"user_tenant_roles.role": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			return "owner", nil
 		},
-		"tenants.status": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"tenants.status": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			// Recall/branding authority guards require an active tenant.
 			return "active", nil
 		},
-		"notification_outbox.kind": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"notification_outbox.kind": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			return "email", nil
 		},
-		"notification_outbox.channel": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"notification_outbox.channel": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			return "email", nil
 		},
-		"mailbox_spam_senders.scope": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"mailbox_spam_senders.scope": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			return "mailbox", nil
 		},
-		"notification_outbox.recipient": func(rowIdx int, _ map[string]int64, tenantID int64) (any, error) {
+		"notification_outbox.recipient": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
 			return fmt.Sprintf("syn%d@example.test", rowIdx), nil
 		},
-		"notification_outbox.recipient_verified": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"notification_outbox.recipient_verified": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			return true, nil
 		},
 		"mailbox_storage_reservations.address": func(rowIdx int, parentLookups map[string]int64, _ int64) (any, error) {
@@ -315,7 +315,7 @@ WHERE table_schema='public'`)
 			sum := sha256OfBytes([]byte{0xde, 0xad, 0xbe, byte(rowIdx % 256)})
 			return sum, nil
 		},
-		"compliance_grants.granted_by": func(rowIdx int, _ map[string]int64, tenantID int64) (any, error) {
+		"compliance_grants.granted_by": func(_ int, _ map[string]int64, tenantID int64) (any, error) {
 			// The issuer is the primary owner — identical to the session GUC
 			// user the issuer check compares against.
 			if owners, ok := ownersByTenant[tenantID]; ok && len(owners) > 0 {
@@ -351,7 +351,7 @@ WHERE table_schema='public'`)
 			}
 			return "syn-brand.example.test", nil
 		},
-		"compliance_grants.owner_confirmed_at": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"compliance_grants.owner_confirmed_at": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			return time.UnixMicro(nowMicros() - 1_000_000), nil
 		},
 		"compliance_grants.expires_at": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
@@ -506,7 +506,7 @@ WHERE table_schema='public'`)
 		},
 	}
 
-	valueFor := func(table, col string, cm ColumnMap, meta colMeta, tenantID int64, parentLookups map[string]int64, rowIdx int) (any, error) {
+	valueFor := func(table, col string, cm ColumnMap, _ colMeta, tenantID int64, parentLookups map[string]int64, rowIdx int) (any, error) {
 		name := strings.ToLower(col)
 		pg := cm.PGType
 		if ov, ok := overrides[table+"."+col]; ok {
@@ -592,7 +592,7 @@ WHERE table_schema='public'`)
 				// that side-gate additional NOT NULL columns.
 				for _, lit := range lits {
 					switch strings.ToLower(lit) {
-					case "storage", "deleted", "disabled", "purge", "purged", "failed", "cancelled", "canceled":
+					case "storage", "deleted", "disabled", "purge", "purged", "failed", "canceled":
 						continue
 					}
 					return lit, nil
@@ -759,9 +759,9 @@ WHERE table_schema='public'`)
 				case 2:
 					seedRecallInitialPending(t, ctx, conn, tenantID, rowIdx)
 				case 3:
-					seedRecallExpiredPreview(t, ctx, conn, tenantID, rowIdx)
+					seedRecallExpiredPreview(ctx, t, conn, tenantID, rowIdx)
 				case 7:
-					seedRecallLocalRecalled(t, ctx, conn, tenantID, rowIdx)
+					seedRecallLocalRecalled(ctx, t, conn, tenantID, rowIdx)
 				default:
 					statuses := []string{"failed", "expired", "uncertain"}
 					seedRecallTerminal(t, ctx, conn, tenantID, rowIdx, statuses[(rowIdx-4)%3])
@@ -1060,7 +1060,7 @@ func sha256OfBytes(b []byte) string {
 // re-previews it at epoch 2 with a 2-second expiry, then returns. The caller
 // waits until the natural expiry elapses before importing, so the PG source
 // holds a genuinely expired preview (no trigger edits, no deletes).
-func seedRecallExpiredPreview(t testingT, ctx context.Context, conn *pgxpool.Conn, tenantID int64, rowIdx int) {
+func seedRecallExpiredPreview(ctx context.Context, t testingT, conn *pgxpool.Conn, tenantID int64, rowIdx int) {
 	var entryID, mailboxID int64
 	var mid string
 	if err := conn.QueryRow(ctx,
@@ -1114,7 +1114,7 @@ func seedRecallExpiredPreview(t testingT, ctx context.Context, conn *pgxpool.Con
 // local_recalled: service pending insert, owner preview with one copy in the
 // snapshot, owner confirmation selecting that copy, then the platform
 // completion with completed_at (the only legal local_recalled path).
-func seedRecallLocalRecalled(t testingT, ctx context.Context, conn *pgxpool.Conn, tenantID int64, rowIdx int) {
+func seedRecallLocalRecalled(ctx context.Context, t testingT, conn *pgxpool.Conn, tenantID int64, rowIdx int) {
 	var entryID, mailboxID int64
 	var mid string
 	if err := conn.QueryRow(ctx,

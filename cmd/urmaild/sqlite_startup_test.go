@@ -116,7 +116,10 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 	defer ts.Close()
 
 	// 1. /api/v1/healthz reports 200 ok + db=ok in production SQLite mode.
-	resp, err := ts.Client().Get(ts.URL + "/api/v1/healthz")
+	resp, err := func() (*http.Response, error) {
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/api/v1/healthz", nil)
+		return ts.Client().Do(req)
+	}()
 	if err != nil {
 		t.Fatalf("GET /api/v1/healthz: %v", err)
 	}
@@ -224,7 +227,10 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 		t.Fatalf("unapproved /api/v1/mailbox/send = %d, want 503 FEATURE_UNAVAILABLE", sendResp.StatusCode)
 	}
 
-	readyResp, err := ts.Client().Get(ts.URL + "/api/v1/internal/status/ready")
+	readyResp, err := func() (*http.Response, error) {
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/api/v1/internal/status/ready", nil)
+		return ts.Client().Do(req)
+	}()
 	if err != nil {
 		t.Fatalf("GET /api/v1/internal/status/ready: %v", err)
 	}

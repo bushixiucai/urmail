@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
-	"github.com/jackc/pgx/v5"
 )
 
 // NegativeIsolation opens the migrated SQLite target through the production
@@ -23,7 +24,7 @@ func NegativeIsolation(ctx context.Context, targetPath string, tenantA, tenantB 
 	if err != nil {
 		return fmt.Errorf("open migrated target: %w", err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }() // read-only file
 	pool, err := db.NewSQLitePool(raw, isolation.ScopeTenant)
 	if err != nil {
 		return fmt.Errorf("tenant pool: %w", err)
@@ -46,13 +47,13 @@ func NegativeIsolation(ctx context.Context, targetPath string, tenantA, tenantB 
 	// 2. Cross-tenant parameter under tenant A context: refused.
 	if _, err := q.GetTenantSetting(tenantACtx,
 		store.GetTenantSettingParams{ScopeID: tenantB, Key: settingsKey}); !errors.Is(err, isolation.ErrCrossTenantAccess) {
-		return fmt.Errorf("cross-tenant setting read err=%v, want ErrCrossTenantAccess", err)
+		return fmt.Errorf("cross-tenant setting read err=%w, want ErrCrossTenantAccess", err)
 	}
 
 	// 3. Missing scope context: refused.
 	if _, err := q.GetTenantSetting(ctx,
 		store.GetTenantSettingParams{ScopeID: tenantA, Key: settingsKey}); !errors.Is(err, isolation.ErrMissingScope) {
-		return fmt.Errorf("missing-scope setting read err=%v, want ErrMissingScope", err)
+		return fmt.Errorf("missing-scope setting read err=%w, want ErrMissingScope", err)
 	}
 	return nil
 }

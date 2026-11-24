@@ -2,9 +2,10 @@ package reconcile_test
 
 import (
 	"context"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/mail"

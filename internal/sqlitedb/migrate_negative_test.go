@@ -32,7 +32,7 @@ func TestMigrateRefusesGapAheadAndMissingTail(t *testing.T) {
 	}
 
 	aheadDB := openTempSQLite(t)
-	if _, err := aheadDB.Exec("PRAGMA user_version=2"); err != nil {
+	if _, err := aheadDB.ExecContext(t.Context(), "PRAGMA user_version=2"); err != nil {
 		t.Fatal(err)
 	}
 	if err := sqlitedb.Migrate(context.Background(), aheadDB, fstest.MapFS{"0001_init.sql": body}, "."); err == nil || !strings.Contains(err.Error(), "ahead of the embedded chain") {
@@ -47,7 +47,7 @@ func TestMigrateRefusesGapAheadAndMissingTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := shortDB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+	if err := shortDB.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version == sqlitedb.ExpectedSchemaVersion {

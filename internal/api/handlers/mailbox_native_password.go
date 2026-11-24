@@ -3,10 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
-	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"net/http"
 	"strconv"
+
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"

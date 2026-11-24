@@ -34,7 +34,7 @@ func TestSelfSettingsStayBoundToTheSessionTenant(t *testing.T) {
 		tenant, mailbox int64
 		address, name   string
 	}
-	var accounts []account
+	accounts := make([]account, 0, 2)
 	for i, name := range []string{"tenant-a", "tenant-b"} {
 		var tenant, domain, mailbox int64
 		if err := p.QueryRow(ctx, `WITH b AS(INSERT INTO brands(slug,name) VALUES($1,$1) RETURNING id),t AS(INSERT INTO tenants(brand_id,name,slug,status) SELECT id,$1,$1,'active' FROM b RETURNING id) SELECT id FROM t`, name).Scan(&tenant); err != nil {
@@ -68,7 +68,9 @@ func TestSelfSettingsStayBoundToTheSessionTenant(t *testing.T) {
 	login := func(address string) string {
 		t.Helper()
 		body, _ := json.Marshal(map[string]string{"email": address, "password": password})
-		resp, err := http.Post(server.URL+"/api/v1/mailbox/session", "application/json", bytes.NewReader(body))
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/v1/mailbox/session", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -83,7 +85,7 @@ func TestSelfSettingsStayBoundToTheSessionTenant(t *testing.T) {
 	}
 	settings := func(token string) (int, map[string]any) {
 		t.Helper()
-		req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/mailbox/settings", nil)
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/v1/mailbox/settings", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {

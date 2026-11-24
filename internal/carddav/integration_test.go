@@ -2,11 +2,12 @@ package carddav
 
 import (
 	"context"
-	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/db"
