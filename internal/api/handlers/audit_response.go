@@ -51,7 +51,7 @@ func auditResponses(rows []store.AuditLogs) []auditResponse {
 				safe = &detail
 			}
 		}
-		result = append(result, auditResponse{ID: row.ID, TenantID: row.TenantID, ActorUserID: row.ActorUserID, ActorIP: row.ActorIP, Action: row.Action, TargetType: row.TargetType, TargetID: row.TargetID, Detail: safe, CreatedAt: timeutil.FromMicro(row.CreatedAt)})
+		result = append(result, auditResponse{ID: row.ID, TenantID: row.TenantID, ActorUserID: row.ActorUserID, ActorIP: row.ActorIp, Action: row.Action, TargetType: row.TargetType, TargetID: row.TargetID, Detail: safe, CreatedAt: timeutil.FromMicro(row.CreatedAt)})
 	}
 	return result
 }

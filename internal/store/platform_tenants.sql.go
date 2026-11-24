@@ -198,7 +198,7 @@ func (q *Queries) PlatformListAuditLogs(ctx context.Context, limit int32) ([]Aud
 			&i.ID,
 			&i.TenantID,
 			&i.ActorUserID,
-			&i.ActorIP,
+			&i.ActorIp,
 			&i.Action,
 			&i.TargetType,
 			&i.TargetID,

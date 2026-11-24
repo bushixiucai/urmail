@@ -26,7 +26,7 @@ INSERT INTO audit_logs (
 type CreateAuditLogParams struct {
 	TenantID    pgtype.Int8 `json:"tenant_id"`
 	ActorUserID pgtype.Int8 `json:"actor_user_id"`
-	ActorIP     *netip.Addr `json:"actor_ip"`
+	ActorIp     *netip.Addr `json:"actor_ip"`
 	Action      string      `json:"action"`
 	TargetType  pgtype.Text `json:"target_type"`
 	TargetID    pgtype.Text `json:"target_id"`
@@ -39,7 +39,7 @@ func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) 
 	row := q.db.QueryRow(ctx, createAuditLog,
 		arg.TenantID,
 		arg.ActorUserID,
-		arg.ActorIP,
+		arg.ActorIp,
 		arg.Action,
 		arg.TargetType,
 		arg.TargetID,
@@ -50,7 +50,7 @@ func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) 
 		&i.ID,
 		&i.TenantID,
 		&i.ActorUserID,
-		&i.ActorIP,
+		&i.ActorIp,
 		&i.Action,
 		&i.TargetType,
 		&i.TargetID,
@@ -108,7 +108,7 @@ func (q *Queries) ExportAuditLogsByTenant(ctx context.Context, arg ExportAuditLo
 			&i.ID,
 			&i.TenantID,
 			&i.ActorUserID,
-			&i.ActorIP,
+			&i.ActorIp,
 			&i.Action,
 			&i.TargetType,
 			&i.TargetID,
@@ -206,7 +206,7 @@ func (q *Queries) ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsBy
 			&i.ID,
 			&i.TenantID,
 			&i.ActorUserID,
-			&i.ActorIP,
+			&i.ActorIp,
 			&i.Action,
 			&i.TargetType,
 			&i.TargetID,
