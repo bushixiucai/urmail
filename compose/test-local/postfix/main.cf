@@ -27,6 +27,13 @@ smtpd_sasl_security_options = noanonymous
 smtpd_relay_restrictions = permit_sasl_authenticated, reject_unauth_destination
 smtpd_recipient_restrictions = permit_sasl_authenticated, reject_unauth_destination
 
+# LOCAL TEST milter: OpenDKIM sidecar stands in for urmail-milter sign.
+# milter_default_action=accept keeps mail flowing if the test signer is down.
+smtpd_milters = inet:urmail-signer-test:12301
+non_smtpd_milters = inet:urmail-signer-test:12301
+milter_default_action = accept
+milter_protocol = 6
+
 # Deliver local domain over LMTP to dovecot (Maildir).
 virtual_mailbox_domains = local.test
 virtual_mailbox_maps = texthash:/etc/postfix/vmailbox

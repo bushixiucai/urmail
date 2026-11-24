@@ -87,6 +87,7 @@ func run() error {
 		zap.String("version", version),
 		zap.String("listen", cfg.ListenAddr),
 	)
+	logAdminBootstrap(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

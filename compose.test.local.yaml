@@ -74,10 +74,32 @@ services:
       - ${URMAIL_DATA_ROOT:-./data}/certs:/srv/urmail/data/certs
       - ${URMAIL_DATA_ROOT:-./data}/config/caddy:/srv/urmail/data/config/caddy
 
+  # LOCAL TEST DKIM signer (OpenDKIM stand-in for the unbuilt urmail-milter).
+  # Milter port 12301 is container-internal and never published.
+  urmail-signer-test:
+    build:
+      context: ./compose/test-local/opendkim
+      args:
+        https_proxy: ${COMPOSE_BUILD_https_proxy:-}
+        http_proxy: ${COMPOSE_BUILD_http_proxy:-}
+    image: urmail-test-opendkim:local
+    restart: unless-stopped
+    environment:
+      URMAIL_PRIMARY_DOMAIN: ${URMAIL_PRIMARY_DOMAIN:-local.test}
+      URMAIL_DKIM_SELECTOR: ${URMAIL_DKIM_SELECTOR:-mail}
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/config/dkim:/etc/dkimkeys
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/12301'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
   # §1.1 litestream, local-directory replica instead of S3 for this run.
   # Started explicitly with `--profile sqlite`; no host port.
   litestream:
     image: litestream/litestream:0.3.13
     volumes:
       - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+      - ${URMAIL_DATA_ROOT:-./data}/litestream:/srv/urmail/data/litestream
       - ./compose/test-local/litestream-local.yml:/etc/litestream.yml:ro
