@@ -146,7 +146,7 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	lockedQ := db.Queries(tx)
-	if err = mailboxsend.LockDraft(c, lockedQ, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: req.DraftUID, Validity: validity}); err != nil {
+	if err = mailboxsend.LockDraft(platformCtx(c), lockedQ, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: req.DraftUID, Validity: validity}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
