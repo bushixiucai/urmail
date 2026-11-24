@@ -28,9 +28,10 @@ const (
 	// ExpectedSchemaVersion is the current migrations_sqlite chain tip
 	// (0001_init + 0002_write_side_effects + 0003_mailbox_readonly +
 	// 0004_archive_trigram_fts + 0005_archive_bigram_fts：§3.5 trigram/bigram FTS5 升级 +
-	// 0006_domain_tls_period_check：既有库的 TLS 周期 CHECK 重建)。
+	// 0006_domain_tls_period_check：既有库的 TLS 周期 CHECK 重建 +
+	// 0007_backup_offsite_state：备份运行的异地处置列)。
 	// Startup verification fails closed unless PRAGMA user_version matches this exact version.
-	ExpectedSchemaVersion = 6
+	ExpectedSchemaVersion = 7
 
 	busyTimeoutMs    = 5000
 	pragmaTimeout    = 10 * time.Second
