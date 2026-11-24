@@ -1,0 +1,4 @@
+# LOCAL TEST dovecot passwd-file.  {PLAIN} is acceptable only because this
+# file never leaves the local evidence run; the product path uses the SQL
+# userdb through the renderer.
+user@local.test:{PLAIN}local-test-pass-20261124:5000:5000::/srv/urmail/data/mail/local.test/user::

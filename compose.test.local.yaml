@@ -1,0 +1,83 @@
+# LOCAL-ONLY TEST override — never use on a host that owns real mail ports.
+#
+# ARCH-PLAN-SQLITE-COMPOSE-20261119 §1.1 asks for postfix/dovecot/caddy on the
+# host network with 25/80/443/465/587/993.  This workstation already has 25
+# and 80 occupied, so the evidence run remaps every public port onto a
+# non-privileged host port and moves those three services onto a bridge
+# network.  Nothing in this file is part of the production distribution:
+#
+#   25  -> 2025     80  -> 8080     443 -> 8443
+#   465 -> 2465     587 -> 2587     993 -> 1993     143 -> 1143
+#
+# Milter ports 12301/11339 stay container-internal (never published).
+name: urmail-phase2-local
+
+networks:
+  default:
+    name: urmail-phase2-local-net
+
+services:
+  postfix:
+    # Base declares network_mode: host; reset it so `ports` works.
+    network_mode: !reset null
+    networks: [default]
+    ports:
+      - "2025:25"
+      - "2465:465"
+      - "2587:587"
+    command:
+      - /bin/sh
+      - /opt/urmail-test/watch-postfix.sh
+      - postfix
+      - -c
+      - /srv/urmail/config/postfix
+      - start-fg
+    volumes:
+      # Rendered/test config volume (writable so the harness can simulate an
+      # agent atomic write).  Replaces the read-only placeholder mount.
+      - ${URMAIL_DATA_ROOT:-./data}/config/postfix:/srv/urmail/config/postfix
+      - ${URMAIL_DATA_ROOT:-./data}/config/tls:/etc/urmail/tls:ro
+      - ${URMAIL_DATA_ROOT:-./data}/spool:/var/spool/postfix
+      - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
+      - ./compose/test-local/postfix/watch-postfix.sh:/opt/urmail-test/watch-postfix.sh:ro
+      - ./compose/test-local/postfix/vmailbox:/etc/postfix/vmailbox:ro
+
+  dovecot:
+    network_mode: !reset null
+    networks: [default]
+    ports:
+      - "1143:143"
+      - "1993:993"
+    command:
+      - /bin/sh
+      - /opt/urmail-test/watch-dovecot.sh
+      - dovecot
+      - -F
+      - -c
+      - /srv/urmail/config/dovecot/dovecot.conf
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/config/dovecot:/srv/urmail/config/dovecot
+      - ${URMAIL_DATA_ROOT:-./data}/config/tls:/etc/urmail/tls:ro
+      - ${URMAIL_DATA_ROOT:-./data}/mail:/srv/urmail/data/mail
+      - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
+      - ./compose/test-local/dovecot/watch-dovecot.sh:/opt/urmail-test/watch-dovecot.sh:ro
+      - ./compose/test-local/dovecot/users:/etc/dovecot/users:ro
+
+  caddy:
+    network_mode: !reset null
+    networks: [default]
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./compose/test-local/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${URMAIL_DATA_ROOT:-./data}/certs:/srv/urmail/data/certs
+      - ${URMAIL_DATA_ROOT:-./data}/config/caddy:/srv/urmail/data/config/caddy
+
+  # §1.1 litestream, local-directory replica instead of S3 for this run.
+  # Started explicitly with `--profile sqlite`; no host port.
+  litestream:
+    image: litestream/litestream:0.3.13
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+      - ./compose/test-local/litestream-local.yml:/etc/litestream.yml:ro
