@@ -209,7 +209,7 @@ func sqliteHasTable(ctx context.Context, t *Target, name string) (bool, error) {
 // DiffSchema compares, per type-map table, the column name sets and the
 // mapped SQLite type classes of the PG source against the target PRAGMA. It
 // appends human-readable differences to the report.
-func DiffSchema(ctx context.Context, src Source, t *Target, tm TypeMap) ([]string, error) {
+func DiffSchema(ctx context.Context, _ Source, t *Target, tm TypeMap) ([]string, error) {
 	var diffs []string
 	for _, table := range tm.Tables() {
 		present, err := sqliteHasTable(ctx, t, table)

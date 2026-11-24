@@ -71,6 +71,7 @@ type ConfirmRecallReviewRow struct {
 }
 
 // StoreRecallReviewPreviewRow is a SQLite query parameter row.
+//nolint:revive // method name generated from sqlc query; renaming requires query rename + regen of recall_product.sql.go/querier.go
 type StoreRecallReviewPreviewRow struct {
 	ID               int64       `json:"id"`
 	TenantID         int64       `json:"tenant_id"`

@@ -92,7 +92,7 @@ func sha256Hex(b []byte) string {
 // (caller-owned transaction). It returns refusal evidence for illegal rows;
 // when any row is refused the caller blocks the import (transaction rolls
 // back, no done marker).
-func migrateRecallTable(ctx context.Context, src Source, t *Target, tm TypeMap, ti TableInfo) (RecallImportStats, []RecallRefusal, error) {
+func migrateRecallTable(ctx context.Context, src Source, t *Target, tm TypeMap, _ TableInfo) (RecallImportStats, []RecallRefusal, error) {
 	stats := RecallImportStats{StatusCounts: map[string]int64{}}
 	cm, ok := tm["recall_requests"]
 	if !ok {

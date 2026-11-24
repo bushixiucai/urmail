@@ -27,7 +27,7 @@ type fakeBrandLookup struct {
 	eligibleCalls  int
 }
 
-func (f *fakeBrandLookup) BrandHostLifecycle(_ context.Context, host string) (int64, string, bool, error) {
+func (f *fakeBrandLookup) BrandHostLifecycle(_ context.Context, _ string) (int64, string, bool, error) {
 	f.lifecycleCalls++
 	if f.lifecycleErr != nil {
 		return 0, "", false, f.lifecycleErr
@@ -38,7 +38,7 @@ func (f *fakeBrandLookup) BrandHostLifecycle(_ context.Context, host string) (in
 	return f.brandID, f.status, true, nil
 }
 
-func (f *fakeBrandLookup) BrandHostCertEligible(_ context.Context, host string) (bool, error) {
+func (f *fakeBrandLookup) BrandHostCertEligible(_ context.Context, _ string) (bool, error) {
 	f.eligibleCalls++
 	if f.eligibleErr != nil {
 		return false, f.eligibleErr

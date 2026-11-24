@@ -113,7 +113,7 @@ func TestS5MigratorFullSampleZeroDiff(t *testing.T) {
 	}
 	src := pgSource{pool: pool}
 
-	sample := seedSyntheticSample(t, ctx, pool, tm, 3)
+	sample := seedSyntheticSample(ctx, t, pool, tm, 3)
 
 	// Explicit must-migrate set: every type-map table that exists in the
 	// source catalog, minus engine metadata (schema_migrations) and the two
@@ -427,7 +427,7 @@ func TestS5PrecheckNOCASEAbort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedSyntheticSample(t, ctx, pool, tm, 3)
+	seedSyntheticSample(ctx, t, pool, tm, 3)
 
 	// A legal finite 9999-CE timestamp must NOT trip the sentinel audit
 	// (MaxFiniteUnixMicro is a real int64, far from the int64max sentinel).
@@ -586,7 +586,7 @@ func TestS5FailureRollbackNoDone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedSyntheticSample(t, ctx, pool, tm, 2)
+	seedSyntheticSample(ctx, t, pool, tm, 2)
 	src := pgSource{pool: pool}
 
 	failing := &Target{DB: raw}
