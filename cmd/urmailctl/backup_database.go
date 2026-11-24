@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -19,34 +21,64 @@ import (
 const (
 	managedTopologyEnv  = "URMAIL_BACKUP_MANAGED_TOPOLOGY"
 	managedPGHostEnv    = "URMAIL_BACKUP_MANAGED_PG_HOST"
+	managedPGPortEnv    = "URMAIL_BACKUP_MANAGED_PG_PORT"
 	managedBackupScheme = "urmail-managed-postgresql"
 	managedPGRole       = "urmail_platform"
 )
 
 var managedServiceName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 
-func managedComposeTopology() (string, bool, error) {
-	raw := strings.TrimSpace(os.Getenv(managedTopologyEnv))
-	if raw == "" {
-		return "", false, nil
-	}
-	if raw != "compose" {
-		return "", false, fmt.Errorf("unsupported managed backup topology %q", raw)
-	}
-	host := strings.TrimSpace(os.Getenv(managedPGHostEnv))
-	if host == "" {
-		host = "pg"
-	}
-	if !managedServiceName.MatchString(host) {
-		return "", false, fmt.Errorf("invalid managed PostgreSQL service name")
-	}
-	return host, true, nil
+// managedTopology describes the explicitly declared deployment shape.
+// "compose" accepts one project service name on 5432; "loopback" accepts only
+// a loopback literal on a controlled high port so a host systemd unit can
+// reach the stack without touching another project's 5432.
+type managedTopology struct {
+	mode string
+	host string
+	port string
 }
 
-// managedBackupDatabaseURL validates a managed compose DSN: same project
-// service name, managed migration role with its password, and the same
-// database/port/query whitelist as the local path.
-func managedBackupDatabaseURL(connection, service string) (string, error) {
+func loopbackHost(host string) bool {
+	return host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
+
+func managedTopologyFromEnv() (managedTopology, bool, error) {
+	raw := strings.TrimSpace(os.Getenv(managedTopologyEnv))
+	if raw == "" {
+		return managedTopology{}, false, nil
+	}
+	switch raw {
+	case "compose":
+		if strings.TrimSpace(os.Getenv(managedPGPortEnv)) != "" {
+			return managedTopology{}, false, fmt.Errorf("%s is not accepted with the compose topology", managedPGPortEnv)
+		}
+		host := strings.TrimSpace(os.Getenv(managedPGHostEnv))
+		if host == "" {
+			host = "pg"
+		}
+		if !managedServiceName.MatchString(host) {
+			return managedTopology{}, false, fmt.Errorf("invalid managed PostgreSQL service name")
+		}
+		return managedTopology{mode: "compose", host: host, port: "5432"}, true, nil
+	case "loopback":
+		if strings.TrimSpace(os.Getenv(managedPGHostEnv)) != "" {
+			return managedTopology{}, false, fmt.Errorf("%s is not accepted with the loopback topology", managedPGHostEnv)
+		}
+		port := strings.TrimSpace(os.Getenv(managedPGPortEnv))
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1024 || number > 65535 {
+			return managedTopology{}, false, fmt.Errorf("%s must be a port between 1024 and 65535", managedPGPortEnv)
+		}
+		return managedTopology{mode: "loopback", host: "127.0.0.1", port: strconv.Itoa(number)}, true, nil
+	default:
+		return managedTopology{}, false, fmt.Errorf("unsupported managed backup topology %q", raw)
+	}
+}
+
+// managedBackupDatabaseURL validates a managed DSN: the topology's exact
+// host and port, the managed migration role with its password, and the same
+// database/query whitelist as the local path.
+func managedBackupDatabaseURL(connection string, topology managedTopology) (string, error) {
 	u, err := url.Parse(connection)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.User == nil || u.User.Username() != "urmail_migrate" || u.Fragment != "" {
 		return "", fmt.Errorf("managed backup requires the managed migration database URL")
@@ -55,8 +87,13 @@ func managedBackupDatabaseURL(connection, service string) (string, error) {
 	if !present || password == "" {
 		return "", fmt.Errorf("managed backup requires managed migration credentials")
 	}
-	if u.Hostname() != service {
-		return "", fmt.Errorf("managed backup requires the compose PostgreSQL service %q", service)
+	host := u.Hostname()
+	if topology.mode == "loopback" {
+		if !loopbackHost(host) {
+			return "", fmt.Errorf("loopback backup requires a loopback host")
+		}
+	} else if host != topology.host {
+		return "", fmt.Errorf("managed backup requires the compose PostgreSQL service %q", topology.host)
 	}
 	database := strings.TrimPrefix(u.Path, "/")
 	if database == "" || len(database) > 63 || strings.IndexFunc(database, func(r rune) bool {
@@ -79,10 +116,10 @@ func managedBackupDatabaseURL(connection, service string) (string, error) {
 	if port == "" {
 		port = "5432"
 	}
-	if port != "5432" {
-		return "", fmt.Errorf("backup requires the managed PostgreSQL port")
+	if port != topology.port {
+		return "", fmt.Errorf("backup requires the managed PostgreSQL port %s", topology.port)
 	}
-	plan := &url.URL{Scheme: managedBackupScheme, User: url.UserPassword("urmail_migrate", password), Host: service, Path: "/" + database}
+	plan := &url.URL{Scheme: managedBackupScheme, User: url.UserPassword("urmail_migrate", password), Host: net.JoinHostPort(host, topology.port), Path: "/" + database}
 	if mode := query.Get("sslmode"); mode != "" {
 		plan.RawQuery = url.Values{"sslmode": {mode}}.Encode()
 	}
@@ -94,7 +131,7 @@ func managedBackupDatabaseURL(connection, service string) (string, error) {
 // SET ROLE into the BYPASSRLS platform role.
 func managedBackupDatabaseCommand(ctx context.Context, plan string) (*exec.Cmd, error) {
 	u, err := url.Parse(plan)
-	if err != nil || u.Scheme != managedBackupScheme || u.User == nil || !managedServiceName.MatchString(u.Hostname()) {
+	if err != nil || u.Scheme != managedBackupScheme || u.User == nil || (!managedServiceName.MatchString(u.Hostname()) && !loopbackHost(u.Hostname())) {
 		return nil, errors.New("invalid managed backup plan")
 	}
 	password, present := u.User.Password()
@@ -120,10 +157,10 @@ func backupPeerDatabaseURL(connection string) (string, error) {
 	if container := os.Getenv("URMAIL_BACKUP_POSTGRES_CONTAINER"); container != "" {
 		return containerBackupSourceURL(connection, container)
 	}
-	if service, managed, topologyErr := managedComposeTopology(); topologyErr != nil {
+	if topology, managed, topologyErr := managedTopologyFromEnv(); topologyErr != nil {
 		return "", topologyErr
 	} else if managed {
-		return managedBackupDatabaseURL(connection, service)
+		return managedBackupDatabaseURL(connection, topology)
 	}
 	u, err := url.Parse(connection)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.User == nil || u.User.Username() != "urmail_migrate" || u.Fragment != "" {
