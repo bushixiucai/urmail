@@ -192,7 +192,7 @@ func (h *MailboxImports) Resume(c *gin.Context) {
 	if !h.fresh(c, sess, in.CurrentPassword) {
 		return
 	}
-	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(c.Request.Context(), store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
+	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	if importDBError(c, e) {
 		return
 	}
@@ -213,7 +213,7 @@ func (h *MailboxImports) Reconcile(c *gin.Context) {
 	if !h.fresh(c, sess, in.CurrentPassword) {
 		return
 	}
-	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(c.Request.Context(), store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
+	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	if importDBError(c, e) {
 		return
 	}
