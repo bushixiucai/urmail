@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -113,13 +114,16 @@ func (h *TenantHandler) UpdateSettings(c *gin.Context) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
+	tenantCtx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tid})
 	for _, key := range settingKeys(input.Settings) {
 		value := input.Settings[key]
 		var err error
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			err = q.DeleteTenantSetting(c.Request.Context(), store.DeleteTenantSettingParams{ScopeID: tid, Key: key})
+			// DeleteTenantSetting is registered platform-scoped; the handler is
+			// the trusted entry and only ever passes the session's own tenant.
+			err = q.DeleteTenantSetting(platformCtx(c), store.DeleteTenantSettingParams{ScopeID: tid, Key: key})
 		} else {
-			_, err = q.UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: value})
+			_, err = q.UpsertTenantSetting(tenantCtx, store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: value})
 		}
 		if err != nil {
 			c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})

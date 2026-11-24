@@ -96,7 +96,10 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		return
 	}
 
-	tenant, err := q.GetTenantByID(c.Request.Context(), tenantID)
+	// GetTenantByID is platform-scoped. The id comes from the authenticated
+	// session, so this read is a trusted platform entry; without the scope the
+	// isolation hook rejects it and the handler would misreport a 404.
+	tenant, err := q.GetTenantByID(platformCtx(c), tenantID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": gin.H{"code": "TENANT_NOT_FOUND", "message": "tenant.not_found"},
