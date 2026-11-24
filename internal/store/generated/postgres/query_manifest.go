@@ -80,7 +80,7 @@ SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at
 SELECT tenant_id, approval_id, created_by, manifest, manifest_sha256, created_at FROM archive_evidence_exports WHERE tenant_id=$1 AND approval_id=$2
 `,
 	"ArchiveCasesGrantEligible": `-- name: ArchiveCasesGrantEligible :one
-SELECT urmail_archive_case_grant($1,$2,$3)::boolean AS allowed
+SELECT urmail_archive_case_grant($1,$3,$2)::boolean AS allowed
 `,
 	"ArchiveCasesList": `-- name: ArchiveCasesList :many
 SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100

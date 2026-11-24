@@ -371,17 +371,17 @@ func (q *Queries) ArchiveCasesGetEvidence(ctx context.Context, arg ArchiveCasesG
 }
 
 const archiveCasesGrantEligible = `-- name: ArchiveCasesGrantEligible :one
-SELECT urmail_archive_case_grant($1,$2,$3)::boolean AS allowed
+SELECT urmail_archive_case_grant($1,$3,$2)::boolean AS allowed
 `
 
 type ArchiveCasesGrantEligibleParams struct {
 	T int64  `json:"t"`
-	U int64  `json:"u"`
 	S string `json:"s"`
+	U int64  `json:"u"`
 }
 
 func (q *Queries) ArchiveCasesGrantEligible(ctx context.Context, arg ArchiveCasesGrantEligibleParams) (bool, error) {
-	row := q.db.QueryRow(ctx, archiveCasesGrantEligible, arg.T, arg.U, arg.S)
+	row := q.db.QueryRow(ctx, archiveCasesGrantEligible, arg.T, arg.S, arg.U)
 	var allowed bool
 	err := row.Scan(&allowed)
 	return allowed, err

@@ -25,7 +25,7 @@ SELECT r.user_id,u.email FROM user_tenant_roles r JOIN users u ON u.id=r.user_id
 WHERE r.tenant_id=$1 AND urmail_archive_case_grant(r.tenant_id,r.user_id,'full_content') ORDER BY u.email;
 
 -- name: ArchiveCasesGrantEligible :one
-SELECT urmail_archive_case_grant($1,$2,$3)::boolean AS allowed;
+SELECT urmail_archive_case_grant($1,$3,$2)::boolean AS allowed;
 
 -- name: ArchiveCasesAddMember :execrows
 INSERT INTO archive_investigation_members(tenant_id,investigation_id,user_id)
