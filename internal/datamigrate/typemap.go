@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -69,11 +70,16 @@ func (m TypeMap) Columns(table string) []string {
 // LoadTypeMap parses a type-map.tsv (table, column, pg_type, sqlite_type,
 // encoding; TSV with a header row).
 func LoadTypeMap(path string) (TypeMap, error) {
+	// The type map is a fixed build input named by the migrator; a relative or
+	// traversal-bearing path is rejected before the file is opened.
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, fmt.Errorf("type map path must be a clean absolute path")
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open type map: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only type map
 	return ParseTypeMap(f, path)
 }
 

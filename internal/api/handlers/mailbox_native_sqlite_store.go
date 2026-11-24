@@ -307,7 +307,7 @@ func (s SQLiteMailboxStore) SenderIdentities(ctx context.Context, tenantID int64
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // read-only rows
 	out := make([]string, 0)
 	for rows.Next() {
 		var localPart, fqdn string
@@ -480,7 +480,7 @@ func (s SQLiteMailboxStore) ListFolders(ctx context.Context, tenantID, mailboxID
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // read-only rows
 	out := make([]webmail.Folder, 0)
 	for rows.Next() {
 		var name, delim, flagsJSON string
@@ -543,7 +543,7 @@ func (s SQLiteMailboxStore) ListMessages(ctx context.Context, tenantID, mailboxI
 	if err != nil {
 		return webmail.ListResult{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // read-only rows
 
 	var (
 		uidValidity uint32 = 1

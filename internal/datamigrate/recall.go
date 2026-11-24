@@ -399,7 +399,7 @@ func verifyRecallStaging(ctx context.Context, t *Target, stats RecallImportStats
 	if err != nil {
 		return fmt.Errorf("staging readback: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // read-only rows
 	var (
 		n        int
 		counts   = map[string]int64{}

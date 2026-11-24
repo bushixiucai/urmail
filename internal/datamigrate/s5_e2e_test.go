@@ -40,7 +40,7 @@ func (w pgxRowsWrap) Columns() ([]string, error) {
 	fds := w.FieldDescriptions()
 	names := make([]string, len(fds))
 	for i, fd := range fds {
-		names[i] = string(fd.Name)
+		names[i] = fd.Name
 	}
 	return names, nil
 }
@@ -545,7 +545,7 @@ func TestS5SQLitePeriodBoundary(t *testing.T) {
 		{"eight_days_plus_one_micro", 691_200_000_001, true},
 	}
 	for i, c := range cases {
-		start := int64(1800000000000000 + int64(i)*86_400_000_000)
+		start := int64(1800000000000000) + int64(i)*86_400_000_000
 		_, err := raw.ExecContext(ctx,
 			`INSERT INTO domain_tls_reports(id, tenant_id, domain_id, report_digest, reporter_digest, report_id_digest, period_start, period_end, successful, failed, failures)
 			 VALUES ($1,1,1,$2,$2,$2,$3,$4,1,0,'{}')`,

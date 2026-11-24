@@ -289,7 +289,7 @@ func guardFingerprint(ctx context.Context, q interface {
 	if err != nil {
 		return "", fmt.Errorf("guard fingerprint: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // read-only rows
 	var b strings.Builder
 	for rows.Next() {
 		var line string

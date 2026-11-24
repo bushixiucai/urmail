@@ -25,6 +25,12 @@ func runSQLiteMigrate(ctx context.Context, args []string) error {
 	if path == "" {
 		path = defaultSQLitePath
 	}
+	// The database path is operator configuration, never request input; a
+	// relative or traversal-bearing path is rejected before any directory is
+	// created so the migration cannot be steered outside its configured root.
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("URMAIL_SQLITE_PATH must be a clean absolute path")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create sqlite directory: %w", err)
 	}

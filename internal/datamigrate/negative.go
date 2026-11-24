@@ -24,7 +24,7 @@ func NegativeIsolation(ctx context.Context, targetPath string, tenantA, tenantB 
 	if err != nil {
 		return fmt.Errorf("open migrated target: %w", err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }() // read-only file
 	pool, err := db.NewSQLitePool(raw, isolation.ScopeTenant)
 	if err != nil {
 		return fmt.Errorf("tenant pool: %w", err)

@@ -34,7 +34,7 @@ func TestSelfSettingsStayBoundToTheSessionTenant(t *testing.T) {
 		tenant, mailbox int64
 		address, name   string
 	}
-	var accounts []account
+	accounts := make([]account, 0, 2)
 	for i, name := range []string{"tenant-a", "tenant-b"} {
 		var tenant, domain, mailbox int64
 		if err := p.QueryRow(ctx, `WITH b AS(INSERT INTO brands(slug,name) VALUES($1,$1) RETURNING id),t AS(INSERT INTO tenants(brand_id,name,slug,status) SELECT id,$1,$1,'active' FROM b RETURNING id) SELECT id FROM t`, name).Scan(&tenant); err != nil {

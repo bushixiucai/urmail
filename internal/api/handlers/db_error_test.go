@@ -65,9 +65,8 @@ func TestWriteDatabaseErrorLogsRawError(t *testing.T) {
 	encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
 	core := zapcore.NewCore(encoder, zapcore.AddSync(&buffer), zapcore.DebugLevel)
 	logger := zap.New(core)
-	previous := zap.L()
-	zap.ReplaceGlobals(logger)
-	defer zap.ReplaceGlobals(previous)
+	undo := zap.ReplaceGlobals(logger)
+	defer undo()
 
 	c, recorder := testGinContext(t)
 	writeDatabaseError(c, errors.New("driver exploded: disk I/O error"), "TEST_STALE")

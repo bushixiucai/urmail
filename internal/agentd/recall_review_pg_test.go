@@ -141,7 +141,7 @@ func (f *recallReviewFixture) review(t *testing.T, actor int64, selected []uint3
 	if err = tx.Commit(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	return store.RecallRequests(confirmed)
+	return confirmed
 }
 func (f *recallReviewFixture) execute(t *testing.T, row store.RecallRequests) store.RecallRequests {
 	t.Helper()

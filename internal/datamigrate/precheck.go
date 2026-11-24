@@ -186,7 +186,7 @@ func nocaseUniqueColumns(ctx context.Context, t *Target) ([]tableColumn, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // read-only rows
 
 	seen := map[tableColumn]bool{}
 	var out []tableColumn
@@ -272,11 +272,14 @@ func auditNumericUsage(queriesDirs []string, numericCols []string) []string {
 			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".sql") {
 				return nil
 			}
+			if !pathWithin(dir, path) {
+				return nil
+			}
 			f, ferr := os.Open(path)
 			if ferr != nil {
 				return nil
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }() // read-only scan
 			sc := bufio.NewScanner(f)
 			line := 0
 			for sc.Scan() {
@@ -307,11 +310,14 @@ func inventoryLike(queriesDirs []string) (all []string, bare []string) {
 			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".sql") {
 				return nil
 			}
+			if !pathWithin(dir, path) {
+				return nil
+			}
 			f, ferr := os.Open(path)
 			if ferr != nil {
 				return nil
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }() // read-only scan
 			sc := bufio.NewScanner(f)
 			line := 0
 			for sc.Scan() {
@@ -368,4 +374,17 @@ func writePrecheckReport(path string, report PrecheckReport) error {
 		sb.WriteString("\n## gate: ABORT — " + abort + "\n")
 	}
 	return os.WriteFile(path, []byte(sb.String()), 0o644)
+}
+
+// pathWithin reports whether an entry produced by filepath.Walk stays inside
+// the directory that walk was started from. The walk never yields an escaping
+// path by itself; the check makes the containment explicit at the open site so
+// a future refactor cannot turn the walker into an arbitrary-file reader.
+func pathWithin(dir, path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	root := filepath.Clean(dir)
+	full := filepath.Clean(path)
+	return full == root || strings.HasPrefix(full, root+string(os.PathSeparator))
 }

@@ -39,6 +39,16 @@ import (
 	"github.com/bushixiucai/urmail/internal/timeutil"
 )
 
+// reportVersion narrows a database version counter into the report fact field
+// without silent truncation: negative values and values beyond int32 are
+// rejected so a malformed ledger row fails the read instead of corrupting it.
+func reportVersion(version int64) (int32, error) {
+	if version < 0 || version > math.MaxInt32 {
+		return 0, fmt.Errorf("report version %d out of int32 range", version)
+	}
+	return int32(version), nil
+}
+
 const revokeMailboxSessionsSQL = `UPDATE mailbox_sessions
 SET revoked_at=COALESCE(revoked_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
 WHERE tenant_id=$1 AND mailbox_id=$2`
@@ -2065,7 +2075,6 @@ func (q *Queries) marketingReserveSend(ctx context.Context, tenant int64, now, d
 		Scan(&w.ID, &w.EndsAt, &w.Timezone, &w.UsedCount, &w.NextSendAt)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		err = nil
 		w.ID = 0
 	case err != nil:
 		return "", 0, false, err
@@ -2593,7 +2602,11 @@ func (q *Queries) finishMarketingSend(ctx context.Context, arg PlatformFinishMar
 			return false, err
 		}
 	}
-	backoff := int64(1) << uint(min(r.Attempts, 10))
+	shift := min(r.Attempts, 10)
+	if shift < 0 {
+		shift = 0
+	}
+	backoff := int64(1) << shift
 	if _, err := q.db.Exec(ctx, marketingRecipientFinishSQL, arg.TenantID, arg.RecipientID,
 		arg.Result, now, now+backoff*1000000); err != nil {
 		return false, err
@@ -4027,8 +4040,13 @@ WHERE e.tenant_id=$1 AND e.definition_id=$2 AND e.created_at>=$3 AND e.created_a
 			rows.Close()
 			return nil, err
 		}
+		narrowed, err := reportVersion(version)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
 		facts = append(facts, report.Fact{
-			RecordKind: "entry", RecordID: strconv.FormatInt(id, 10), Version: int32(version),
+			RecordKind: "entry", RecordID: strconv.FormatInt(id, 10), Version: narrowed,
 			State: source, ResultCode: eventKey, OccurredAt: time.UnixMicro(created).UTC(), Weight: count,
 		})
 	}
@@ -4084,8 +4102,13 @@ WHERE p.tenant_id=$1 AND e.definition_id=$2 AND e.created_at>=$3 AND e.created_a
 			rows.Close()
 			return nil, err
 		}
+		narrowed, err := reportVersion(version)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
 		facts = append(facts, report.Fact{
-			RecordKind: "instance", RecordID: strconv.FormatInt(id, 10), Version: int32(version),
+			RecordKind: "instance", RecordID: strconv.FormatInt(id, 10), Version: narrowed,
 			InstanceID: id, Email: email, State: state, ResultCode: lastError,
 			OccurredAt: time.UnixMicro(enteredMicro).UTC(), Weight: 1,
 			Suppressed: suppressed[email], Uncertain: boolValue(uncertain),
@@ -4111,8 +4134,13 @@ WHERE x.tenant_id=$1 AND e.definition_id=$2 AND e.created_at>=$3 AND e.created_a
 			rows.Close()
 			return nil, err
 		}
+		narrowed, err := reportVersion(version)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
 		facts = append(facts, report.Fact{
-			RecordKind: "execution", RecordID: strconv.FormatInt(id, 10), Version: int32(version),
+			RecordKind: "execution", RecordID: strconv.FormatInt(id, 10), Version: narrowed,
 			InstanceID: position, Email: email, State: status, ResultCode: errorCode,
 			OccurredAt: time.UnixMicro(created).UTC(), Weight: 1,
 			Uncertain: status == "uncertain",
