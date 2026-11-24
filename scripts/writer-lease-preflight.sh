@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Single-writer lease pre-flight (P3-DW-01).  Sourced by install.sh and
 # upgrade.sh; the callers define log(), warn() and die().
 #
