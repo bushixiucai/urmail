@@ -3,6 +3,7 @@ package loadbench
 import (
 	"context"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"sort"
 	"strings"
 	"testing"
@@ -34,7 +35,7 @@ func openFixture(t *testing.T) (*Harness, *Fixture) {
 
 func runScenario(t *testing.T, h *Harness, f *Fixture, name string, cfg Config) Result {
 	t.Helper()
-	ctx := context.Background()
+	ctx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	op, err := h.Scenario(ctx, name, f)
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +162,7 @@ func TestIsolationMarketingBurst(t *testing.T) {
 		t.Skip("isolation proof uses the full profile")
 	}
 	h, f := openFixture(t)
-	ctx := context.Background()
+	ctx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	mailOp, err := h.Scenario(ctx, ScenarioMailboxListRead, f)
 	if err != nil {
 		t.Fatal(err)

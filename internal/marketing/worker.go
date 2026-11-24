@@ -183,7 +183,7 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	// recipient immediately: refund the reservation, record the reason, and
 	// never retry. This is the unsubscribe linearization point.
 	if sendErr != nil && errors.Is(sendErr, ErrStale) {
-		finishCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		revoked, revokeErr := q.PlatformMarkMarketingRecipientRevoked(finishCtx, store.PlatformMarkMarketingRecipientRevokedParams{TenantID: recipient.TenantID, RecipientID: recipient.ID, LeaseOwner: w.id, Fence: recipient.Fence})
 		if revokeErr != nil {
@@ -206,7 +206,7 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	}
 	// Cancellation after SMTP cannot erase the delivery fact. A bounded
 	// detached write is safe; a crash/failure remains submitting -> uncertain.
-	finishCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	finished, err := q.PlatformFinishMarketingSend(finishCtx, store.PlatformFinishMarketingSendParams{TenantID: recipient.TenantID, RecipientID: recipient.ID, LeaseOwner: w.id, Fence: recipient.Fence, Result: result})
 	if err != nil {
