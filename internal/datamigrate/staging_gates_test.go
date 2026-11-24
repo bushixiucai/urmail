@@ -46,7 +46,7 @@ func TestSourceSchemaGate(t *testing.T) {
 	}{
 		{"supported", &schemaFakeSource{version: 159}, ""},
 		{"old", &schemaFakeSource{version: 158}, "outside the supported range"},
-		{"unknown new", &schemaFakeSource{version: 160}, "outside the supported range"},
+		{"unknown new", &schemaFakeSource{version: 161}, "outside the supported range"},
 		{"dirty", &schemaFakeSource{version: 159, dirty: true}, "dirty"},
 		{"missing", &schemaFakeSource{noRow: true}, "unknown"},
 	}
