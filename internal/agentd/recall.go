@@ -44,6 +44,9 @@ func (m *ApplyManager) ExpungeRecall(raw json.RawMessage) (string, string, error
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// Trusted platform entry: every recall statement below is platform-scoped,
+	// and a detached context otherwise carries no scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {
 		return "", "", ErrFailed
