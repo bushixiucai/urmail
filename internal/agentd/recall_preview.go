@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	recall "github.com/bushixiucai/urmail/internal/domain/recall"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -40,7 +41,7 @@ func (m *ApplyManager) PreviewRecall(raw json.RawMessage) (string, string, error
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	if err = q.PlatformLockRecallTenant(ctx, params.TenantID); err != nil {
+	if err = q.PlatformLockRecallTenant(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), params.TenantID); err != nil {
 		return "", "", ErrFailed
 	}
 	snapshot, err := m.recallSnapshot(ctx, q, params)

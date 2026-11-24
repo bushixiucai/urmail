@@ -17,6 +17,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/sieve"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -49,6 +50,7 @@ func (h *SieveBridgeHandler) enabled(c *gin.Context) bool {
 // Exchange accepts the one-time ticket only in a same-origin POST body. The
 // resulting credential cannot authenticate any panel or platform API.
 func (h *SieveBridgeHandler) Exchange(c *gin.Context) {
+	bindPlatformScope(c)
 	var auditTenant, auditMailbox int64
 	defer func() { h.failedAudit(c, auditTenant, auditMailbox) }()
 	if !h.enabled(c) {
@@ -125,6 +127,7 @@ func (h *SieveBridgeHandler) Session(c *gin.Context) { h.rules(c, false) }
 func (h *SieveBridgeHandler) Save(c *gin.Context) { h.rules(c, true) }
 
 func (h *SieveBridgeHandler) rules(c *gin.Context, write bool) {
+	bindPlatformScope(c)
 	var auditTenant, auditMailbox int64
 	defer func() { h.failedAudit(c, auditTenant, auditMailbox) }()
 	if !h.enabled(c) {
@@ -293,7 +296,7 @@ func (h *SieveBridgeHandler) failedAudit(c *gin.Context, tid, mid int64) {
 	if h.Pool == nil || c.Writer.Status() < 400 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform}), 2*time.Second)
 	defer cancel()
 	detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "status": c.Writer.Status(), "outcome": "rejected"})
 	if _, err := db.Queries(h.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "sieve.bridge.rejected", TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); err != nil {

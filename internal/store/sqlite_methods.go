@@ -3623,18 +3623,37 @@ func (q *Queries) PlatformLockBillingTenant(_ context.Context, _ int64) error { 
 
 // PlatformLockSendDraft（原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
 // 草稿发送与草稿编辑互斥；PG 在事务级持锁，SQLite 用事务串行化。
-func (q *Queries) PlatformLockSendDraft(_ context.Context, _ PlatformLockSendDraftParams) error {
+func (q *Queries) PlatformLockSendDraft(ctx context.Context, arg PlatformLockSendDraftParams) error {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformLockSendDraft(ctx, pgstore.PlatformLockSendDraftParams{
+			TenantID: arg.TenantID, MailboxID: arg.MailboxID, Folder: arg.Folder, Validity: arg.Validity, Uid: arg.Uid,
+		})
+	}
+	// SQLite runs each write transaction under BEGIN IMMEDIATE, so the
+	// per-key advisory lock is implicit and the no-op is correct there.
 	return nil
 }
 
 // PlatformLockDataImport（原 hashtextextended(tenant:mailbox:idempotency_key,782314)）：
 // 同一幂等键的导入由事务串行化互斥。
-func (q *Queries) PlatformLockDataImport(_ context.Context, _ PlatformLockDataImportParams) error {
+func (q *Queries) PlatformLockDataImport(ctx context.Context, arg PlatformLockDataImportParams) error {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformLockDataImport(ctx, pgstore.PlatformLockDataImportParams{
+			TenantID: arg.TenantID, MailboxID: arg.MailboxID, IdempotencyKey: arg.IdempotencyKey,
+		})
+	}
+	// SQLite serializes each write transaction, so this key lock is implicit.
 	return nil
 }
 
 // PlatformLockRecallTenant：租户召回由事务串行化互斥。
-func (q *Queries) PlatformLockRecallTenant(_ context.Context, _ int64) error { return nil }
+func (q *Queries) PlatformLockRecallTenant(ctx context.Context, tenantID int64) error {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformLockRecallTenant(ctx, tenantID)
+	}
+	// SQLite serializes each write transaction, so this tenant lock is implicit.
+	return nil
+}
 
 // draftSessionLocks is the process-wide session lock registry. Keys are the
 // same text PG hashed for hashtextextended(...,974152); the digest itself is

@@ -19,6 +19,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -228,6 +229,9 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 	if e.Pool == nil || e.Source == nil || e.Stream == "" {
 		return errors.New("observability requires configured source and stream")
 	}
+	// This evaluator owns the platform pool and only reads platform-wide
+	// observability state; the scheduler caller carries no DB scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	q := db.Queries(e.Pool.Pool)
 	thresholds := DefaultThresholds()
 	started := time.Now()

@@ -46,7 +46,7 @@ func (h *MailboxNativeHandler) transferJournal(c *gin.Context, key, digest strin
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
 	if claim {
-		err = q.PlatformLockDataImport(ctx, store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10), IdempotencyKey: "transfer:" + key})
+		err = q.PlatformLockDataImport(platformCtx(c), store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10), IdempotencyKey: "transfer:" + key})
 		if err != nil {
 			authError(c, 503, "DB_ERROR")
 			return false

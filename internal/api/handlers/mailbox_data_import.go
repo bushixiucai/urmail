@@ -20,6 +20,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -261,7 +262,7 @@ func (h MailboxDataImport) Handle(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.Queries(tx)
-	if err = q.PlatformLockDataImport(ctx, store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(sess.TenantID, 10), MailboxID: strconv.FormatInt(sess.MailboxID, 10), IdempotencyKey: "metadata-import"}); err != nil {
+	if err = q.PlatformLockDataImport(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(sess.TenantID, 10), MailboxID: strconv.FormatInt(sess.MailboxID, 10), IdempotencyKey: "metadata-import"}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}

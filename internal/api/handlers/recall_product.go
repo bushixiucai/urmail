@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
@@ -241,7 +242,7 @@ func (h *RecallHandler) recallTransaction(ctx context.Context, tenant, actor int
 		return nil, nil, err
 	}
 	q := db.Queries(tx)
-	if err = q.PlatformLockRecallTenant(ctx, tenant); err != nil {
+	if err = q.PlatformLockRecallTenant(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), tenant); err != nil {
 		_ = tx.Rollback(ctx)
 		return nil, nil, err
 	}

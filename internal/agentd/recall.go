@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -49,7 +50,7 @@ func (m *ApplyManager) ExpungeRecall(raw json.RawMessage) (string, string, error
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	if err = q.PlatformLockRecallTenant(ctx, params.TenantID); err != nil {
+	if err = q.PlatformLockRecallTenant(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), params.TenantID); err != nil {
 		return "", "", ErrFailed
 	}
 	target, err := q.PlatformLockRecallForExpunge(ctx, store.PlatformLockRecallForExpungeParams{TenantID: params.TenantID, ID: params.RecallID})
