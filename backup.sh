@@ -66,7 +66,12 @@ sqlite_export() {
     local img="${URMAIL_SQLITE_IMAGE:-urmail-local:drill-new}"
     command -v docker >/dev/null 2>&1 || die "no sqlite3 and no docker for the SQLite export"
     docker image inspect "$img" >/dev/null 2>&1 || die "sqlite helper image missing: $img"
-    docker run --rm -u 0 -v "$DATA_ROOT/db":/db:ro -v "$OUT/db":/out "$img" \
+    # NOTE: the source is mounted READ-WRITE on purpose.  SQLite must create
+    # its -shm/-wal bookkeeping when it opens a WAL database that has no
+    # attached writer (a read-only mount fails with SQLITE_CANTOPEN(14)).
+    # Only SQLite's own journal files are touched in the source; the snapshot
+    # itself is the `.backup` copy and is integrity-checked below.
+    docker run --rm -u 0 -v "$DATA_ROOT/db":/db -v "$OUT/db":/out "$img" \
         sqlite3 "/db/$(basename "$DB")" ".backup /out/$(basename "$SNAP_DB")"
 }
 sqlite_snap_query() { # query the SNAPSHOT copy
