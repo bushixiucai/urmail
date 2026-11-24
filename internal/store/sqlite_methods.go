@@ -545,7 +545,7 @@ var auditActionPattern = regexp.MustCompile(`^[A-Za-z]{3,10} [A-Za-z0-9/{}:._~-]
 type RecordTenantAuditParams struct {
 	TenantID int64       `json:"tenant_id"`
 	UserID   int64       `json:"user_id"`
-	ActorIp  *netip.Addr `json:"actor_ip"`
+	ActorIp  *netip.Addr `json:"actor_ip"` //nolint:revive // exported field name pinned by sqlc-generated surface (audit.sql.go/models.go); renaming requires override+regen
 	Action   string      `json:"action"`
 	Target   string      `json:"target"`
 	Status   int32       `json:"status"`
@@ -3638,15 +3638,15 @@ func (q *Queries) PlatformSetActiveAIService(ctx context.Context, arg PlatformSe
 //     即原 PG 的服务端作用域。
 // ---------------------------------------------------------------------------
 
-// LockMailboxEASSync（原 hashtextextended(tenant:mailbox:device,421932)）：
+// LockMailboxEASSync locks one device (原 hashtextextended(tenant:mailbox:device,421932)）：
 // 同一设备 EAS 同步由事务串行化互斥。
 func (q *Queries) LockMailboxEASSync(_ context.Context, _ LockMailboxEASSyncParams) error { return nil }
 
-// LockMailboxImportTenantBudget（原 hashtextextended('urmail/mailimport/'||tenant,0)）：
+// LockMailboxImportTenantBudget locks the import budget (原 hashtextextended('urmail/mailimport/'||tenant,0)）：
 // 同一租户导入预算由事务串行化互斥。
 func (q *Queries) LockMailboxImportTenantBudget(_ context.Context, _ int64) error { return nil }
 
-// PlatformLockBillingTenant：租户计费/配额写入由事务串行化互斥。
+// PlatformLockBillingTenant locks billing writes：租户计费/配额写入由事务串行化互斥。
 func (q *Queries) PlatformLockBillingTenant(ctx context.Context, tenantID int64) error {
 	if !isSQLiteDBTX(q.db) {
 		return pgstore.New(q.db).PlatformLockBillingTenant(ctx, tenantID)
@@ -3655,16 +3655,14 @@ func (q *Queries) PlatformLockBillingTenant(ctx context.Context, tenantID int64)
 	return nil
 }
 
-// PlatformCreateFirstDomain creates the setup's first domain on either
-// engine through the product query surface, so the tenant method guard and
-// the SQLite/PG twins stay in one place.
+// PlatformCreateFirstDomainParams configures the setup's first domain.
 type PlatformCreateFirstDomainParams struct {
 	TenantID          int64
 	Fqdn              string
 	Mode              string
 	Status            string
 	VerificationToken string
-	TlsMode           string
+	TlsMode           string //nolint:revive // wire key derived from field name; explicit tag would change the serialization contract
 	DkimSelector      string
 	DkimPrivateKey    string
 }
@@ -3673,6 +3671,9 @@ const platformCreateFirstDomainSQL = `-- name: PlatformCreateFirstDomain :one
 INSERT INTO domains(tenant_id,fqdn,mode,status,verification_token,tls_mode,dkim_selector,dkim_private_key)
 VALUES(?,?,?,?,?,?,?,?) RETURNING id`
 
+// PlatformCreateFirstDomain creates the setup's first domain through the
+// product query surface, so the tenant guard and the SQLite/PG twins stay in
+// one place.
 func (q *Queries) PlatformCreateFirstDomain(ctx context.Context, arg PlatformCreateFirstDomainParams) (int64, error) {
 	if !isSQLiteDBTX(q.db) {
 		row, err := pgstore.New(q.db).CreateDomain(ctx, pgstore.CreateDomainParams{
@@ -3689,7 +3690,7 @@ func (q *Queries) PlatformCreateFirstDomain(ctx context.Context, arg PlatformCre
 	return id, err
 }
 
-// PlatformLockSendDraft（原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
+// PlatformLockSendDraft locks draft sending (原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
 // 草稿发送与草稿编辑互斥；PG 在事务级持锁，SQLite 用事务串行化。
 func (q *Queries) PlatformLockSendDraft(ctx context.Context, arg PlatformLockSendDraftParams) error {
 	if !isSQLiteDBTX(q.db) {
@@ -3702,7 +3703,7 @@ func (q *Queries) PlatformLockSendDraft(ctx context.Context, arg PlatformLockSen
 	return nil
 }
 
-// PlatformLockDataImport（原 hashtextextended(tenant:mailbox:idempotency_key,782314)）：
+// PlatformLockDataImport locks one import key (原 hashtextextended(tenant:mailbox:idempotency_key,782314)）：
 // 同一幂等键的导入由事务串行化互斥。
 func (q *Queries) PlatformLockDataImport(ctx context.Context, arg PlatformLockDataImportParams) error {
 	if !isSQLiteDBTX(q.db) {
@@ -3714,7 +3715,7 @@ func (q *Queries) PlatformLockDataImport(ctx context.Context, arg PlatformLockDa
 	return nil
 }
 
-// PlatformLockRecallTenant：租户召回由事务串行化互斥。
+// PlatformLockRecallTenant locks recall writes：租户召回由事务串行化互斥。
 func (q *Queries) PlatformLockRecallTenant(ctx context.Context, tenantID int64) error {
 	if !isSQLiteDBTX(q.db) {
 		return pgstore.New(q.db).PlatformLockRecallTenant(ctx, tenantID)
@@ -4148,4 +4149,4 @@ func (q *Queries) marketingSuppressed(ctx context.Context, tenant int64) (map[st
 // timeout; the bounded window and the 10001-row probe already cap the work, and
 // the connection-level busy_timeout bounds waiting. Keeping the method (rather
 // than deleting it) preserves the handler's fail-closed sequence.
-func (q *Queries) SetMarketingReportBudget(ctx context.Context) error { return nil }
+func (q *Queries) SetMarketingReportBudget(_ context.Context) error { return nil }

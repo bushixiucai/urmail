@@ -83,6 +83,7 @@ func paramTenantOverrides(t *testing.T) map[string]string {
 	return out
 }
 
+//nolint:revive // test helper keeps testing.T first by convention
 func buildCallArgs(t *testing.T, m reflect.Method, ctx context.Context, positionalTID bool, tenantID int64, valid bool) ([]reflect.Value, bool) {
 	t.Helper()
 	mt := m.Type

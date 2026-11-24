@@ -26,6 +26,7 @@ import (
 // ColumnEncoding mirrors the `encoding` column of type-map.tsv.
 type ColumnEncoding string
 
+// EncodingPassthrough copies the value unchanged.
 const (
 	EncodingPassthrough ColumnEncoding = "-"
 	EncodingUnixMicro   ColumnEncoding = "unix micro"

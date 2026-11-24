@@ -269,7 +269,7 @@ WHERE table_schema='public'`)
 		}
 		return strings.Repeat("0", n-len(digits)) + digits
 	}
-	uuidLike := func(n int, col string) string {
+	uuidLike := func(_ int, col string) string {
 		base := hexOf(32)
 		u := fmt.Sprintf("%s-%s-4%s-8%s-%s", base[:8], base[8:12], base[12:15], base[17:20], base[20:32])
 		return u
@@ -277,13 +277,13 @@ WHERE table_schema='public'`)
 
 	// table-specific value chains (no catalog FK edges to lean on).
 	overrides := map[string]func(rowIdx int, parentLookups map[string]int64, tenantID int64) (any, error){
-		"restore_quarantine.reason": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"restore_quarantine.reason": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			return "restore", nil
 		},
-		"user_tenant_roles.role": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"user_tenant_roles.role": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			return "owner", nil
 		},
-		"tenants.status": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
+		"tenants.status": func(_ int, _ map[string]int64, _ int64) (any, error) {
 			// Recall/branding authority guards require an active tenant.
 			return "active", nil
 		},
@@ -296,7 +296,7 @@ WHERE table_schema='public'`)
 		"mailbox_spam_senders.scope": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
 			return "mailbox", nil
 		},
-		"notification_outbox.recipient": func(rowIdx int, _ map[string]int64, tenantID int64) (any, error) {
+		"notification_outbox.recipient": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
 			return fmt.Sprintf("syn%d@example.test", rowIdx), nil
 		},
 		"notification_outbox.recipient_verified": func(rowIdx int, _ map[string]int64, _ int64) (any, error) {
@@ -506,7 +506,7 @@ WHERE table_schema='public'`)
 		},
 	}
 
-	valueFor := func(table, col string, cm ColumnMap, meta colMeta, tenantID int64, parentLookups map[string]int64, rowIdx int) (any, error) {
+	valueFor := func(table, col string, cm ColumnMap, _ colMeta, tenantID int64, parentLookups map[string]int64, rowIdx int) (any, error) {
 		name := strings.ToLower(col)
 		pg := cm.PGType
 		if ov, ok := overrides[table+"."+col]; ok {

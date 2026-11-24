@@ -255,14 +255,14 @@ func TestS5MigratorFullSampleZeroDiff(t *testing.T) {
 		t.Fatalf("schema diff: %v", err)
 	}
 	if len(schemaDiff) != 0 {
-		t.Fatalf("schema diff non-empty (%d): %v", len(schemaDiff), schemaDiff[:min(5, len(schemaDiff))])
+		t.Fatalf("schema diff non-empty (%d): %v", len(schemaDiff), schemaDiff[:minInt(5, len(schemaDiff))])
 	}
 	indexDiff, err := DiffIndexes(ctx, src, tgt, tm)
 	if err != nil {
 		t.Fatalf("index diff: %v", err)
 	}
 	if len(indexDiff) != 0 {
-		t.Fatalf("unique index diff non-empty (%d): %v", len(indexDiff), indexDiff[:min(5, len(indexDiff))])
+		t.Fatalf("unique index diff non-empty (%d): %v", len(indexDiff), indexDiff[:minInt(5, len(indexDiff))])
 	}
 	// Dedicated recall gate: explicit column-by-column comparison of recall
 	// rows (generic hash path skipped for recall's lifecycle-specific
@@ -488,7 +488,7 @@ func TestS5StoreNewGate(t *testing.T) {
 	}
 }
 
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}

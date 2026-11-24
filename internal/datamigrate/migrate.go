@@ -582,7 +582,7 @@ func ResetSequences(ctx context.Context, t *Target) (int, error) {
 	return reset, nil
 }
 
-func quoteList(cols []string, qualified bool) string {
+func quoteList(cols []string, _ bool) string {
 	parts := make([]string, len(cols))
 	for i, c := range cols {
 		parts[i] = `"` + c + `"`

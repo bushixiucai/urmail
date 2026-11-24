@@ -290,12 +290,12 @@ type Querier interface {
 	ListVisibleAnnouncements(ctx context.Context, tenantID int64) ([]Announcements, error)
 	LockArchiveRetentionPreview(ctx context.Context, arg LockArchiveRetentionPreviewParams) (RetentionPreviews, error)
 	LockEASSendCopy(ctx context.Context, arg LockEASSendCopyParams) (LockEASSendCopyRow, error)
-	// LockMailboxEASSync（原 hashtextextended(tenant:mailbox:device,421932)）：
+	// LockMailboxEASSync locks one device (原 hashtextextended(tenant:mailbox:device,421932)）：
 	// 同一设备 EAS 同步由事务串行化互斥。
 	LockMailboxEASSync(_ context.Context, _ LockMailboxEASSyncParams) error
 	LockMailboxImportJob(ctx context.Context, arg LockMailboxImportJobParams) (MailboxImportJobs, error)
 	LockMailboxImportOwner(ctx context.Context, arg LockMailboxImportOwnerParams) (LockMailboxImportOwnerRow, error)
-	// LockMailboxImportTenantBudget（原 hashtextextended('urmail/mailimport/'||tenant,0)）：
+	// LockMailboxImportTenantBudget locks the import budget (原 hashtextextended('urmail/mailimport/'||tenant,0)）：
 	// 同一租户导入预算由事务串行化互斥。
 	LockMailboxImportTenantBudget(_ context.Context, _ int64) error
 	MailServiceAllowed(ctx context.Context, dollar_1 int64) (bool, error)
@@ -483,6 +483,9 @@ type Querier interface {
 	PlatformCountRecentTLSReports(ctx context.Context, arg PlatformCountRecentTLSReportsParams) (int64, error)
 	PlatformCreateAnnouncement(ctx context.Context, arg PlatformCreateAnnouncementParams) (Announcements, error)
 	PlatformCreateDNSAction(ctx context.Context, arg PlatformCreateDNSActionParams) error
+	// PlatformCreateFirstDomain creates the setup's first domain through the
+	// product query surface, so the tenant guard and the SQLite/PG twins stay in
+	// one place.
 	PlatformCreateFirstDomain(ctx context.Context, arg PlatformCreateFirstDomainParams) (int64, error)
 	PlatformCreateInvestigation(ctx context.Context, arg PlatformCreateInvestigationParams) (int64, error)
 	PlatformCreateLegacyAlias(ctx context.Context, arg PlatformCreateLegacyAliasParams) (MailboxAliases, error)
@@ -714,13 +717,13 @@ type Querier interface {
 	// Privileged, audited maintenance of explicit sender identities; no content access.
 	PlatformLockAliasSenderTarget(ctx context.Context, arg PlatformLockAliasSenderTargetParams) (PlatformLockAliasSenderTargetRow, error)
 	PlatformLockArchivePurgeCandidate(ctx context.Context, arg PlatformLockArchivePurgeCandidateParams) (PlatformLockArchivePurgeCandidateRow, error)
-	// PlatformLockBillingTenant：租户计费/配额写入由事务串行化互斥。
+	// PlatformLockBillingTenant locks billing writes：租户计费/配额写入由事务串行化互斥。
 	PlatformLockBillingTenant(ctx context.Context, tenantID int64) error
 	PlatformLockBrandHost(ctx context.Context, hostname string) (BrandHosts, error)
 	PlatformLockBrandSettingsBrand(ctx context.Context, id int64) (int64, error)
 	PlatformLockCalendarInvitationEvent(ctx context.Context, arg PlatformLockCalendarInvitationEventParams) (MailboxEvents, error)
 	PlatformLockCollectorCheckpoint(ctx context.Context, stream string) (CollectorCheckpoints, error)
-	// PlatformLockDataImport（原 hashtextextended(tenant:mailbox:idempotency_key,782314)）：
+	// PlatformLockDataImport locks one import key (原 hashtextextended(tenant:mailbox:idempotency_key,782314)）：
 	// 同一幂等键的导入由事务串行化互斥。
 	PlatformLockDataImport(ctx context.Context, arg PlatformLockDataImportParams) error
 	PlatformLockLegacyDKIMDomains(ctx context.Context, arg PlatformLockLegacyDKIMDomainsParams) ([]PlatformLockLegacyDKIMDomainsRow, error)
@@ -731,10 +734,10 @@ type Querier interface {
 	PlatformLockRecallAuthority(ctx context.Context, arg PlatformLockRecallAuthorityParams) (int64, error)
 	PlatformLockRecallForExpunge(ctx context.Context, arg PlatformLockRecallForExpungeParams) (PlatformLockRecallForExpungeRow, error)
 	PlatformLockRecallMailbox(ctx context.Context, arg PlatformLockRecallMailboxParams) (string, error)
-	// PlatformLockRecallTenant：租户召回由事务串行化互斥。
+	// PlatformLockRecallTenant locks recall writes：租户召回由事务串行化互斥。
 	PlatformLockRecallTenant(ctx context.Context, tenantID int64) error
 	PlatformLockRetentionPurgePolicy(ctx context.Context, arg PlatformLockRetentionPurgePolicyParams) (bool, error)
-	// PlatformLockSendDraft（原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
+	// PlatformLockSendDraft locks draft sending (原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
 	// 草稿发送与草稿编辑互斥；PG 在事务级持锁，SQLite 用事务串行化。
 	PlatformLockSendDraft(ctx context.Context, arg PlatformLockSendDraftParams) error
 	PlatformMailboxAccessStates(ctx context.Context) ([]PlatformMailboxAccessStatesRow, error)
@@ -1015,7 +1018,7 @@ type Querier interface {
 	// timeout; the bounded window and the 10001-row probe already cap the work, and
 	// the connection-level busy_timeout bounds waiting. Keeping the method (rather
 	// than deleting it) preserves the handler's fail-closed sequence.
-	SetMarketingReportBudget(ctx context.Context) error
+	SetMarketingReportBudget(_ context.Context) error
 	// SoftDeleteArchiveEntry marks one archive entry deleted and drops its
 	// retention preview, returning pgx.ErrNoRows when the entry is legally held,
 	// already deleted, or mid-purge (the HTTP layer maps that to 409 LEGAL_HOLD).

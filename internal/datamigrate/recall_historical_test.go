@@ -145,6 +145,7 @@ type recallRowHash struct {
 	createdText string
 }
 
+//nolint:revive // test helper keeps testing.T first by convention
 func recallHash(t *testing.T, ctx context.Context, dsn string, id int64) recallRowHash {
 	t.Helper()
 	pool, err := pgxpool.New(ctx, dsn)
