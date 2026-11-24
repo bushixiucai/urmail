@@ -90,102 +90,29 @@ acquire_writer_lease() {
 # --------------------------------------------------------------------------
 init_sqlite() {
     db="${URMAIL_SQLITE_PATH:-/srv/urmail/data/db/urmail.sqlite}"
-    migrations="${URMAIL_SQLITE_MIGRATIONS_DIR:-/usr/local/share/urmail/migrations_sqlite}"
     mkdir -p "$(dirname "$db")"
-    [ -f "$db" ] || : > "$db"
-    chmod 600 "$db" 2>/dev/null || true
-    sqlite3 "$db" "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;" >/dev/null
+    # The migration authority is the product binary (internal/sqlitedb); the
+    # entrypoint holds no DDL, version number or migration file-name literals.
+    if ! migration=$(URMAIL_SQLITE_PATH="$db" "${URMAIL_CTL:-urmailctl}" sqlite migrate up 2>&1); then
+        printf '%s\n' "$migration" >&2
+        echo "[entrypoint] SQLite migration failed; refusing to start" >&2
+        exit 1
+    fi
+    printf '%s\n' "$migration"
+    expected=$(printf '%s\n' "$migration" | sed -n 's/^sqlite_migrate_ok user_version=[0-9][0-9]* expected=\([0-9][0-9]*\)$/\1/p')
     version=$(sqlite3 "$db" 'PRAGMA user_version;')
-    case "$version" in
-        0)
-            echo "[entrypoint] initialising SQLite schema (0001_init)"
-            sqlite3 -bail "$db" < "$migrations/0001_init.sql"
-            version=1
-            ;;
-    esac
-    if [ "$version" = "1" ]; then
-        echo "[entrypoint] applying SQLite schema 0002_write_side_effects"
-        sqlite3 -bail "$db" < "$migrations/0002_write_side_effects.sql"
-        sqlite3 "$db" 'PRAGMA user_version = 2;'
-        version=2
-    fi
-    if [ "$version" = "2" ]; then
-        echo "[entrypoint] applying SQLite schema 0003_firstboot"
-        sqlite3 -bail "$db" < "$migrations/0003_firstboot.sql"
-        version=$(sqlite3 "$db" 'PRAGMA user_version;')
-    fi
-    if [ "$version" -lt 3 ] 2>/dev/null; then
-        echo "[entrypoint] SQLite schema version $version is older than expected (>=3)" >&2
+    if [ -z "$expected" ] || [ "$version" != "$expected" ]; then
+        echo "[entrypoint] SQLite user_version=$version does not match the migrator expected=${expected:-unreported}; refusing to start" >&2
         exit 1
     fi
     integrity=$(sqlite3 "$db" 'PRAGMA integrity_check;')
+    if [ "$integrity" != "ok" ]; then
+        echo "[entrypoint] SQLite integrity_check=$integrity; refusing to start" >&2
+        exit 1
+    fi
     tables=$(sqlite3 "$db" "SELECT count(*) FROM sqlite_master WHERE type='table';")
     echo "[entrypoint] sqlite ready path=$db user_version=$version tables=$tables integrity_check=$integrity"
     export URMAIL_SQLITE_PATH="$db"
-}
-
-state_get() {
-    sqlite3 "$URMAIL_SQLITE_PATH" "SELECT value FROM firstboot_state WHERE key='$1';"
-}
-
-state_set() {
-    sqlite3 -bail "$URMAIL_SQLITE_PATH" \
-        "INSERT INTO firstboot_state(key,value) VALUES('$1','$2')
-         ON CONFLICT(key) DO UPDATE SET value=excluded.value,
-           updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000);"
-}
-
-ensure_dkim() {
-    domain="${URMAIL_PRIMARY_DOMAIN:-${URMAIL_MYHOSTNAME:-urmail.local}}"
-    selector="${URMAIL_DKIM_SELECTOR:-mail}"
-    dir="$CONFIG_DIR/dkim/$domain"
-    keyfile="$dir/$selector.key"
-    txtfile="$dir/$selector.txt"
-    if [ ! -s "$keyfile" ]; then
-        mkdir -p "$dir"
-        umask 077
-        openssl genrsa -out "$keyfile" 2048 >/dev/null 2>&1
-        pub=$(openssl rsa -in "$keyfile" -pubout -outform DER 2>/dev/null | base64 | tr -d '\n')
-        printf 'v=DKIM1; k=rsa; p=%s\n' "$pub" > "$txtfile"
-        umask 022
-        chmod 600 "$keyfile"
-        chmod 644 "$txtfile"
-        state_set dkim_domain "$domain"
-        state_set dkim_selector "$selector"
-        state_set dkim_public_txt "v=DKIM1; k=rsa; p=$pub"
-        echo "[entrypoint] generated DKIM key domain=$domain selector=$selector path=$keyfile"
-    else
-        chmod 644 "$txtfile" 2>/dev/null || true
-        echo "[entrypoint] DKIM key present domain=$domain selector=$selector path=$keyfile"
-    fi
-}
-
-ensure_admin_bootstrap() {
-    domain="${URMAIL_PRIMARY_DOMAIN:-${URMAIL_MYHOSTNAME:-urmail.local}}"
-    url_file="$CONFIG_DIR/admin-bootstrap.url"
-    existing_hash=$(state_get admin_bootstrap_token_hash 2>/dev/null || true)
-    if [ -s "$url_file" ]; then
-        echo "[entrypoint] admin bootstrap URL pending; urmaild will print it once"
-        return 0
-    fi
-    if [ -n "$existing_hash" ]; then
-        # urmaild removes the URL file after printing it.  A restart/upgrade
-        # must NOT mint a new admin token: the hash in SQLite is the durable
-        # "already issued" marker.
-        echo "[entrypoint] admin bootstrap already issued; not regenerating"
-        return 0
-    fi
-    token=$(openssl rand -hex 32)
-    token_hash=$(printf '%s' "$token" | sha256sum | cut -d' ' -f1)
-    state_set admin_bootstrap_token_hash "$token_hash"
-    scheme="${URMAIL_PUBLIC_SCHEME:-https}"
-    umask 077
-    printf '%s://%s/admin/bootstrap?token=%s\n' "$scheme" "$domain" "$token" > "$url_file"
-    umask 022
-    chmod 600 "$url_file"
-    # The token is deliberately not echoed here: urmaild logs the URL once and
-    # removes the file, so the secret appears in exactly one startup log line.
-    echo "[entrypoint] admin bootstrap URL issued (one-time); urmaild will print it"
 }
 
 if [ "$cmd" = "urmaild" ] || [ "$cmd" = "serve" ]; then
@@ -230,8 +157,6 @@ if [ "$cmd" = "urmaild" ] || [ "$cmd" = "serve" ]; then
         chmod 600 "$URMAIL_ENV_FILE"
     fi
     init_sqlite
-    ensure_dkim
-    ensure_admin_bootstrap
     if [ "${URMAIL_AUTO_MIGRATE:-1}" = "1" ]; then
         echo "[entrypoint] applying pending schema migrations (urmailctl migrate up)"
         urmailctl migrate up
