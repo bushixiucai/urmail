@@ -234,6 +234,7 @@ func (s Service) Repair(ctx context.Context, row store.MailboxSendReceipts, clie
 
 // StepCopy never submits SMTP. Stale submitting intentions become uncertain.
 func (s Service) StepCopy(ctx context.Context) (bool, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Pool == nil || s.Secrets == nil || s.Dialer == nil {
 		return false, nil
 	}
@@ -285,6 +286,7 @@ func (s Service) StepCopy(ctx context.Context) (bool, error) {
 
 // ClaimOwner acquires a bounded recovery lease for an already authenticated owner.
 func (s Service) ClaimOwner(ctx context.Context, tenant, mailbox, id int64) (store.MailboxSendReceipts, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Pool == nil {
 		return store.MailboxSendReceipts{}, fmt.Errorf("send store unavailable")
 	}
