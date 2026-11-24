@@ -237,7 +237,7 @@ func TestStagingRejectsUnknownSourceSchemaBeforeWrites(t *testing.T) {
 
 func mustTypeMap(t *testing.T) TypeMap {
 	t.Helper()
-	tm, err := LoadTypeMap("../../migrations_sqlite/type-map.tsv")
+	tm, err := LoadTypeMap(absTestPath(t, "../../migrations_sqlite/type-map.tsv"))
 	if err != nil {
 		t.Fatal(err)
 	}

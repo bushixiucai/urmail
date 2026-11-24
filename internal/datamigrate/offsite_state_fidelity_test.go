@@ -12,7 +12,7 @@ func TestBackupRunsOffsiteStateFidelity(t *testing.T) {
 	ctx, pool, _ := s5Fixture(t)
 	rawTarget, _ := s5Target(t)
 	defer rawTarget.Close()
-	tm, err := LoadTypeMap(filepath.Join("..", "..", "migrations_sqlite", "type-map.tsv"))
+	tm, err := LoadTypeMap(absTestPath(t, filepath.Join("..", "..", "migrations_sqlite", "type-map.tsv")))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -70,8 +70,10 @@ func (m TypeMap) Columns(table string) []string {
 // LoadTypeMap parses a type-map.tsv (table, column, pg_type, sqlite_type,
 // encoding; TSV with a header row).
 func LoadTypeMap(path string) (TypeMap, error) {
-	// The type map is a fixed build input named by the migrator; a relative or
-	// traversal-bearing path is rejected before the file is opened.
+	// The type map is a fixed build input named by the migrator. A path that
+	// is not already clean or that climbs out of its start directory is
+	// rejected before the file is opened; repository-relative paths used by
+	// the migration tests stay valid.
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return nil, fmt.Errorf("type map path must be a clean absolute path")
 	}

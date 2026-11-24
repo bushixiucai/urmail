@@ -94,7 +94,7 @@ func recallFixture(t *testing.T) (*sql.DB, TypeMap) {
 	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys=ON`); err != nil {
 		t.Fatalf("enable foreign keys: %v", err)
 	}
-	tm, err := LoadTypeMap("../../migrations_sqlite/type-map.tsv")
+	tm, err := LoadTypeMap(absTestPath(t, "../../migrations_sqlite/type-map.tsv"))
 	if err != nil {
 		t.Fatalf("type map: %v", err)
 	}

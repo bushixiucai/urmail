@@ -180,7 +180,7 @@ func ImportRecallStaging(ctx context.Context, opts StagingOptions) (StagingRepor
 		return report, fmt.Errorf("stat staging target: %w", err)
 	}
 	lockPath := target + ".lock"
-	if !filepath.IsAbs(lockPath) || filepath.Dir(filepath.Clean(lockPath)) != filepath.Dir(filepath.Clean(target)) {
+	if !cleanWithin(lockPath, filepath.Dir(target)) || filepath.Dir(filepath.Clean(lockPath)) != filepath.Dir(filepath.Clean(target)) {
 		return report, fmt.Errorf("staging lock path escapes the staging directory: %s", filepath.Base(lockPath))
 	}
 	if err := reclaimStaleLock(lockPath); err != nil {
@@ -499,7 +499,10 @@ func countRows(ctx context.Context, db *sql.DB, query string) (int64, error) {
 }
 
 func removeSQLiteFiles(path string) {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+	if path == "" || filepath.Clean(path) != path {
+		return
+	}
+	if !filepath.IsAbs(path) && strings.HasPrefix(filepath.Clean(path), "..") {
 		return
 	}
 	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
@@ -520,6 +523,18 @@ func syncFile(path string) error {
 		return fmt.Errorf("close staging file after fsync: %w", err)
 	}
 	return nil
+}
+
+// cleanWithin reports whether path is already clean and does not climb out of
+// base: staging targets and their sidecars are created next to the operator's
+// chosen target, so a path that escapes its directory is refused.
+func cleanWithin(path, base string) bool {
+	if path == "" || filepath.Clean(path) != path {
+		return false
+	}
+	root := filepath.Clean(base)
+	full := filepath.Clean(filepath.Join(root, path))
+	return full == root || strings.HasPrefix(full, root+string(os.PathSeparator))
 }
 
 func syncDir(path string) error {

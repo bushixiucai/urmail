@@ -107,7 +107,7 @@ func TestS5MigratorFullSampleZeroDiff(t *testing.T) {
 	rawTarget, targetPath := s5Target(t)
 	defer rawTarget.Close()
 
-	tm, err := LoadTypeMap(filepath.Join("..", "..", "migrations_sqlite", "type-map.tsv"))
+	tm, err := LoadTypeMap(absTestPath(t, filepath.Join("..", "..", "migrations_sqlite", "type-map.tsv")))
 	if err != nil {
 		t.Fatalf("load type map: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestS5PrecheckNOCASEAbort(t *testing.T) {
 	raw, _ := s5Target(t)
 	defer raw.Close()
 
-	tm, err := LoadTypeMap(filepath.Join("..", "..", "migrations_sqlite", "type-map.tsv"))
+	tm, err := LoadTypeMap(absTestPath(t, filepath.Join("..", "..", "migrations_sqlite", "type-map.tsv")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -581,7 +581,7 @@ func TestS5FailureRollbackNoDone(t *testing.T) {
 	raw, _ := s5Target(t)
 	defer raw.Close()
 
-	tm, err := LoadTypeMap(filepath.Join("..", "..", "migrations_sqlite", "type-map.tsv"))
+	tm, err := LoadTypeMap(absTestPath(t, filepath.Join("..", "..", "migrations_sqlite", "type-map.tsv")))
 	if err != nil {
 		t.Fatal(err)
 	}
