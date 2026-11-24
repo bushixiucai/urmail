@@ -85,15 +85,15 @@ src_digest() {
           printf '%s %s %s ' "$f" "$(stat -c '%s %Y' "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
       done )
 }
-BEFORE_NAMES=$(src_names)
-BEFORE=$(src_digest)
-[ -n "$BEFORE" ] || die "cannot read the SQLite source $DB"
+SRC_NAMES_BEFORE=$(src_names)
+SRC_BEFORE=$(src_digest)
+[ -n "$SRC_BEFORE" ] || die "cannot read the SQLite source $DB"
 log "sqlite: staging copy of $DB -> $STAGE (source stays read-only)"
 cp "$DB" "$STAGE/urmail.sqlite" || die "cannot copy the SQLite DB to the staging dir"
 for f in urmail.sqlite-wal urmail.sqlite-shm; do
     if [ -e "$DATA_ROOT/db/$f" ]; then cp "$DATA_ROOT/db/$f" "$STAGE/$f" || die "staging copy failed: $f"; fi
 done
-AFTER_COPY=$(src_digest)
+SRC_AFTER_COPY=$(src_digest)
 
 sqlite_export() {
     if [ -n "$SQLITE_BIN" ] || command -v sqlite3 >/dev/null 2>&1; then
@@ -121,12 +121,17 @@ log "sqlite: .backup from the staged copy -> $SNAP_DB"
 sqlite_export || die "sqlite .backup failed"
 [ -s "$SNAP_DB" ] || die "sqlite backup is empty"
 
-# ---- 1b. the source must not have changed ---------------------------------
-AFTER=$(src_digest)
-AFTER_NAMES=$(src_names)
-NEW_SOURCE_FILES=$(comm -13 <(printf '%s\n' "$BEFORE_NAMES") <(printf '%s\n' "$AFTER_NAMES") | grep -c . || true)
+# ---- 1b. snapshot SQLite stats + the source must not have changed ---------
+INT=$(sqlite_snap_query "PRAGMA integrity_check;" | head -n1)
+[ "$INT" = "ok" ] || die "snapshot SQLite integrity_check=$INT"
+UV=$(sqlite_snap_query "PRAGMA user_version;" | head -n1)
+TAB=$(sqlite_snap_query "SELECT count(*) FROM sqlite_master WHERE type='table';" | head -n1)
+AH=$(sqlite_snap_query "SELECT value FROM firstboot_state WHERE key='admin_bootstrap_token_hash';" 2>/dev/null | head -n1 || true)
+SRC_AFTER=$(src_digest)
+SRC_NAMES_AFTER=$(src_names)
+NEW_SOURCE_FILES=$(comm -13 <(printf '%s\n' "$SRC_NAMES_BEFORE") <(printf '%s\n' "$SRC_NAMES_AFTER") | grep -c . || true)
 SOURCE_UNCHANGED=yes
-[ "$BEFORE" = "$AFTER" ] && [ "$AFTER_COPY" = "$AFTER" ] && [ "${NEW_SOURCE_FILES:-0}" = "0" ] || SOURCE_UNCHANGED=no
+[ "$SRC_BEFORE" = "$SRC_AFTER" ] && [ "$SRC_AFTER_COPY" = "$SRC_AFTER" ] && [ "${NEW_SOURCE_FILES:-0}" = "0" ] || SOURCE_UNCHANGED=no
 [ "$SOURCE_UNCHANGED" = yes ] || die "the SQLite source changed during the export (new_file_count=$NEW_SOURCE_FILES); snapshot is not quiescent"
 log "sqlite: integrity=ok user_version=$UV tables=$TAB admin_hash=${AH:0:16}..."
 
@@ -167,14 +172,14 @@ label=$LABEL
 mode=$MODE
 hold_marker=$HOLD_FILE
 sqlite_export=staged-copy(.backup)
-source_db_sha256_before=$(printf '%s' "$BEFORE" | awk '{print $4}')
-source_db_sha256_after=$(printf '%s' "$AFTER" | awk '{print $4}')
-source_db_size_before=$(printf '%s' "$BEFORE" | awk '{print $2}')
-source_db_size_after=$(printf '%s' "$AFTER" | awk '{print $2}')
-source_db_mtime_before=$(printf '%s' "$BEFORE" | awk '{print $3}')
-source_db_mtime_after=$(printf '%s' "$AFTER" | awk '{print $3}')
-source_extra_files_before=$(printf '%s\n' "$BEFORE_NAMES" | grep -c . || true)
-source_extra_files_after=$(printf '%s\n' "$AFTER_NAMES" | grep -c . || true)
+source_db_sha256_before=$(printf '%s' "$SRC_BEFORE" | awk '{print $4}')
+source_db_sha256_after=$(printf '%s' "$SRC_AFTER" | awk '{print $4}')
+source_db_size_before=$(printf '%s' "$SRC_BEFORE" | awk '{print $2}')
+source_db_size_after=$(printf '%s' "$SRC_AFTER" | awk '{print $2}')
+source_db_mtime_before=$(printf '%s' "$SRC_BEFORE" | awk '{print $3}')
+source_db_mtime_after=$(printf '%s' "$SRC_AFTER" | awk '{print $3}')
+source_extra_files_before=$(printf '%s\n' "$SRC_NAMES_BEFORE" | grep -c . || true)
+source_extra_files_after=$(printf '%s\n' "$SRC_NAMES_AFTER" | grep -c . || true)
 source_new_sqlite_files=${NEW_SOURCE_FILES:-0}
 source_unchanged=$SOURCE_UNCHANGED
 snapshot_started=$T0
