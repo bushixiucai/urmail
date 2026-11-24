@@ -54,6 +54,11 @@ acquire_writer_lease() {
         echo "[lease] lease=$lease; refusing to start a second writer (fail-closed)" >&2
         exit 75
     fi
+    # Explicit contract for the product binary (urmaild): it validates the
+    # inherited descriptor instead of locking a second time.  fd 9 stays open
+    # across exec, so the daemon owns the lock for its whole lifetime.
+    export URMAIL_WRITER_LEASE_FD=9
+    echo "[lease] exported URMAIL_WRITER_LEASE_FD=9 (fd open, lock held)"
     prev=$(cat "$lease" 2>/dev/null || true)
     prev_pid=$(printf '%s\n' "$prev" | sed -n 's/^pid=//p')
     prev_boot=$(printf '%s\n' "$prev" | sed -n 's/^boot_id=//p')
