@@ -164,6 +164,21 @@ if [ -f /etc/urmail/urmaild.env ]; then
 
   # Refuse unresolved recovery state and unsupported database identities before
   # package, environment or schema changes. Never start the agent to recover here.
+  # An apply that was already in flight when this upgrade started is not an
+  # unresolved journal: give the running agent a bounded window to finish it
+  # (the file must stay absent for five consecutive seconds), then refuse if it
+  # still exists. The refusal itself remains fail-closed at exit 1.
+  journal=/var/lib/urmail-agent/pending.json
+  stable=0
+  for _ in $(seq 1 60); do
+    if [ -e "$journal" ]; then
+      stable=0
+    else
+      stable=$((stable + 1))
+      [ "$stable" -ge 5 ] && break
+    fi
+    sleep 1
+  done
   python3 - /etc/urmail/urmaild.env /var/lib/urmail-agent/pending.json <<'PYCODE'
 import os, stat, sys, urllib.parse
 try:
