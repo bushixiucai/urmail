@@ -224,7 +224,7 @@ type mailboxImportItemView struct {
 	ErrorCode        string           `json:"error_code"`
 	DuplicateOf      int32            `json:"duplicate_of"`
 	BaselineUids     []int64          `json:"baseline_uids"`
-	DestinationUid   *int64           `json:"destination_uid"`
+	DestinationUID   *int64           `json:"destination_uid"`
 	Attempts         int32            `json:"attempts"`
 	AttemptStartedAt importViewMicros `json:"attempt_started_at"`
 	ReconciledAt     importViewMicros `json:"reconciled_at"`
@@ -237,8 +237,8 @@ func importItemsFromViews(views []mailboxImportItemView) []store.MailboxImportIt
 	items := make([]store.MailboxImportItems, 0, len(views))
 	for _, v := range views {
 		uid := pgtype.Int8{}
-		if v.DestinationUid != nil {
-			uid = pgtype.Int8{Int64: *v.DestinationUid, Valid: true}
+		if v.DestinationUID != nil {
+			uid = pgtype.Int8{Int64: *v.DestinationUID, Valid: true}
 		}
 		items = append(items, store.MailboxImportItems{
 			TenantID: v.TenantID, MailboxID: v.MailboxID, JobID: v.JobID, ItemIndex: v.ItemIndex,
