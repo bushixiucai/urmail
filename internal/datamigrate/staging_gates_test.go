@@ -45,6 +45,7 @@ func TestSourceSchemaGate(t *testing.T) {
 		wantErr string
 	}{
 		{"supported", &schemaFakeSource{version: 159}, ""},
+		{"supported tip (production 0160)", &schemaFakeSource{version: 160}, ""},
 		{"old", &schemaFakeSource{version: 158}, "outside the supported range"},
 		{"unknown new", &schemaFakeSource{version: 161}, "outside the supported range"},
 		{"dirty", &schemaFakeSource{version: 159, dirty: true}, "dirty"},
