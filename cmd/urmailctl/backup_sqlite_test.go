@@ -80,3 +80,34 @@ func TestCreateSQLiteSnapshotRemovesTargetWhenChmodFails(t *testing.T) {
 		t.Fatalf("failed snapshot left %s behind (err=%v)", target, statErr)
 	}
 }
+
+// TestCreateSQLiteSnapshotRemovesTargetWhenVacuumFails proves a failure inside
+// VACUUM INTO itself also removes the partial target.
+func TestCreateSQLiteSnapshotRemovesTargetWhenVacuumFails(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.sqlite")
+	db, err := sqlitedb.Open(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = sqlitedb.Migrate(ctx, db, migrations_sqlite.FS, "."); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	previous := sqliteSnapshotVacuum
+	sqliteSnapshotVacuum = func(_ context.Context, _ *sql.DB, target string) error {
+		if e := os.WriteFile(target, []byte("partial"), 0o600); e != nil {
+			return e
+		}
+		return os.ErrInvalid
+	}
+	t.Cleanup(func() { sqliteSnapshotVacuum = previous })
+	target := filepath.Join(t.TempDir(), "snapshot", "partial.sqlite")
+	if err = createSQLiteSnapshot(ctx, source, target); err == nil {
+		t.Fatal("VACUUM failure was not reported")
+	}
+	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		t.Fatalf("failed VACUUM left %s behind (err=%v)", target, statErr)
+	}
+}

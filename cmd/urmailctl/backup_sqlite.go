@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -11,8 +12,12 @@ import (
 	"github.com/bushixiucai/urmail/internal/sqlitedb"
 )
 
-// sqliteSnapshotChmod is a seam for the failure-path regression test.
+// Seams for the failure-path regression tests.
 var sqliteSnapshotChmod = os.Chmod
+var sqliteSnapshotVacuum = func(ctx context.Context, src *sql.DB, target string) error {
+	_, err := src.ExecContext(ctx, `VACUUM INTO ?`, target)
+	return err
+}
 
 // createSQLiteSnapshot writes a standalone, consistent SQLite snapshot with
 // VACUUM INTO. It runs under the same fence as the PostgreSQL dump path:
@@ -40,17 +45,18 @@ func createSQLiteSnapshot(ctx context.Context, path, target string) error {
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
 	}
-	if _, err = src.ExecContext(ctx, `VACUUM INTO ?`, target); err != nil {
-		return fmt.Errorf("sqlite snapshot: %w", err)
-	}
-	// Never leave a half-finished snapshot behind: any failure after VACUUM
-	// INTO (permissions, reopen, integrity) removes the target again.
+	// Never leave a half-finished snapshot behind: the target did not exist
+	// before this call, so every failure from here on (VACUUM itself,
+	// permissions, reopen, integrity) removes it again.
 	complete := false
 	defer func() {
 		if !complete {
 			_ = os.Remove(target)
 		}
 	}()
+	if err = sqliteSnapshotVacuum(ctx, src, target); err != nil {
+		return fmt.Errorf("sqlite snapshot: %w", err)
+	}
 	if err = sqliteSnapshotChmod(target, 0o600); err != nil {
 		return err
 	}
