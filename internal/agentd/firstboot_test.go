@@ -166,3 +166,33 @@ func TestFirstBootPrepareFailsClosedOnUnwritableStateRoot(t *testing.T) {
 		t.Fatal("expected fail-closed error for unwritable AgentStateRoot")
 	}
 }
+
+func TestApplyWriteSkipsChownGroupWhenNonRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("this process is root; non-root chown skip is exercised as unprivileged user")
+	}
+	tree := filepath.Join(t.TempDir(), "root")
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := firstBootConfig()
+	cfg.RenderedConfigDir = "/srv/urmail/data/config"
+	m, err := NewTestApplyManager(tree, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbConf := "/srv/urmail/data/config/dovecot/conf.d/urmail/db.conf"
+	if err := m.write(dbConf, []byte("driver = sqlite\n"), 0o640); err != nil {
+		t.Fatalf("non-root write(db.conf) failed: %v", err)
+	}
+	if _, err := os.Stat(m.target(dbConf)); err != nil {
+		t.Fatalf("db.conf missing after non-root write: %v", err)
+	}
+	privKey := "/etc/opendkim/keys/example.com/mail.private"
+	if err := m.write(privKey, []byte("PRIVATE"), 0o640); err != nil {
+		t.Fatalf("non-root write(.private) failed: %v", err)
+	}
+	if _, err := os.Stat(m.target(privKey)); err != nil {
+		t.Fatalf("mail.private missing after non-root write: %v", err)
+	}
+}

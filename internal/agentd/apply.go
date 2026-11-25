@@ -912,26 +912,32 @@ func (m *ApplyManager) write(path string, data []byte, mode os.FileMode) error {
 		return os.Chmod(filepath.Dir(path), 0750)
 	}
 	if strings.HasSuffix(path, "db.conf") {
-		if err := chownGroup(path, "dovecot"); err != nil {
-			return err
-		}
-		if err := chownGroup(filepath.Dir(path), "dovecot"); err != nil {
-			return err
+		if os.Geteuid() == 0 {
+			if err := chownGroup(path, "dovecot"); err != nil {
+				return err
+			}
+			if err := chownGroup(filepath.Dir(path), "dovecot"); err != nil {
+				return err
+			}
 		}
 		return os.Chmod(filepath.Dir(path), 0750)
 	}
 	if strings.HasSuffix(path, ".private") {
-		if err := chownGroup(path, "opendkim"); err != nil {
-			return err
-		}
-		if err := chownGroup(filepath.Dir(path), "opendkim"); err != nil {
-			return err
+		if os.Geteuid() == 0 {
+			if err := chownGroup(path, "opendkim"); err != nil {
+				return err
+			}
+			if err := chownGroup(filepath.Dir(path), "opendkim"); err != nil {
+				return err
+			}
 		}
 		if err := os.Chmod(filepath.Dir(path), 0750); err != nil {
 			return err
 		}
-		if err := chownGroup(filepath.Dir(filepath.Dir(path)), "opendkim"); err != nil {
-			return err
+		if os.Geteuid() == 0 {
+			if err := chownGroup(filepath.Dir(filepath.Dir(path)), "opendkim"); err != nil {
+				return err
+			}
 		}
 		return os.Chmod(filepath.Dir(filepath.Dir(path)), 0750)
 	}
