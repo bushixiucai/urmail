@@ -73,4 +73,32 @@ func TestRenderRootInjectsComposeLayout(t *testing.T) {
 			t.Fatalf("unexpected artifact under injected render root: %s", path)
 		}
 	}
+	conf := files["/srv/urmail/data/config/dovecot/dovecot.conf"]
+	root := "/srv/urmail/data/config/dovecot"
+	for _, want := range []string{
+		"sieve_before = " + root + "/urmail-spam/spam-before.sieve",
+		"sieve_after = " + root + "/urmail-spam/spam-after.sieve",
+		"sieve_execute_bin_dir = " + root + "/urmail-spam/execute",
+		"!include " + root + "/conf.d/urmail/dovecot-sql.conf.ext",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Fatalf("injected dovecot.conf missing %q:\n%s", want, conf)
+		}
+	}
+	if strings.Contains(conf, "/etc/dovecot") {
+		t.Fatalf("injected dovecot.conf still names the host tree:\n%s", conf)
+	}
+	sql := files["/srv/urmail/data/config/dovecot/conf.d/urmail/dovecot-sql.conf.ext"]
+	args := "args = " + root + "/conf.d/urmail/db.conf"
+	if strings.Count(sql, args) != 2 || strings.Contains(sql, "/etc/dovecot") {
+		t.Fatalf("injected sql config did not follow IncludePrefix:\n%s", sql)
+	}
+	quota := files["/srv/urmail/data/config/dovecot/conf.d/urmail/dovecot-quota.conf.ext"]
+	if !strings.Contains(quota, "acl = vfile:"+root+"/conf.d/urmail-global-acls") || strings.Contains(quota, "/etc/dovecot") {
+		t.Fatalf("injected quota acl path did not follow IncludePrefix:\n%s", quota)
+	}
+	// User script and legacy sieve_dir stay on StorageRoot, not the config root.
+	if !strings.Contains(conf, "sieve = file:/var/mail/sieve/%u.sieve") {
+		t.Fatal("user sieve location left StorageRoot")
+	}
 }
