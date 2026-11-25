@@ -294,9 +294,6 @@ func VerifyCompleteArtifactSet(stamp string, artifacts []LocalArtifact) error {
 	}
 	return nil
 }
-	}
-	return nil
-}
 
 // expectedArtifactKind maps the one database slot (either engine), the config
 // tar and the mail tar to their recorded kinds. A complete set has exactly one
