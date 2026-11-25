@@ -113,9 +113,15 @@ func verifyFreeSpace(spoolDir string) error {
 	if err := syscall.Statfs(spoolDir, &stat); err != nil {
 		return fmt.Errorf("inspect free space for %s: %w", spoolDir, err)
 	}
-	available := int64(stat.Bavail) * int64(stat.Bsize)
-	if available < minimum {
-		return fmt.Errorf("backup spool %s has %d bytes free, below the %d byte minimum for an upgrade", spoolDir, available, minimum)
+	if stat.Bsize <= 0 {
+		return fmt.Errorf("backup spool %s reports an invalid block size %d", spoolDir, stat.Bsize)
+	}
+	bsize := uint64(stat.Bsize) // #nosec G115 -- checked positive above.
+	// Compare in blocks so the free-space arithmetic cannot overflow: both
+	// sides are uint64 and the minimum was already checked to be non-negative.
+	minBlocks := uint64(minimum)/bsize + 1 // #nosec G115 -- minimum >= 0 checked above.
+	if stat.Bavail < minBlocks {
+		return fmt.Errorf("backup spool %s has %d blocks of %d bytes free, below the %d byte minimum for an upgrade", spoolDir, stat.Bavail, stat.Bsize, minimum)
 	}
 	return nil
 }
