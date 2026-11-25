@@ -56,8 +56,14 @@ docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
 | `LITESTREAM_S3_REGION` | 空 | Litestream S3 区域 |
 | `LITESTREAM_S3_ENDPOINT` | 空 | Litestream S3 兼容端点 |
 | `LITESTREAM_S3_PATH` | `urmail-db` | Litestream S3 对象前缀 |
-| `URMAIL_RENDERED_CONFIG` | `0` | 设为 `1` 时，`postfix`/`dovecot` entrypoint 对 `/srv/urmail/data/config/<svc>` 渲染产物做非空 fail-closed 校验（`DEPENDS-GENERATOR`） |
+| `URMAIL_RENDERED_CONFIG` | `0` | 设为 `1` 时，`postfix`/`dovecot` entrypoint 对 `/srv/urmail/data/config/<svc>` 渲染产物做非空 fail-closed 校验 |
+| `URMAIL_RENDERED_SOURCE` | `require` | 配合 `URMAIL_RENDERED_CONFIG=1`：默认 `require` 仅校验；设为 `render` 时先调用 `urmailctl config prepare --first-boot` 再做非空校验，任一失败即 `exit 1` |
 | `URMAIL_CANARY_INBOUND_DEFER` | `0` | Canary 期入站 4xx 暂缓单一开关（默认关闭）；开启后若缺少 `canary-defer.cf` 拒绝启动（fail-closed） |
+
+### profiles 脱钩条件（当前均保持延后，DRAFT）
+
+- `urmail-signer` / `urmail-spam`（`profiles: ["milter"]`）：**未就绪**。脱 profile 条件：由 **Backend** 在仓内实现并随 `Dockerfile` 产出 `urmail-milter` 二进制（含 `sign`/`spam` 子命令），且经 **DevOps + QA** 在隔离全栈通过真实 25/465/587 DKIM/spam 协议冒烟后，再提交移除 `profiles: ["milter"]`。
+- `urmail-agent`（`profiles: ["agent"]`）：**未就绪**。脱 profile 条件：由 **Backend** 修复 `internal/mail/render.go` 输出路径至 `/srv/urmail/data/config/{postfix,dovecot,caddy}`、补齐 `Caddyfile` 渲染与 SQLite `config prepare --first-boot` 兼容并提交，再由 **DevOps + QA** 实跑验证渲染重载闭环后，方可移除 `profiles: ["agent"]`。
 
 与 `compose.test.local.yaml` 差异：`compose.test.local.yaml` 仅用于本机非特权端口映射测试（`2025/2465/2587/8080/8443/1993/1143`、`litestream-local.yml` 与 `urmail-signer-test`），不包含生产 `host` 网络与 S3 异地参数。
 

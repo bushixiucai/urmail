@@ -116,10 +116,20 @@ init_sqlite() {
 }
 
 if [ "$cmd" = "postfix" ] || [ "$cmd" = "dovecot" ]; then
-    # Rendered config hook (DEPENDS-GENERATOR): when URMAIL_RENDERED_CONFIG=1,
-    # require non-empty rendered artifacts under /srv/urmail/data/config/<svc>
-    # and fail closed if missing.
+    # Rendered config hook:
+    # - URMAIL_RENDERED_CONFIG=1 (require mode): require non-empty rendered
+    #   artifacts under /srv/urmail/data/config/<svc>; fail closed (exit 1).
+    # - URMAIL_RENDERED_SOURCE=render (with URMAIL_RENDERED_CONFIG=1): invoke
+    #   `urmailctl config prepare --first-boot` first, then run the same
+    #   non-empty assertions; any generation failure or missing file exits 1.
     if [ "${URMAIL_RENDERED_CONFIG:-0}" = "1" ]; then
+        if [ "${URMAIL_RENDERED_SOURCE:-require}" = "render" ]; then
+            echo "[entrypoint] URMAIL_RENDERED_SOURCE=render: running urmailctl config prepare --first-boot"
+            if ! "${URMAIL_CTL:-urmailctl}" config prepare --first-boot; then
+                echo "[entrypoint] FATAL: urmailctl config prepare --first-boot failed (fail-closed)" >&2
+                exit 1
+            fi
+        fi
         if [ "$cmd" = "postfix" ]; then
             for req in /srv/urmail/data/config/postfix/main.cf /srv/urmail/data/config/postfix/master.cf; do
                 if [ ! -s "$req" ]; then
