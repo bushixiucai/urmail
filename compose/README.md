@@ -56,9 +56,16 @@ docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
 | `LITESTREAM_S3_REGION` | 空 | Litestream S3 区域 |
 | `LITESTREAM_S3_ENDPOINT` | 空 | Litestream S3 兼容端点 |
 | `LITESTREAM_S3_PATH` | `urmail-db` | Litestream S3 对象前缀 |
-| `URMAIL_RENDERED_CONFIG` | `0` | 设为 `1` 时，`postfix`/`dovecot` entrypoint 对 `/srv/urmail/data/config/<svc>` 渲染产物做非空 fail-closed 校验 |
+| `URMAIL_RENDERED_CONFIG` | `0` | 设为 `1` 时，`postfix`/`dovecot` entrypoint 对 `${URMAIL_RENDERED_CONFIG_DIR}` 渲染产物做非空 fail-closed 校验，并把默认占位 `-c /srv/urmail/config/...` 重定向至 `${URMAIL_RENDERED_CONFIG_DIR}/...` |
+| `URMAIL_RENDERED_CONFIG_DIR` | `/srv/urmail/data/config` | 渲染产物根目录（契约：`<root>/postfix/...`、`<root>/dovecot/dovecot.conf`、`<root>/caddy/Caddyfile`），注入 `urmaild`/`postfix`/`dovecot` |
 | `URMAIL_RENDERED_SOURCE` | `require` | 配合 `URMAIL_RENDERED_CONFIG=1`：默认 `require` 仅校验；设为 `render` 时先调用 `urmailctl config prepare --first-boot` 再做非空校验，任一失败即 `exit 1` |
+| `URMAIL_CADDY_CONFIG` | `/etc/caddy/Caddyfile` | Caddy 启动与健康检查配置文件路径；占位模式用默认 `/etc/caddy/Caddyfile`，切换渲染产物时设为 `/srv/urmail/data/config/caddy/Caddyfile` |
 | `URMAIL_CANARY_INBOUND_DEFER` | `0` | Canary 期入站 4xx 暂缓单一开关（默认关闭）；开启后若缺少 `canary-defer.cf` 拒绝启动（fail-closed） |
+
+| 模式 | `URMAIL_RENDERED_CONFIG` | `postfix` / `dovecot` `-c` 实际路径 | `caddy` `--config` 路径 |
+|---|---|---|---|
+| 非 render（占位默认） | `0` | `/srv/urmail/config/...`（静态占位卷） | `/etc/caddy/Caddyfile`（静态占位卷） |
+| render / require | `1` | `${URMAIL_RENDERED_CONFIG_DIR}/{postfix,dovecot/dovecot.conf}` | 需设 `URMAIL_CADDY_CONFIG=/srv/urmail/data/config/caddy/Caddyfile` |
 
 ### profiles 脱钩条件（当前均保持延后，DRAFT）
 

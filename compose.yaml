@@ -39,6 +39,7 @@ services:
       DB_ENGINE: sqlite
       URMAIL_DB_ENGINE: sqlite
       URMAIL_SQLITE_PATH: ${URMAIL_SQLITE_PATH:-/srv/urmail/data/db/urmail.sqlite}
+      URMAIL_RENDERED_CONFIG_DIR: ${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/data/config}
       URMAIL_AUTO_MIGRATE: ${URMAIL_AUTO_MIGRATE:-1}
       URMAIL_POLICY_ENABLED: "true"
       # policy sock 挪进 5000 可写卷（默认 /run/urmail-policy 对非 root 不可写）
@@ -132,6 +133,7 @@ services:
     command: ["postfix", "-c", "/srv/urmail/config/postfix", "start-fg"]
     environment:
       URMAIL_RENDERED_CONFIG: ${URMAIL_RENDERED_CONFIG:-0}
+      URMAIL_RENDERED_CONFIG_DIR: ${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/data/config}
       URMAIL_CANARY_INBOUND_DEFER: ${URMAIL_CANARY_INBOUND_DEFER:-0}
     depends_on:
       urmail-signer:
@@ -163,6 +165,7 @@ services:
     command: ["dovecot", "-F", "-c", "/srv/urmail/config/dovecot/dovecot.conf"]
     environment:
       URMAIL_RENDERED_CONFIG: ${URMAIL_RENDERED_CONFIG:-0}
+      URMAIL_RENDERED_CONFIG_DIR: ${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/data/config}
     volumes:
       - ./compose/dovecot:/srv/urmail/config/dovecot:ro
       - ${URMAIL_DATA_ROOT:-./data}/config/dovecot:/srv/urmail/data/config/dovecot:ro
@@ -176,18 +179,19 @@ services:
       timeout: 10s
       retries: 3
 
-  # host network；Caddyfile 为静态占位（渲染归 Go 配置生成器，Backend 负责）。
+  # host network；Caddyfile 默认走静态占位（/etc/caddy/Caddyfile），切换渲染产物时设
+  # URMAIL_CADDY_CONFIG=/srv/urmail/data/config/caddy/Caddyfile。
   caddy:
     image: caddy:2
     network_mode: host
     restart: unless-stopped
-    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile"]
+    command: ["caddy", "run", "--config", "${URMAIL_CADDY_CONFIG:-/etc/caddy/Caddyfile}"]
     volumes:
       - ./compose/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${URMAIL_DATA_ROOT:-./data}/certs:/srv/urmail/data/certs
       - ${URMAIL_DATA_ROOT:-./data}/config/caddy:/srv/urmail/data/config/caddy
     healthcheck:
-      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      test: ["CMD", "caddy", "validate", "--config", "${URMAIL_CADDY_CONFIG:-/etc/caddy/Caddyfile}"]
       interval: 30s
       timeout: 5s
       retries: 3
