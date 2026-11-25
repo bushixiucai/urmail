@@ -65,7 +65,7 @@ func runConfigPrepare(ctx context.Context, args []string) error {
 		return errors.New("config prepare refuses development, restore, held-worker or secondary-only configuration")
 	}
 	if firstBoot {
-		pool, closePool, err := openPreparePlatformPool(ctx, cfg)
+		pool, closePool, err := openPlatformStorePool(ctx, cfg)
 		if err != nil {
 			return err
 		}
@@ -111,13 +111,14 @@ func runConfigPrepare(ctx context.Context, args []string) error {
 	return nil
 }
 
-// openPreparePlatformPool resolves the platform store for either engine so an
-// empty PostgreSQL or SQLite installation can render its first configuration.
-// The returned closer releases every handle this call opened.
-func openPreparePlatformPool(ctx context.Context, cfg *config.Config) (*db.Pool, func(), error) {
+// openPlatformStorePool resolves the platform store for either engine. The
+// returned closer releases every handle this call opened. Callers that record
+// bookkeeping (backup runs, first-boot render) share it so the SQLite and
+// PostgreSQL paths cannot drift apart.
+func openPlatformStorePool(ctx context.Context, cfg *config.Config) (*db.Pool, func(), error) {
 	if cfg.IsSQLite() {
 		if strings.TrimSpace(cfg.SQLitePath) == "" {
-			return nil, nil, errors.New("first-boot render requires URMAIL_SQLITE_PATH in SQLite mode")
+			return nil, nil, errors.New("platform store requires URMAIL_SQLITE_PATH in SQLite mode")
 		}
 		sqliteDB, err := sqlitedb.OpenExisting(ctx, cfg.SQLitePath, sqlitedb.ExpectedSchemaVersion)
 		if err != nil {
@@ -134,7 +135,7 @@ func openPreparePlatformPool(ctx context.Context, cfg *config.Config) (*db.Pool,
 		}, nil
 	}
 	if cfg.DatabaseURLPlatform == "" {
-		return nil, nil, errors.New("first-boot render requires the platform database")
+		return nil, nil, errors.New("platform store requires the platform database")
 	}
 	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
 	if err != nil {

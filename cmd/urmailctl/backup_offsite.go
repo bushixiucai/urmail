@@ -26,10 +26,12 @@ import (
 // the plaintext file the existing "restore --manifest" flow verifies.
 func runBackupOffsite(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: backup offsite|verify-offsite|decrypt")
+		return fmt.Errorf("usage: backup offsite|upload|verify-offsite|decrypt")
 	}
 	switch args[0] {
-	case "upload":
+	// backup offsite and backup upload are the same contract: upload one
+	// manifest to the destination and record the run.
+	case "upload", "offsite":
 		return runBackupOffsiteUpload(ctx, args[1:])
 	case "verify-offsite":
 		return runBackupVerifyOffsite(ctx, args[1:])
@@ -87,22 +89,20 @@ func destinationFromEnv(uri string) (backupauto.OffsiteStore, error) {
 // is a root CLI, and tests stub the identity check the same way.
 var backupOffsiteEffectiveUID = os.Geteuid
 
-// openPlatformPool loads the platform database for run recording. The
-// manual offsite upload must record backup_runs (R1) so the upgrade-fence
-// pre-flight and the release gate see one source of truth.
-func openPlatformPool(ctx context.Context) (*db.Pool, error) {
+// openPlatformPool loads the platform store for run recording on whichever
+// engine is configured. The manual offsite upload must record backup_runs
+// (R1) so the upgrade-fence pre-flight and the release gate see one source of
+// truth; single-engine SQLite has no separate platform DSN.
+func openPlatformPool(ctx context.Context) (*db.Pool, func(), error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, fmt.Errorf("load configuration: %w", err)
+		return nil, nil, fmt.Errorf("load configuration: %w", err)
 	}
-	if cfg.DatabaseURLPlatform == "" {
-		return nil, fmt.Errorf("platform database URL is required to record the offsite run")
-	}
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	pool, closePool, err := openPlatformStorePool(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("open platform database: %w", err)
+		return nil, nil, fmt.Errorf("open platform store: %w", err)
 	}
-	return pool, nil
+	return pool, closePool, nil
 }
 
 func runBackupOffsiteUpload(ctx context.Context, args []string) (returnErr error) {
@@ -145,11 +145,11 @@ func runBackupOffsiteUpload(ctx context.Context, args []string) (returnErr error
 	// upgrade-fence fresh-backup pre-flight can trust one source of truth.
 	// The run is only success after the uploaded generation re-verifies
 	// remotely -- the same bar the scheduled worker must clear.
-	pool, err := openPlatformPool(ctx)
+	pool, closePool, err := openPlatformPool(ctx)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
+	defer closePool()
 	recorder := &backupauto.StateRecorder{Pool: pool}
 	scope := backupauto.ScopeComplete
 	if manifest.Scope != "" {
