@@ -35,7 +35,13 @@ func openFixture(t *testing.T) (*Harness, *Fixture) {
 
 func runScenario(t *testing.T, h *Harness, f *Fixture, name string, cfg Config) Result {
 	t.Helper()
-	ctx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	scope := isolation.ScopeContext{Scope: isolation.ScopePlatform}
+	if name == ScenarioMailboxListRead {
+		// Mailbox list/read queries are tenant-scoped; the fixture's tenant is
+		// the authenticated principal, exactly as the panel handler would be.
+		scope = isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: f.TenantID}
+	}
+	ctx := isolation.WithScope(context.Background(), scope)
 	op, err := h.Scenario(ctx, name, f)
 	if err != nil {
 		t.Fatal(err)
