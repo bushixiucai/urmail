@@ -185,6 +185,12 @@ func TestSFTPContainerRoundtrip(t *testing.T) {
 	// MkdirAll cannot create /upload; the destination directory must exist,
 	// mirroring a real operator provisioning it. Mount one in.
 	uploadDir := t.TempDir()
+	// The container writes as uid 1001, which is not the host user that owns the
+	// 0700 temp directory; model an operator-provisioned upload directory that
+	// the pinned SFTP account can write to.
+	if err := os.Chmod(uploadDir, 0o777); err != nil {
+		t.Fatal(err)
+	}
 	volume := "-v" + uploadDir + ":/home/ops/upload"
 	startContainer(t, "atmoz/sftp:alpine", []string{strconv.Itoa(hostPort) + ":22"},
 		[]string{volume}, "ops:s3cret:1001")
