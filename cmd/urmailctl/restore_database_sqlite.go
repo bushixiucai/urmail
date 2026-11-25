@@ -31,7 +31,7 @@ import (
 // Callers run this inside the restore fence; the dovecot auth snapshot rebuild
 // is a separate post-restore step and must complete before release.
 func restoreSQLiteSnapshot(ctx context.Context, snapshot, livePath string, expectedVersion int) error {
-	if _, err := os.Stat(snapshot); err != nil {
+	if _, err := os.Stat(snapshot); err != nil { // #nosec G703 -- operator CLI --database path verified against backup manifest before restore.
 		return fmt.Errorf("sqlite restore snapshot: %w", err)
 	}
 	live, err := sqlitedb.OpenExisting(ctx, livePath, expectedVersion)
@@ -84,7 +84,7 @@ func restoreSQLiteSnapshot(ctx context.Context, snapshot, livePath string, expec
 }
 
 func copyFilePrivate(source, target string) error {
-	in, err := os.Open(source) // #nosec G304 -- caller passes the root-approved snapshot path.
+	in, err := os.Open(source) // #nosec G304 G703 -- caller passes the manifest-verified snapshot path.
 	if err != nil {
 		return err
 	}
