@@ -328,18 +328,26 @@ func (m *ApplyManager) probeBackupOffsite(ctx context.Context) error {
 }
 
 func (m *ApplyManager) probeBackupScheduler(ctx context.Context) error {
-	if m.cfg.BackgroundWorkersAllowed() {
-		if m.run == nil {
-			return errors.New("backup scheduler probe has no command runner")
+	if !m.cfg.BackgroundWorkersAllowed() {
+		return nil
+	}
+	_ = ctx
+	health, err := readBackupSchedulerHealth(m.root)
+	if err != nil {
+		return fmt.Errorf("complete offsite backup scheduler is not running: %w", err)
+	}
+	if health.Status != "running" {
+		return fmt.Errorf("complete offsite backup scheduler status is %q, want running", health.Status)
+	}
+	maxAge := 2 * DefaultBackupSchedulerInterval
+	if health.IntervalSec > 0 {
+		configured := 2 * time.Duration(health.IntervalSec) * time.Second
+		if configured > maxAge {
+			maxAge = configured
 		}
-		if err := m.run(ctx, "/usr/bin/systemctl", "cat", "urmail-backup-auto.service"); err != nil {
-			return fmt.Errorf("complete offsite backup service is not installed: %w", err)
-		}
-		for _, action := range []string{"is-enabled", "is-active"} {
-			if err := m.run(ctx, "/usr/bin/systemctl", action, "--quiet", "urmail-backup-auto.timer"); err != nil {
-				return fmt.Errorf("complete offsite backup scheduler is not enabled and active: %w", err)
-			}
-		}
+	}
+	if health.UpdatedAt.IsZero() || time.Since(health.UpdatedAt) > maxAge {
+		return fmt.Errorf("complete offsite backup scheduler health is stale (updated_at=%s)", health.UpdatedAt.Format(time.RFC3339))
 	}
 	return nil
 }

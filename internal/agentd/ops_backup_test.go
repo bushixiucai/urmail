@@ -39,8 +39,27 @@ func TestBackupLocalCreateAcceptsEmptyAndNull(t *testing.T) {
 }
 
 func TestBackupLocalCreateCommandIsFixed(t *testing.T) {
-	if strings.Join(backupLocalCreateCommand, " ") != "/usr/bin/systemctl start --no-block urmail-backup-auto.service" {
-		t.Fatal("backup must queue only the fixed independent unit")
+	if strings.Join(backupLocalCreateCommand, " ") != "/usr/bin/urmailctl backup-auto" {
+		t.Fatal("backup must queue only the fixed urmailctl backup-auto command without systemd")
+	}
+}
+
+func TestBackupLocalCreateTriggersRegisteredScheduler(t *testing.T) {
+	sched := &BackupScheduler{triggerCh: make(chan struct{}, 1)}
+	RegisterBackupScheduler(sched)
+	t.Cleanup(func() { RegisterBackupScheduler(nil) })
+
+	out, _, err := BackupLocalCreate(json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("expected registered scheduler trigger to succeed: %v", err)
+	}
+	if !strings.Contains(out, "internal scheduler") {
+		t.Fatalf("unexpected output: %q", out)
+	}
+	select {
+	case <-sched.triggerCh:
+	default:
+		t.Fatal("expected BackupLocalCreate to enqueue trigger on activeBackupScheduler")
 	}
 }
 

@@ -423,13 +423,16 @@ func (m *ApplyManager) issueCertificateContext(ctx context.Context, domain strin
 		_ = rollback()
 		return err
 	}
-	checks := [][]string{{"/usr/sbin/nginx", "-t"}}
-	units := []string{"nginx"}
-	if domain == m.hostname() {
-		checks = append(checks, []string{"/usr/bin/doveconf", "-n"}, []string{"/usr/sbin/postfix", "check"})
-		units = append(units, "dovecot", "postfix")
-	}
 	reload := func() error {
+		if m.cfg != nil && strings.TrimSpace(m.cfg.RenderedConfigDir) != "" {
+			return m.reloadComposeCertificates(domain)
+		}
+		checks := [][]string{{"/usr/sbin/nginx", "-t"}}
+		units := []string{"nginx"}
+		if domain == m.hostname() {
+			checks = append(checks, []string{"/usr/bin/doveconf", "-n"}, []string{"/usr/sbin/postfix", "check"})
+			units = append(units, "dovecot", "postfix")
+		}
 		for _, c := range checks {
 			if err := m.run(installCtx, c[0], c[1:]...); err != nil {
 				return err

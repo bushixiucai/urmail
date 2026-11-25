@@ -392,27 +392,31 @@ func parseOctal(value string) (os.FileMode, error) {
 	return os.FileMode(mode), nil
 }
 
-// OpBackupLocalCreate queues the independent root-owned backup unit. The
+// OpBackupLocalCreate queues an independent complete backup. The
 // socket never accepts paths, command arguments or maintenance parameters.
 const OpBackupLocalCreate = "backup.local.create"
 
-var backupLocalCreateCommand = []string{"/usr/bin/systemctl", "start", "--no-block", "urmail-backup-auto.service"}
+var backupLocalCreateCommand = []string{"/usr/bin/urmailctl", "backup-auto"}
 
 // BackupLocalCreateParams accepts no caller-controlled fields.
 type BackupLocalCreateParams struct{}
 
-// BackupLocalCreate queues work outside this agent's maintenance-stopped cgroup.
+// BackupLocalCreate queues a complete backup on the in-process BackupScheduler
+// (or falls back to the fixed urmailctl backup-auto command without systemd).
 func BackupLocalCreate(params json.RawMessage) (string, string, error) {
 	trimmed := bytes.TrimSpace(params)
 	if len(trimmed) != 0 && string(trimmed) != "null" && string(trimmed) != "{}" {
 		return "", "", fmt.Errorf("%w: %s takes no parameters", ErrRejected, OpBackupLocalCreate)
 	}
+	if sched := activeBackupScheduler.Load(); sched != nil && sched.Trigger() {
+		return "backup queued in internal scheduler", "", nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, backupLocalCreateCommand[0], backupLocalCreateCommand[1:]...) // #nosec G204 -- fixed systemctl unit and arguments; no caller input.
+	command := exec.CommandContext(ctx, backupLocalCreateCommand[0], backupLocalCreateCommand[1:]...) // #nosec G204 -- fixed binary and arguments; no caller input.
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return "", string(output), fmt.Errorf("%w: queue independent backup: %w", ErrFailed, err)
 	}
-	return "backup queued in urmail-backup-auto.service", "", nil
+	return "backup queued in urmailctl backup-auto", "", nil
 }
