@@ -380,8 +380,12 @@ func TestCollaborationReadinessFollowsEnabledProtocols(t *testing.T) {
 		t.Fatal(err)
 	}
 	// This fixture isolates collaboration schema; scheduler failure paths have
-	// their own command-boundary tests.
-	disabled := &ApplyManager{pool: platform, cfg: &config.Config{}, run: func(context.Context, string, ...string) error { return nil }}
+	// their own health-file tests in backup_scheduler_test.go.
+	schedRoot := t.TempDir()
+	if err := (&BackupScheduler{StateRoot: schedRoot, RunBackup: func(context.Context) error { return nil }}).RunOnce(ctx, "timer"); err != nil {
+		t.Fatal(err)
+	}
+	disabled := &ApplyManager{pool: platform, root: schedRoot, cfg: &config.Config{}}
 	if err := disabled.probeNewServiceReadiness(ctx); err != nil {
 		t.Fatalf("disabled protocols require collaboration schema: %v", err)
 	}
