@@ -55,7 +55,14 @@ RUN apt-get update \
 
 # Reserved uid/gid for the Maildir owner mapping (plan §5 待拍板项): keep a
 # stable vmail identity so /srv/urmail/data/mail ownership survives upgrades.
+# compose.yaml runs urmaild as 5000:5000, and internal/agentd/peercred.go only
+# admits the agent's own euid plus the uid of the "mailinabox" account, so the
+# runtime stage must carry that account name on the same reserved uid. The
+# dovecot configs keep addressing the mail owner as "vmail", hence a non-unique
+# uid alias instead of a rename. Do not relax the peer policy instead.
 RUN groupadd -g 5000 vmail && useradd -u 5000 -g 5000 -M -N -s /usr/sbin/nologin vmail \
+    && useradd -o -u 5000 -g 5000 -M -N -s /usr/sbin/nologin mailinabox \
+    && test "$(id -u mailinabox)" = "5000" && getent passwd mailinabox >/dev/null \
     && mkdir -p /srv/urmail/config /srv/urmail/data /var/lib/urmail /run/urmail \
     && mkdir -p /run/urmail-policy && chown 5000:5000 /run/urmail-policy /run/urmail /var/lib/urmail
 
