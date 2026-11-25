@@ -2,6 +2,23 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [Unreleased]
+
+Phase 1 SQLite 单引擎运行时基础能力、隔离契约与 CI 全链路收口（S0–S5 / S7；S6 auth 快照、S7.5 SQLite restore 接线与 S8 生产切换为后续切片）。
+
+### 数据层与隔离
+- 新增 SQLite 单引擎连接工厂（`internal/sqlitedb/open.go`）：强制每连接 `PRAGMA foreign_keys=ON`、`busy_timeout=5000`、`journal_mode=WAL`、`synchronous=NORMAL`，启动 `OpenExisting` 校验 `PRAGMA user_version = 7` 与 `schema_migrations` 无 dirty 行。
+- 落地 `migrations_sqlite/`（`0001_init.sql`–`0007_backup_offsite_state.sql`），含 5 张 append-only 表（`audit_logs`、`announcements`、`channels`、`ai_usage_requests`、`delivery_events`）的 `RAISE(ABORT)` 引擎级触发器。
+- 落地 `internal/db/isolation` 方法级作用域装饰器（覆盖 `store.Querier` 703 个方法），对缺少租户上下文或跨租户参数直接拒绝并纳入 PR CI 快集回归。
+
+### 备份与首启准备
+- 新增 `urmailctl` SQLite `VACUUM INTO` 快照能力（`cmd/urmailctl/backup_sqlite.go`），在 `wal_checkpoint(TRUNCATE)` 后生成独立快照并校验 `integrity_check=ok` 与 `user_version=7`；`backupauto` 保留 `metadata-only` 与 `local-mail-and-metadata` 完整集合校验语义，`preflightFreshBackup` 在 SQLite 单引擎下保持 fail-closed。
+- 新增 `urmailctl config prepare --first-boot` 离线首启配置准备入口（`cmd/urmailctl/config_prepare.go`），在已有升级围栏或已渲染 manifest 时硬拒绝，不放宽常规升级门禁。
+- SQLite `urmailctl restore` 当前保持 fail-closed 拒绝（`cmd/urmailctl/restore_database.go`），待后续 S6/S7.5 交付。
+
+### CI 与构建
+- 运行时镜像（`Dockerfile`）补齐 `dovecot-sieve` 以支持 `compile:sieve`；全量 CI（run `45572290894`）17 个 job 全绿。
+
 ## [0.6.26] - 日期待定
 
 热修补丁：升级前新鲜备份 pre-flight 与手动备份落库。无数据库迁移。
