@@ -168,12 +168,17 @@ func TestIsolationMarketingBurst(t *testing.T) {
 		t.Skip("isolation proof uses the full profile")
 	}
 	h, f := openFixture(t)
-	ctx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
-	mailOp, err := h.Scenario(ctx, ScenarioMailboxListRead, f)
+	// The marketing claim path is platform-scoped, while mailbox list/read
+	// queries are tenant-scoped exactly as the panel handler principal is.
+	// Sharing one platform context here made every mailbox iteration fail in
+	// the isolation layer before any SQL ran (error_rate 1.0000 at ~4µs).
+	platformCtx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	tenantCtx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: f.TenantID})
+	mailOp, err := h.Scenario(tenantCtx, ScenarioMailboxListRead, f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	marketingOp, err := h.Scenario(ctx, ScenarioMarketingStep, f)
+	marketingOp, err := h.Scenario(platformCtx, ScenarioMarketingStep, f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,9 +186,9 @@ func TestIsolationMarketingBurst(t *testing.T) {
 	window := 10 * time.Second
 	burstDone := make(chan Result, 1)
 	go func() {
-		burstDone <- h.Run(ctx, ScenarioMarketingStep, Config{VUs: FullVUs, Duration: window}, marketingOp)
+		burstDone <- h.Run(platformCtx, ScenarioMarketingStep, Config{VUs: FullVUs, Duration: window}, marketingOp)
 	}()
-	sample := h.Run(ctx, ScenarioMailboxListRead, Config{VUs: 4, Duration: window}, mailOp)
+	sample := h.Run(tenantCtx, ScenarioMailboxListRead, Config{VUs: 4, Duration: window}, mailOp)
 	burst := <-burstDone
 
 	if burst.Count == 0 {
