@@ -18,8 +18,14 @@ const defaultSQLitePath = "/srv/urmail/data/db/urmail.sqlite"
 // semantics) and reports the migrator's expected version so the caller can
 // compare it with the database it actually has.
 func runSQLiteMigrate(ctx context.Context, args []string) error {
+	if len(args) >= 1 && args[0] == "import" {
+		return runSQLiteImport(ctx, args[1:], false, os.Stdout)
+	}
+	if len(args) >= 1 && args[0] == "verify-import" {
+		return runSQLiteImport(ctx, args[1:], true, os.Stdout)
+	}
 	if len(args) != 2 || args[0] != "migrate" || args[1] != "up" {
-		return fmt.Errorf("usage: urmailctl sqlite migrate up")
+		return fmt.Errorf("usage: urmailctl sqlite <migrate up | import | verify-import>")
 	}
 	path := os.Getenv("URMAIL_SQLITE_PATH")
 	if path == "" {

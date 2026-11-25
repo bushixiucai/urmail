@@ -28,6 +28,8 @@ Usage:
   urmailctl migrate down           roll back the most recent schema migration
   urmailctl migrate version        print the current schema version
   urmailctl sqlite migrate up      apply the embedded SQLite schema chain (single entry)
+  urmailctl sqlite import          migrate PG source to SQLite target and verify 0-diff
+  urmailctl sqlite verify-import   verify 0-diff between PG source and SQLite target
   urmailctl setup --email E --password P [--brand B] [--tenant T]
                   [--free-until RFC3339 --free-reason TEXT]
   urmailctl status                 print the service status
