@@ -381,10 +381,15 @@ func writePrecheckReport(path string, report PrecheckReport) error {
 // path by itself; the check makes the containment explicit at the open site so
 // a future refactor cannot turn the walker into an arbitrary-file reader.
 func pathWithin(dir, path string) bool {
-	if !filepath.IsAbs(path) {
+	// Compare absolute forms: a relative queries dir would otherwise make every
+	// walked entry fail the check and silently empty the LIKE inventory.
+	root, err := filepath.Abs(dir)
+	if err != nil {
 		return false
 	}
-	root := filepath.Clean(dir)
-	full := filepath.Clean(path)
+	full, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
 	return full == root || strings.HasPrefix(full, root+string(os.PathSeparator))
 }
