@@ -43,6 +43,8 @@ services:
       URMAIL_RENDERED_CONFIG_DIR: ${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/data/config}
       URMAIL_RENDERED_SOURCE: ${URMAIL_RENDERED_SOURCE:-placeholder}
       URMAIL_AGENT_STATE_ROOT: /srv/urmail/data/agent-state
+      URMAIL_MAIL_USER: vmail
+      URMAIL_MAIL_GROUP: vmail
       URMAIL_AUTO_MIGRATE: ${URMAIL_AUTO_MIGRATE:-1}
       URMAIL_POLICY_ENABLED: "true"
       # policy sock 挪进 5000 可写卷（默认 /run/urmail-policy 对非 root 不可写）
