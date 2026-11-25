@@ -258,6 +258,8 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			TLSCertFile:   certFile,
 			TLSKeyFile:    keyFile,
 			DatabaseURL:   dovecotDB,
+			MailUID:       cfg.MailUser,
+			MailGID:       cfg.MailGroup,
 		},
 
 		NSDNode: nsd.NodeConfig{

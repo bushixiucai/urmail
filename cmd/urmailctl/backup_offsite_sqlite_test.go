@@ -14,7 +14,10 @@ import (
 
 	"filippo.io/age"
 
+	"strings"
+
 	"github.com/bushixiucai/urmail/internal/backupauto"
+	"github.com/bushixiucai/urmail/internal/sqlitedb"
 )
 
 // offsiteSQLiteFixture seeds a migrated single-engine database and the env the
@@ -90,12 +93,12 @@ func TestBackupOffsiteSQLiteRecordsRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closePool()
-	var state, manifestName string
-	if err = pool.QueryRow(ctx, "SELECT state,manifest_name FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&state, &manifestName); err != nil {
+	var state, manifestName, offsiteState, offsiteURI string
+	if err = pool.QueryRow(ctx, "SELECT state,manifest_name,offsite_state,offsite_uri FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&state, &manifestName, &offsiteState, &offsiteURI); err != nil {
 		t.Fatal(err)
 	}
-	if state != backupauto.StateSuccess || manifestName == "" {
-		t.Fatalf("sqlite success run state=%q manifest=%q", state, manifestName)
+	if state != backupauto.StateSuccess || manifestName == "" || offsiteState != backupauto.OffsiteStateUploaded || offsiteURI == "" {
+		t.Fatalf("sqlite success run state=%q manifest=%q offsite=%q uri=%q", state, manifestName, offsiteState, offsiteURI)
 	}
 
 	// The failing endpoint must record a failed run, not a success.
@@ -112,5 +115,75 @@ func TestBackupOffsiteSQLiteRecordsRun(t *testing.T) {
 	}
 	if state != backupauto.StateFailed {
 		t.Fatalf("failed run recorded as %q", state)
+	}
+}
+
+// TestBackupOffsiteSQLiteMissingLedgerFailsClosed proves an unprovisioned
+// single-engine ledger refuses the run instead of recording nowhere.
+func TestBackupOffsiteSQLiteMissingLedgerFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.sqlite")
+	raw, err := sqlitedb.Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	t.Setenv("URMAIL_DB_ENGINE", "sqlite")
+	t.Setenv("URMAIL_SQLITE_PATH", path)
+	t.Setenv("URMAIL_LISTEN_ADDR", "127.0.0.1:18097")
+	t.Setenv("URMAIL_POLICY_ENABLED", "true")
+	t.Setenv("URMAIL_MYHOSTNAME", "drill.test")
+	t.Setenv("URMAIL_DATABASE_URL_PLATFORM", "")
+
+	old := backupOffsiteEffectiveUID
+	backupOffsiteEffectiveUID = func() int { return 0 }
+	t.Cleanup(func() { backupOffsiteEffectiveUID = old })
+
+	server := fakeS3Server(t)
+	t.Setenv("URMAIL_BACKUP_S3_ACCESS_KEY_ID", "minioadmin")
+	t.Setenv("URMAIL_BACKUP_S3_SECRET_KEY", "minioadmin")
+	t.Setenv("URMAIL_BACKUP_S3_ENDPOINT", server.URL)
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := writeOffsiteManifest(t, t.TempDir(), "20261119T130000Z", identity.Recipient().String())
+	err = runBackup(context.Background(), []string{"upload", "--manifest", manifestPath, "--uri", "s3://manual-bucket/prefix", "--recipient", identity.Recipient().String()})
+	if err == nil {
+		t.Fatal("an unprovisioned ledger accepted the run")
+	}
+	t.Logf("missing ledger refusal: %v", err)
+}
+
+// TestBackupOffsitePostgresWithoutDSNRefuses pins the PostgreSQL contract: no
+// platform DSN still returns the original refusal text.
+func TestBackupOffsitePostgresWithoutDSNRefuses(t *testing.T) {
+	t.Setenv("URMAIL_DB_ENGINE", "")
+	t.Setenv("URMAIL_SQLITE_PATH", "")
+	t.Setenv("URMAIL_DATABASE_URL", "postgres://app@127.0.0.1/urmail")
+	t.Setenv("URMAIL_DATABASE_URL_PLATFORM", "")
+	t.Setenv("URMAIL_QUOTE_HMAC_KEY", "test-key")
+	t.Setenv("URMAIL_POLICY_ENABLED", "true")
+	_, _, err := openPlatformPool(context.Background())
+	if err == nil {
+		t.Fatal("postgres without a platform DSN opened a store")
+	}
+	// config.Load already refuses a PostgreSQL configuration without the
+	// platform DSN, so the engine-aware opener never widens that gate.
+	if !strings.Contains(err.Error(), "URMAIL_DATABASE_URL_PLATFORM") && !strings.Contains(err.Error(), "platform store requires the platform database") {
+		t.Fatalf("postgres without DSN: %v", err)
+	}
+}
+
+// TestBackupOffsiteRoutingNamespaces proves offsite is an alias of upload and
+// an unknown subcommand still refuses.
+func TestBackupOffsiteRoutingNamespaces(t *testing.T) {
+	offsiteErr := runBackupOffsite(context.Background(), []string{"offsite"})
+	uploadErr := runBackupOffsite(context.Background(), []string{"upload"})
+	if offsiteErr == nil || uploadErr == nil || offsiteErr.Error() != uploadErr.Error() {
+		t.Fatalf("offsite/upload differ: offsite=%v upload=%v", offsiteErr, uploadErr)
+	}
+	if err := runBackupOffsite(context.Background(), []string{"bogus"}); err == nil || !strings.Contains(err.Error(), "unknown backup subcommand") {
+		t.Fatalf("unknown subcommand: %v", err)
 	}
 }

@@ -97,6 +97,8 @@ type Config struct {
 
 	// StorageRoot holds mailboxes, archives and certificates.
 	StorageRoot string
+	MailUser    string // owner name shared by mail storage prep and dovecot render (default mail)
+	MailGroup   string // group name shared with dovecot render (default mail)
 
 	// AgentSocket is the unix socket of the privileged agent.
 	AgentSocket string
@@ -300,6 +302,8 @@ func Load() (*Config, error) {
 		PreserveExternalOpenDKIM:    preserveDKIM,
 		ArchiveEnabled:              parseBool(values["URMAIL_ARCHIVE_ENABLED"]),
 		StorageRoot:                 values["URMAIL_STORAGE_ROOT"],
+		MailUser:                    mailIdentity(values["URMAIL_MAIL_USER"]),
+		MailGroup:                   mailIdentity(values["URMAIL_MAIL_GROUP"]),
 		AgentSocket:                 values["URMAIL_AGENT_SOCKET"],
 		PolicySocket:                values["URMAIL_POLICY_SOCKET"],
 		MasterKeyPath:               values["URMAIL_MASTER_KEY_PATH"],
@@ -614,4 +618,12 @@ func (c *Config) IsSQLite() bool {
 		return true
 	}
 	return false
+}
+
+// mailIdentity returns a non-empty mail storage identity name.
+func mailIdentity(raw string) string {
+	if name := strings.TrimSpace(raw); name != "" {
+		return name
+	}
+	return "mail"
 }

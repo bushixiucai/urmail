@@ -17,6 +17,11 @@ import (
 // so every new entry point stays inside the backup* command family.
 //
 //	backup offsite       --manifest FILE --uri URI [--execute]
+//	backup upload        --manifest FILE --uri URI (same contract as offsite)
+//
+// --execute is accepted for compatibility and is a no-op: the upload command
+// always executes the transfer.
+//
 //	backup verify-offsite --manifest FILE --uri URI --identity FILE
 //	backup decrypt       --manifest FILE --artifact NAME --out FILE --identity FILE
 //
@@ -106,6 +111,9 @@ func openPlatformPool(ctx context.Context) (*db.Pool, func(), error) {
 }
 
 func runBackupOffsiteUpload(ctx context.Context, args []string) (returnErr error) {
+	// --execute stays a documented no-op; drop it before flag parsing so an
+	// older operator script keeps working and never trips an unknown flag.
+	args = dropFlag(args, "--execute")
 	manifestPath, _, err := parseFlag(args, "--manifest")
 	if err != nil {
 		return err
@@ -159,6 +167,12 @@ func runBackupOffsiteUpload(ctx context.Context, args []string) (returnErr error
 	runUID, err := recorder.StartRun(ctx, scope, started)
 	if err != nil {
 		return fmt.Errorf("record offsite run: %w", err)
+	}
+	// The fresh-backup pre-flight only accepts uploaded or pending_local_only;
+	// a manual upload is by definition the uploaded disposition, so record it
+	// on the run it just opened instead of leaving a historical empty state.
+	if err = recorder.SetOffsiteState(ctx, runUID, backupauto.OffsiteStateUploaded); err != nil {
+		return fmt.Errorf("record offsite disposition: %w", err)
 	}
 	var uploadedBytes int64
 	var remoteManifestName string
@@ -302,3 +316,14 @@ func dirOf(path string) string {
 }
 
 var _ = io.Discard
+
+// dropFlag removes every occurrence of a value-less compatibility flag.
+func dropFlag(args []string, flag string) []string {
+	out := args[:0:0]
+	for _, arg := range args {
+		if arg != flag {
+			out = append(out, arg)
+		}
+	}
+	return out
+}
