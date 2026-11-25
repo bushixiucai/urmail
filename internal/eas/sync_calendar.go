@@ -19,6 +19,7 @@ import (
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -57,7 +58,7 @@ func listCalendarEvents(ctx context.Context, b *SyncBackend, req *SyncRequest, c
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	rows, err := db.Queries(tx).PlatformListCalendarSyncEvents(ctx, store.PlatformListCalendarSyncEventsParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, CalendarID: calendarID, PageLimit: MaxItemsPerRequest + 1})
+	rows, err := db.Queries(tx).PlatformListCalendarSyncEvents(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformListCalendarSyncEventsParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, CalendarID: calendarID, PageLimit: MaxItemsPerRequest + 1})
 	if err != nil {
 		return nil, err
 	}

@@ -95,6 +95,9 @@ func (b *SyncBackend) HandleSync(ctx context.Context, req *SyncRequest) (*Node, 
 		resp.Add(Text(pageAirSync, tokStatus, syncStatusProtocolError))
 		return resp, nil
 	}
+	// Every collection below reads and writes this mailbox's tenant rows; bind
+	// the authenticated tenant once at this trusted EAS entry.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: req.Session.TenantID})
 	cols := req.Node.Child(tokCollections)
 	if cols == nil || len(cols.Children) == 0 {
 		resp.Add(Text(pageAirSync, tokStatus, syncStatusProtocolError))

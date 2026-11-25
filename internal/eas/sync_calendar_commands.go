@@ -11,6 +11,7 @@ import (
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -18,6 +19,9 @@ import (
 const syncStatusConflict = "7"
 
 func (b *SyncBackend) applyCalendarCommand(ctx context.Context, req *SyncRequest, collection string, calendarID int64, cmd *Node, items map[string]itemRow) (string, string) {
+	// Command writes target platform-owned collaboration rows; bind the
+	// platform scope at this trusted EAS command entry.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	idText := cmd.ChildText(tokServerID)
 	if cmd.Token != tokAdd && cmd.Token != tokChange && cmd.Token != tokDelete {
 		return idText, syncStatusProtocolError
