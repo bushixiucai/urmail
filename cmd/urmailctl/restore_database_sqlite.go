@@ -2,12 +2,18 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	_ "modernc.org/sqlite"
+
+	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/dovecotauth"
 	"github.com/bushixiucai/urmail/internal/sqlitedb"
 )
 
@@ -123,6 +129,41 @@ func verifySQLiteFile(ctx context.Context, path string, expectedVersion int) err
 	}
 	if foreignKeyViolations != 0 {
 		return fmt.Errorf("foreign_key_check found %d violations", foreignKeyViolations)
+	}
+	return nil
+}
+
+// sqliteRestoreSource adapts the restored single-engine store to the auth
+// snapshot builder.
+type sqliteRestoreSource struct{ db *sql.DB }
+
+func (s sqliteRestoreSource) Query(ctx context.Context, query string, args ...any) (dovecotauth.Rows, error) {
+	return s.db.QueryContext(ctx, query, args...)
+}
+
+// restoreSQLiteDatabase replaces the live database from a verified snapshot and
+// rebuilds the dovecot auth snapshot before the restore may be released (§9.2).
+func restoreSQLiteDatabase(ctx context.Context, cfg *config.Config, snapshotPath string) error {
+	if cfg == nil || strings.TrimSpace(cfg.SQLitePath) == "" {
+		return errors.New("sqlite restore requires URMAIL_SQLITE_PATH")
+	}
+	if err := restoreSQLiteSnapshot(ctx, snapshotPath, cfg.SQLitePath, sqlitedb.ExpectedSchemaVersion); err != nil {
+		return err
+	}
+	return rebuildAuthSnapshotAfterRestore(ctx, cfg)
+}
+
+// rebuildAuthSnapshotAfterRestore is the §5.4 restore gate: the snapshot must be
+// rebuilt from the restored store before auth is released.
+func rebuildAuthSnapshotAfterRestore(ctx context.Context, cfg *config.Config) error {
+	live, err := sql.Open("sqlite", "file:"+cfg.SQLitePath+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return fmt.Errorf("open restored sqlite store: %w", err)
+	}
+	defer func() { _ = live.Close() }()
+	manager := dovecotauth.NewManager(cfg.DovecotAuthDB, sqliteRestoreSource{db: live})
+	if _, err = dovecotauth.RequireFreshAfterRestore(ctx, manager); err != nil {
+		return err
 	}
 	return nil
 }
