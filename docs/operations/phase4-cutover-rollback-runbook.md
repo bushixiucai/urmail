@@ -2,7 +2,7 @@
 
 > **状态：`DRAFT（未演练）——禁止据此直接执行生产切换；每条标 [待实装核定] 的步骤须由 DevOps 在隔离环境实跑并签字后转正式版`**
 >
-> 基线提交：`da9918d45841246c56a6ef7ca0fe907c2954ea6e`
+> 基线提交：`813e74d2bfafd6db7ca3efedff121d62a3f9b7cb`（已合入 S5 迁移器 CLI、S6 auth 快照遥测、S7.5 SQLite 恢复全链；本 S8 切片新增 `internal/cutover` + `urmailctl cutover` + `scripts/test-s8-cutover-drill.py`）
 > 依据文档：`ARCH-PLAN-SQLITE-COMPOSE-20261119.md`（§1.6、§3 Phase 4、§4）、`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md`（§5.4、§7 S8、§9.2）
 
 ---
@@ -22,8 +22,8 @@
 
 2. **磁盘预算检查（对 56G 空闲空间核算）**
    - 宿主机基线：129G 已用 / 56G 空闲（70%），旧镜像回收后约 46G 空闲（来源：`ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §1.6）。
-   - 预算必须覆盖：`PG × 1.1` + `SQLite × 2` + Dovecot auth 快照 + Docker build cache + 10 份全量备份 + litestream 缓冲（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S8 行；`ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §3 Phase 4）。
-   - `[待实装核定 #1]`：生产切换前在目标宿主机执行 `df -h /srv/urmail /var/backups /var/lib/docker` 与逐项体积核算脚本并签字放行（需 **DevOps** 在隔离演练机与切换窗口前核定具体阈值与命令）。
+   - 预算必须覆盖：`PG × 1.1` + `SQLite × 2` + Dovecot auth/备份快照 + Docker build cache + 10 份全量备份 + litestream 缓冲；使用代码前置门 `urmailctl cutover disk-budget --pg-bytes <PG> --sqlite-bytes <SQLITE> --snapshot-bytes <SNAP> --path /srv/urmail` 校验（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S8 行；`internal/cutover/cutover.go`、`cmd/urmailctl/cutover.go`）。
+   - `[待实装核定 #1]`：生产切换前在目标宿主机采集真实 `PG/SQLite/快照` 字节数并执行 `urmailctl cutover disk-budget` 签字放行（需 **DevOps** 在隔离演练机与切换窗口前核定）。
 
 3. **构建溯源与工作树检查**
    - 拒绝脏工作树与非 release tag HEAD；构建后校验内嵌 tag+SHA 与镜像 digest（来源：`ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §1.8；`upgrade.sh:8`）。
@@ -41,13 +41,14 @@
    - 停止旧栈写者（`urmaild`、Postfix、Dovecot 等），保留 PG 容器 `urmail-m8-cutover-pg` 供迁移与回滚读取（来源：`ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §1.6、§3 Phase 4；`upgrade.sh:122,201`）。
    - `[待实装核定 #3]`：实测连续停写窗口与单次邮件中断时长是否 ≤60s（需 **DevOps + QA** 在隔离全栈演练机执行 `urmailctl upgrade fence`（`cmd/urmailctl/upgrade.go:48`）+ 停写编排实测计时）。
 3. **迁移器五关（PG → SQLite）**：
-   - 执行 S5 迁移器五关校验与导入，确认 `PRAGMA foreign_key_check = 0`、`PRAGMA integrity_check = ok`、`PRAGMA user_version = 7`（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S5/S8 行；`internal/sqlitedb/open.go:34,236-328`）。
-   - `[待实装核定 #4]`：确认生产切换所用的 `urmailctl` 迁移子命令/参数与全量样本 0-diff 校验入口（需 **Backend + DevOps** 待 `S9-s5-cutover-cli` 补齐正式入口后在隔离环境实跑核定；当前 `main` 上 `cmd/urmailctl/main.go:22-57` 仅含 `s5-recall-stage` (`cmd/urmailctl/s5_recall_stage.go:26-76`) 与 `sqlite migrate up` (`cmd/urmailctl/sqlite_cmd.go`)）。
+   - 执行 S5 迁移器五关校验与导入：`urmailctl sqlite import --target /srv/urmail/data/db/urmail.sqlite`（源 DSN 通过环境变量 `URMAIL_MIGRATE_SOURCE_URL` 传入）及 `urmailctl sqlite verify-import --target /srv/urmail/data/db/urmail.sqlite`，确认 `zero_diff=true`、`PRAGMA foreign_key_check = 0`、`PRAGMA integrity_check = ok`、`PRAGMA user_version = 7`（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S5/S8 行；`cmd/urmailctl/s5_migrate.go`、`internal/sqlitedb/open.go:34,236-328`）。
+   - `[待实装核定 #4]`：在隔离环境对生产脱敏/样本库实跑 `urmailctl sqlite import` 与 `verify-import` 0-diff 核定（需 **DevOps + QA** 实跑签字；Backend 代码入口已就绪）。
 4. **切配置与拉起新栈（只读 Canary 阶段）**：
-   - 通过 `urmailctl config prepare --first-boot` 渲染离线首启配置（来源：`cmd/urmailctl/config_prepare.go:22-88`；`internal/agentd/prepare.go:41-49`）。
-   - `[待实装核定 #5]`：基于 `compose.yaml` 执行 `docker compose up -d` 并以只读 canary 模式验证 `healthz`（`GET /api/v1/healthz` 已存在于 `internal/api/router.go:484`）及只读查询（需 **DevOps** 待 `S9-compose-sqlite-prod` 将 `compose.yaml:15-62,105-217` 从 PG/占位配置切为正式 SQLite/Litestream/渲染配置后实跑核定）。
+   - 通过 `urmailctl config prepare --first-boot` 渲染离线首启配置，并执行 `urmailctl cutover canary` 锁定 Canary 期 `450 4.3.2` 入站暂缓策略（来源：`cmd/urmailctl/config_prepare.go:22-88`、`cmd/urmailctl/cutover.go`）。
+   - `[待实装核定 #5]`：基于 `compose.yaml` 执行 `docker compose up -d` 并以只读 canary 模式验证 `healthz`（`GET /api/v1/healthz` 已存在于 `internal/api/router.go:484`）及只读查询（需 **DevOps** 在隔离环境实跑核定）。
 5. **只读 Canary 验收通过后放行生产写入**：
-   - `[待实装核定 #6]`：解除维护围栏（既有产品入口 `urmailctl upgrade release`，`cmd/urmailctl/upgrade.go:75`）并放行入站/Webmail 写入的验收判据（需 **DevOps + QA** 在隔离演练机实跑核定）。
+   - 执行 `urmailctl cutover release`（记录 `first_prod_write_at`，正式关闭零丢失回滚窗口）并调用 `urmailctl upgrade release`（`cmd/urmailctl/upgrade.go:75`）解除维护围栏、放行入站/Webmail 写入。
+   - `[待实装核定 #6]`：隔离演练机放行生产写入的实测验收判据（需 **DevOps + QA** 实跑核定）。
 
 ---
 
@@ -62,8 +63,8 @@
 ## 4. 零丢失回滚窗口与 14 天保留期口径
 
 - **零丢失回滚窗口 = 首次生产写入放行前**（Canary 为小时级观察窗口）：
-  - 窗内（尚无生产写入落入 SQLite）回滚 = 直接切回 PG 配置并拉起旧栈，**零丢失**（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S8 行）。
-  - **首次生产写入放行即窗口关闭**：放行后 SQLite 已产生新写入，此后不存在零丢失自动回滚，仅剩人工 break-glass 反向薄通道（SQLite → PG 逆向导出/导入档，**不做 SLA 承诺**）（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S8 行）。
+  - 窗内（尚无生产写入落入 SQLite）回滚 = 执行 `urmailctl cutover rollback` 后直接切回 PG 配置并拉起旧栈，**零丢失**（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S8 行；`cmd/urmailctl/cutover.go`）。
+  - **首次生产写入放行即窗口关闭**：`urmailctl cutover release` 放行后 SQLite 已产生新写入，此后 `urmailctl cutover rollback` 自动 fail-closed 拒绝，仅剩人工 break-glass 反向薄通道（`urmailctl cutover break-glass --sqlite ... --out ...`，SQLite → PG 逆向导出档，**不做 SLA 承诺**）（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S8 行；`internal/cutover/cutover.go`）。
 - **14 天 = PG 卷保留期（仅用于磁盘预算与事故取证），不是回滚 SLA**——严禁将 14 天误读为「14 天内可无损回滚」（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S8 行）。
 
 ---
@@ -109,7 +110,7 @@
 |---|---|---|
 | Compose 服务与健康探针 | `docker compose ps` 全部核心服务 healthy；`curl -fsS http://127.0.0.1:8080/api/v1/healthz` 返回 200 | `ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §3 Phase 4；`install.sh:219,226` |
 | SMTP / IMAP 通路 | 25/465/587 入出站投递、993 IMAPS 登录、合成账号收发闭环与线程视图正常 | `ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §3 Phase 4、§5A；`[待实装核定 #11]`（需 **DevOps + QA** 待 Compose 正式配置就绪后在隔离机实跑 `scripts/native-webmail-protocol-acceptance.py` 与 `scripts/mail-client-smoke.py`） |
-| Auth 快照 staleness 与 `snapshot_dirty` | 改密/停用/删域后 `snapshot_dirty` 为 false、mtime 年龄 < 60s（兜底重建周期 24h） | `PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §5.4 第 6 条；`[待实装核定 #12]`（当前 `internal/telemetry/` 尚无此指标，待 **Backend** 合入 S6 补齐指标后由 **DevOps** 核定 48h 巡检查询） |
+| Auth 快照 staleness 与 `snapshot_dirty` | 改密/停用/删域后 `dovecot_auth_snapshot_dirty == 0`、`dovecot_auth_snapshot_staleness_seconds < 60`（告警 `telemetry_auth_snapshot_dirty` / `telemetry_auth_snapshot_stale`，兜底重建周期 24h） | `PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §5.4 第 6 条；`internal/dovecotauth/metrics.go`、`internal/telemetry/observability.go`；`[待实装核定 #12]`（Backend 指标已落地，48h 巡检阈值与查询命令待 **DevOps** 实跑核定） |
 | 备份新鲜度与异地同步 | 定时 `local-mail-and-metadata` 完整备份按期成功、`offsite_state='uploaded'`、`verify-offsite` 通过；Litestream 副本无持续落后 | `cmd/urmailctl/backup_offsite.go:244-279`；`compose/litestream.yml:1-9`；`ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §5A |
 | Fence 状态 | 无残留活跃升级/恢复围栏（`IsUpgradeHeld == false`），readiness 正常 | `cmd/urmailctl/config_prepare.go:38`；`upgrade.sh:264` |
 | 磁盘增长与 WAL 水位 | 数据根与备份目录剩余空间安全、SQLite `-wal` 文件无异常膨胀 | `ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §4、§5A |

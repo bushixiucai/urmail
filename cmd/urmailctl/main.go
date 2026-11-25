@@ -140,6 +140,8 @@ func run(args []string) error {
 		return runRecoverPendingOffline(ctx, args[1:])
 	case "upgrade":
 		return runUpgrade(ctx, args[1:])
+	case "cutover":
+		return runCutover(ctx, args[1:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
