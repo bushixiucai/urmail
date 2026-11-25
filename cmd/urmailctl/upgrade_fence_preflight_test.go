@@ -138,6 +138,60 @@ func (f *fencePreflightFixture) clearRuns(t *testing.T) {
 	}
 }
 
+// TestUpgradeFencePreflightRefusesMissingGenerationArtifact proves the fence
+// rejects a ledger row whose generation lost an artifact: the row is metadata,
+// the files are the backup.
+func TestUpgradeFencePreflightRefusesMissingGenerationArtifact(t *testing.T) {
+	f := newFencePreflightFixture(t)
+	startedAgo := time.Hour
+	manifestName := backupauto.ManifestName(backupauto.StampFor(time.Now().UTC().Add(-startedAgo)))
+	f.seedRunScoped(t, backupauto.StateSuccess, backupauto.ScopeComplete, startedAgo, "", manifestName)
+	stamp := strings.TrimSuffix(strings.TrimPrefix(manifestName, "urmail-"), ".manifest.json")
+	if err := os.Remove(filepath.Join(f.spool, "urmail-"+stamp+".dump")); err != nil {
+		t.Fatal(err)
+	}
+	err := f.fence(context.Background())
+	if err == nil {
+		t.Fatal("a generation with a missing artifact established the fence")
+	}
+	t.Logf("fence refused missing artifact: %v", err)
+	if !strings.Contains(err.Error(), "open backup artifact") {
+		t.Fatalf("unexpected refusal: %v", err)
+	}
+	if maintenance.IsUpgradeHeld(f.maintDir) {
+		t.Fatal("refused fence must not be established")
+	}
+}
+
+// TestUpgradeFencePreflightRefusesTamperedGenerationArtifact proves a changed
+// artifact byte is refused on the hash the manifest recorded.
+func TestUpgradeFencePreflightRefusesTamperedGenerationArtifact(t *testing.T) {
+	f := newFencePreflightFixture(t)
+	startedAgo := time.Hour
+	manifestName := backupauto.ManifestName(backupauto.StampFor(time.Now().UTC().Add(-startedAgo)))
+	f.seedRunScoped(t, backupauto.StateSuccess, backupauto.ScopeComplete, startedAgo, "", manifestName)
+	stamp := strings.TrimSuffix(strings.TrimPrefix(manifestName, "urmail-"), ".manifest.json")
+	artifact := filepath.Join(f.spool, "urmail-"+stamp+".dump")
+	raw, err := os.ReadFile(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(artifact, append(raw, []byte("tampered")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = f.fence(context.Background())
+	if err == nil {
+		t.Fatal("a generation with a tampered artifact established the fence")
+	}
+	t.Logf("fence refused tampered artifact: %v", err)
+	if !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Fatalf("unexpected refusal: %v", err)
+	}
+	if maintenance.IsUpgradeHeld(f.maintDir) {
+		t.Fatal("refused fence must not be established")
+	}
+}
+
 func (f *fencePreflightFixture) fence(ctx context.Context, extra ...string) error {
 	args := append([]string{"fence", "--root-dir", f.maintDir, "--drop-in-dir", f.dropInDir}, extra...)
 	return runUpgrade(ctx, args)
