@@ -63,6 +63,11 @@ ARTIFACTS = {"database.dump", "urmaild.env", "agent.env", "master.key", "agent-m
 # checkpoint capture. Service templates (postfix@.service) are deliberately
 # excluded like in DefaultWriterUnits: only concrete instances can be
 # observed, and systemd rejects property queries for uninstantiated templates.
+# systemd states that cannot be writing: "inactive" is stopped and "failed" is
+# a one-shot unit that exited unsuccessfully (it is not running). Anything else
+# (active/activating/reloading/deactivating) may still hold a writer.
+QUIESCENT_STATES = ("inactive", "failed")
+
 QUIESCENCE_UNITS = (
     "dovecot.socket",
     "urmail-backup-auto.timer",
@@ -123,8 +128,8 @@ def validate_attestation(attestation, expected_digest, label):
             raise ValueError(label + " attestation unit invalid or duplicated: " + str(unit))
         if not isinstance(ts, str) or not ts:
             raise ValueError(label + " attestation missing timestamp for " + unit)
-        if state != "inactive":
-            raise ValueError(label + " attestation unit not inactive: " + unit)
+        if state not in QUIESCENT_STATES:
+            raise ValueError(label + " attestation unit not quiescent: " + unit)
         seen[unit] = True
     for unit in QUIESCENCE_UNITS:
         if unit not in seen:
@@ -223,12 +228,12 @@ class Checkpoint:
         return result
 
     def quiescence(self, query):
-        """Sample every writer/template unit; each must be inactive now."""
+        """Sample every writer/template unit; each must be stopped now."""
         entries = []
         for unit in QUIESCENCE_UNITS:
             state = query(unit)
-            if state != "inactive":
-                raise ValueError("writer unit not inactive: " + unit + "=" + str(state))
+            if state not in QUIESCENT_STATES:
+                raise ValueError("writer unit not quiescent: " + unit + "=" + str(state))
             entries.append({"unit": unit, "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "state": state})
         return entries
 

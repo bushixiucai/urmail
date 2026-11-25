@@ -67,6 +67,12 @@ RUN groupadd -g 5000 vmail && useradd -u 5000 -g 5000 -M -N -s /usr/sbin/nologin
     && mkdir -p /run/urmail-policy && chown 5000:5000 /run/urmail-policy /run/urmail /var/lib/urmail
 
 COPY --from=build /out/bin/urmaild /usr/local/bin/urmaild
+# The cluster bootstrap SQL is read by the PostgreSQL process (uid 70) from a
+# bind mount or /usr/share/urmail; a restrictive checkout umask must not make it
+# unreadable, so pin the mode in the image and assert it here.
+COPY --chmod=0644 internal/db/bootstrap.sql /usr/share/urmail/bootstrap.sql
+RUN test "$(stat -c '%a' /usr/share/urmail/bootstrap.sql)" = "644" \
+    && test -s /usr/share/urmail/bootstrap.sql
 COPY --from=build /out/bin/urmailctl /usr/local/bin/urmailctl
 COPY --from=build /out/bin/urmaild-agent /usr/local/bin/urmaild-agent
 COPY migrations_sqlite /usr/local/share/urmail/migrations_sqlite

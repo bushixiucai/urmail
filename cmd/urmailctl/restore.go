@@ -175,6 +175,14 @@ func runRestore(ctx context.Context, args []string) error {
 	if masterKeyPath != "" {
 		activeCfg.MasterKeyPath = masterKeyPath
 	}
+	// Declarative S6 dependency: the single-engine restore (database + auth
+	// snapshot as one atomic generation) is delivered by
+	// dovecotauth.RequireFreshAfterRestore and the S6 restore_sqlite_executor.
+	// Until that lands, refuse rather than route a SQLite deployment through
+	// the PostgreSQL archive path.
+	if err := requirePostgresRestoreEngine(activeCfg); err != nil {
+		return err
+	}
 	for _, archive := range []string{configPath, mailPath} {
 		if archive != "" {
 			if err := validateRestoreArchiveWithManifest(archive, filepath.Base(archive), restoreManifest, activeCfg, legacySlotMap); err != nil {

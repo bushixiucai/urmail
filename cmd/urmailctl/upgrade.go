@@ -938,19 +938,29 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 	}
 	cfg, err := config.Load()
 	if err != nil {
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("URMAIL_DB_ENGINE")), "sqlite") {
+			return "", fmt.Errorf("fresh-backup pre-flight: single-engine configuration is invalid: %w; fix it or pass --skip-preflight to record an explicit operator override", err)
+		}
 		return degraded("configuration error: %v", err)
 	}
-	if cfg.DatabaseURLPlatform == "" {
-		return degraded("no platform database URL configured")
-	}
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	// The ledger lives on the configured engine. PostgreSQL keeps the legacy
+	// "degraded" escape (repairing that database is often why the upgrade
+	// runs); the single engine must fail closed, because a SQLite deployment
+	// has no separate platform DSN and would otherwise never read backup_runs.
+	pool, err := openBackupPlatformPool(ctx, cfg)
 	if err != nil {
+		if cfg.IsSQLite() {
+			return "", fmt.Errorf("fresh-backup pre-flight: cannot open the SQLite backup ledger: %w; fix the database path or pass --skip-preflight to record an explicit operator override", err)
+		}
 		return degraded("open: %v", err)
 	}
 	defer pool.Close()
 	health, err := (&backupauto.StateRecorder{Pool: pool}).LastRunHealth(ctx)
 	switch {
 	case errors.Is(err, backupauto.ErrBackupOffsiteDisabled):
+		if cfg.IsSQLite() {
+			return "", errors.New("fresh-backup pre-flight: the SQLite database has no backup_runs table, so no complete backup can be proven; run a complete backup first, or pass --skip-preflight to record an explicit operator override")
+		}
 		fmt.Println("Fresh-backup pre-flight: offsite backup not provisioned on this installation; proceeding.")
 		return "", nil
 	case errors.Is(err, backupauto.ErrNoRuns):
@@ -986,6 +996,16 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 	if age > window {
 		return "", fmt.Errorf("fresh-backup pre-flight: newest complete backup generation %s is %s old (window %s); run a complete backup first, or pass --skip-preflight to record an explicit operator override",
 			health.ManifestName, age.Round(time.Minute), window)
+	}
+	// The run row is metadata; the generation must still exist on disk with the
+	// hashes its manifest names, and the spool filesystem must have room for the
+	// next generation. Both checks fail closed.
+	spool := backupSpoolDir()
+	if err := verifyBackupArtifacts(spool, health.ManifestName, cfg.IsSQLite()); err != nil {
+		return "", fmt.Errorf("fresh-backup pre-flight: %w; run a complete backup first, or pass --skip-preflight to record an explicit operator override", err)
+	}
+	if err := verifyFreeSpace(spool); err != nil {
+		return "", fmt.Errorf("fresh-backup pre-flight: %w", err)
 	}
 	fmt.Printf("Fresh-backup pre-flight: newest complete successful run %s, generation %s (age %s; offsite=%s).\n",
 		health.RunUID, health.ManifestName, age.Round(time.Minute), health.OffsiteState)
