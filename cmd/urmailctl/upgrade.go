@@ -894,8 +894,11 @@ func runUpgradeRollback(ctx context.Context, args []string) error {
 			return fmt.Errorf("checkpoint missing database.dump: %w", err)
 		}
 		fmt.Printf("Integrity-verified checkpoint at %s; NO restore has been performed.\n", *checkpoint)
-		fmt.Println("To restore database dump, execute:")
-		fmt.Printf("  runuser -u postgres -- pg_restore --clean --if-exists -d urmail %s\n", dumpFile)
+		fmt.Println("To restore the database generation, execute the command for its engine:")
+		fmt.Println("  PostgreSQL archive:  runuser -u postgres -- pg_restore --clean --if-exists -d urmail <dump>")
+		fmt.Println("  SQLite snapshot:     urmailctl restore --dump <snapshot.sqlite> --manifest <manifest>")
+		fmt.Println("                       (the restore replaces the live file, folds the WAL sidecars and rebuilds the dovecot auth snapshot before release)")
+		fmt.Printf("  checkpoint artifact: %s\n", dumpFile)
 		envFile := filepath.Join(*checkpoint, "urmaild.env")
 		if _, err = os.Stat(envFile); err == nil {
 			fmt.Printf("  install -o root -g mailinabox -m 0640 %s /etc/urmail/urmaild.env\n", envFile)
