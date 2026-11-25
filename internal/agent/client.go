@@ -77,7 +77,13 @@ func (c *Client) do(ctx context.Context, op string, params any) (*agentd.Respons
 		if response.Error == nil {
 			return &response, fmt.Errorf("agent %s failed without an error code", op)
 		}
-		return &response, fmt.Errorf("agent %s: %s", op, response.Error.Code)
+		// The daemon's rejection semantics stay in the code, but the concrete
+		// cause (missing binary, unwritable path, failed precondition) must
+		// reach the operator; dropping it made every failure look identical.
+		if response.Error.Message == "" {
+			return &response, fmt.Errorf("agent %s: %s", op, response.Error.Code)
+		}
+		return &response, fmt.Errorf("agent %s: %s: %s", op, response.Error.Code, response.Error.Message)
 	}
 	return &response, nil
 }
