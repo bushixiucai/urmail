@@ -17,16 +17,22 @@ func TestConfigPrepareRejectsBeforeAnyPrivilegedWork(t *testing.T) {
 	}
 }
 
-func TestFirstBootPrepareRejectsNonRootAndUnknownFlags(t *testing.T) {
+func TestFirstBootPrepareAllowsNonRootButRejectsUnknownFlags(t *testing.T) {
 	t.Setenv("URMAIL_ALLOW_TEST_USER", "1")
-	for _, args := range [][]string{{"--first-boot"}, {"--first-boot", "--skip-preflight"}, {"--skip-backup"}} {
+	// The container identity owns its config volume, so first boot may run
+	// unprivileged; any later failure must not be the root gate.
+	if err := runConfigPrepare(context.Background(), []string{"--first-boot"}); err != nil && strings.Contains(err.Error(), "requires root") {
+		t.Fatalf("first-boot refused the container identity: %v", err)
+	}
+	for _, args := range [][]string{{"--first-boot", "--skip-preflight"}, {"--skip-backup"}} {
 		err := runConfigPrepare(context.Background(), args)
-		if err == nil {
-			t.Fatalf("args %v were accepted", args)
+		if err == nil || !strings.Contains(err.Error(), "usage:") {
+			t.Fatalf("args %v were accepted: %v", args, err)
 		}
-		if !strings.Contains(err.Error(), "requires root") && !strings.Contains(err.Error(), "usage:") {
-			t.Fatalf("args %v error %q does not refuse before privileged work", args, err)
-		}
+	}
+	// The fenced upgrade path stays root-only.
+	if err := runConfigPrepare(context.Background(), []string{}); err == nil || !strings.Contains(err.Error(), "requires root") {
+		t.Fatalf("fenced prepare no longer requires root: %v", err)
 	}
 }
 

@@ -15,6 +15,7 @@ type NodeConfig struct {
 	MailGID       string       // GID for vmail group (default "mail")
 	AuthDBPath    string       // read-only SQLite auth snapshot (design §5)
 	AuthEngine    string       // "sqlite" renders the snapshot; empty keeps the PostgreSQL DSN
+	IncludePrefix string       // absolute config root for !include lines (default /etc/dovecot)
 }
 
 // Snapshot represents the database snapshot needed for Dovecot configuration.

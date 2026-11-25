@@ -4237,3 +4237,58 @@ func (q *Queries) marketingSuppressed(ctx context.Context, tenant int64) (map[st
 // the connection-level busy_timeout bounds waiting. Keeping the method (rather
 // than deleting it) preserves the handler's fail-closed sequence.
 func (q *Queries) SetMarketingReportBudget(_ context.Context) error { return nil }
+
+// sqliteListAliases mirrors the PostgreSQL sender_login subquery with a
+// JSON array: SQLite has no ARRAY(SELECT ...), and the consumer decodes the
+// same []string shape.
+const sqliteListAliases = `
+SELECT d.fqdn AS domain, a.local_part, a.target, a.kind,
+       (SELECT json_group_array(address) FROM (
+          SELECT m.address AS address
+          FROM mailboxes m JOIN domains md ON md.id = m.domain_id AND md.tenant_id = m.tenant_id
+          WHERE m.tenant_id = a.tenant_id
+            AND EXISTS (SELECT 1 FROM json_each(a.sender_logins) je WHERE je.value = m.address)
+            AND m.status = 'active' AND m.send_enabled
+            AND md.status = 'active' AND md.provisioning_state = 'ready'
+          ORDER BY m.address))
+FROM mailbox_aliases a
+JOIN domains d ON a.domain_id = d.id
+JOIN tenants t ON t.id = a.tenant_id
+WHERE a.active = 1 AND d.status = 'active' AND d.provisioning_state = 'ready' AND t.status = 'active'
+ORDER BY d.fqdn ASC, a.local_part ASC`
+
+// PlatformListAliases keeps the PostgreSQL statement for that engine and uses
+// the JSON-array variant on the single engine.
+func (q *Queries) PlatformListAliases(ctx context.Context) ([]PlatformListAliasesRow, error) {
+	if !isSQLiteDBTX(q.db) {
+		pgRows, err := pgstore.New(q.db).PlatformListAliases(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]PlatformListAliasesRow, 0, len(pgRows))
+		for _, row := range pgRows {
+			out = append(out, PlatformListAliasesRow{Domain: row.Domain, LocalPart: row.LocalPart, Target: row.Target, Kind: row.Kind, SenderLogins: row.SenderLogins})
+		}
+		return out, nil
+	}
+	rows, err := q.db.Query(ctx, sqliteListAliases)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlatformListAliasesRow
+	for rows.Next() {
+		var row PlatformListAliasesRow
+		var senderJSON string
+		if err = rows.Scan(&row.Domain, &row.LocalPart, &row.Target, &row.Kind, &senderJSON); err != nil {
+			return nil, err
+		}
+		if senderJSON != "" {
+			if err = json.Unmarshal([]byte(senderJSON), &row.SenderLogins); err != nil {
+				return nil, fmt.Errorf("decode sender logins: %w", err)
+			}
+		}
+		items = append(items, row)
+	}
+	return items, rows.Err()
+}
