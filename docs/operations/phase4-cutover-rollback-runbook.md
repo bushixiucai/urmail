@@ -39,15 +39,15 @@
    - 使用 `urmailctl upgrade fence --reason "<cutover-reason>"` 校验新鲜完整备份并进入停写围栏（来源：`cmd/urmailctl/upgrade.go:48,932-995`；`upgrade.sh:157-185`）。
 2. **停写窗口（设计目标：连续停写 ≤60s、单次邮件中断 ≤60s）**：
    - 停止旧栈写者（`urmaild`、Postfix、Dovecot 等），保留 PG 容器 `urmail-m8-cutover-pg` 供迁移与回滚读取（来源：`ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §1.6、§3 Phase 4；`upgrade.sh:122,201`）。
-   - `[待实装核定 #3]`：实测连续停写窗口与单次邮件中断时长是否 ≤60s（需 **DevOps + QA** 在隔离全栈演练时实测计时）。
+   - `[待实装核定 #3]`：实测连续停写窗口与单次邮件中断时长是否 ≤60s（需 **DevOps + QA** 在隔离全栈演练机执行 `urmailctl upgrade fence`（`cmd/urmailctl/upgrade.go:48`）+ 停写编排实测计时）。
 3. **迁移器五关（PG → SQLite）**：
    - 执行 S5 迁移器五关校验与导入，确认 `PRAGMA foreign_key_check = 0`、`PRAGMA integrity_check = ok`、`PRAGMA user_version = 7`（来源：`PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §7 S5/S8 行；`internal/sqlitedb/open.go:34,236-328`）。
-   - `[待实装核定 #4]`：确认生产切换所用的 `urmailctl` 迁移子命令/参数与全量样本 0-diff 校验入口（需 **Backend + DevOps** 对齐 S5 正式 CLI 入口后在隔离环境实跑核定；当前 `ca7772ca` 中 `cmd/urmailctl/s5_recall_stage.go:76` 仅含 staging 子集）。
+   - `[待实装核定 #4]`：确认生产切换所用的 `urmailctl` 迁移子命令/参数与全量样本 0-diff 校验入口（需 **Backend + DevOps** 待 `S9-s5-cutover-cli` 补齐正式入口后在隔离环境实跑核定；当前 `main` 上 `cmd/urmailctl/main.go:22-57` 仅含 `s5-recall-stage` (`cmd/urmailctl/s5_recall_stage.go:26-76`) 与 `sqlite migrate up` (`cmd/urmailctl/sqlite_cmd.go`)）。
 4. **切配置与拉起新栈（只读 Canary 阶段）**：
    - 通过 `urmailctl config prepare --first-boot` 渲染离线首启配置（来源：`cmd/urmailctl/config_prepare.go:22-88`；`internal/agentd/prepare.go:41-49`）。
-   - `[待实装核定 #5]`：基于 `compose.yaml`（含 SQLite/Litestream/Postfix/Dovecot/Caddy 正式配置而非占位 profile）执行 `docker compose up -d` 并以只读 canary 模式验证 `healthz`（`curl -fsS http://127.0.0.1:8080/api/v1/healthz`）及只读查询（需 **DevOps** 在 Phase 2/3 Compose 全栈打通后核定完整命令）。
+   - `[待实装核定 #5]`：基于 `compose.yaml` 执行 `docker compose up -d` 并以只读 canary 模式验证 `healthz`（`GET /api/v1/healthz` 已存在于 `internal/api/router.go:484`）及只读查询（需 **DevOps** 待 `S9-compose-sqlite-prod` 将 `compose.yaml:15-62,105-217` 从 PG/占位配置切为正式 SQLite/Litestream/渲染配置后实跑核定）。
 5. **只读 Canary 验收通过后放行生产写入**：
-   - `[待实装核定 #6]`：解除维护围栏并放行入站/Webmail 写入的精确命令与验收判据（需 **DevOps + QA** 在隔离演练中核定）。
+   - `[待实装核定 #6]`：解除维护围栏（既有产品入口 `urmailctl upgrade release`，`cmd/urmailctl/upgrade.go:75`）并放行入站/Webmail 写入的验收判据（需 **DevOps + QA** 在隔离演练机实跑核定）。
 
 ---
 
@@ -108,8 +108,8 @@
 | 观察项 | 核验内容与判定口径 | 来源 / 状态 |
 |---|---|---|
 | Compose 服务与健康探针 | `docker compose ps` 全部核心服务 healthy；`curl -fsS http://127.0.0.1:8080/api/v1/healthz` 返回 200 | `ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §3 Phase 4；`install.sh:219,226` |
-| SMTP / IMAP 通路 | 25/465/587 入出站投递、993 IMAPS 登录、合成账号收发闭环与线程视图正常 | `ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §3 Phase 4、§5A；`[待实装核定 #11]`（需 **DevOps + QA** 跑通 Compose 协议冒烟） |
-| Auth 快照 staleness 与 `snapshot_dirty` | 改密/停用/删域后 `snapshot_dirty` 为 false、mtime 年龄 < 60s（兜底重建周期 24h） | `PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §5.4 第 6 条；`[待实装核定 #12]`（需 **Backend + DevOps** 待 S6 合入后接入巡检指标） |
+| SMTP / IMAP 通路 | 25/465/587 入出站投递、993 IMAPS 登录、合成账号收发闭环与线程视图正常 | `ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §3 Phase 4、§5A；`[待实装核定 #11]`（需 **DevOps + QA** 待 Compose 正式配置就绪后在隔离机实跑 `scripts/native-webmail-protocol-acceptance.py` 与 `scripts/mail-client-smoke.py`） |
+| Auth 快照 staleness 与 `snapshot_dirty` | 改密/停用/删域后 `snapshot_dirty` 为 false、mtime 年龄 < 60s（兜底重建周期 24h） | `PHASE1-ISOLATION-DESIGN-20261119-V3.2.md` §5.4 第 6 条；`[待实装核定 #12]`（当前 `internal/telemetry/` 尚无此指标，待 **Backend** 合入 S6 补齐指标后由 **DevOps** 核定 48h 巡检查询） |
 | 备份新鲜度与异地同步 | 定时 `local-mail-and-metadata` 完整备份按期成功、`offsite_state='uploaded'`、`verify-offsite` 通过；Litestream 副本无持续落后 | `cmd/urmailctl/backup_offsite.go:244-279`；`compose/litestream.yml:1-9`；`ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §5A |
 | Fence 状态 | 无残留活跃升级/恢复围栏（`IsUpgradeHeld == false`），readiness 正常 | `cmd/urmailctl/config_prepare.go:38`；`upgrade.sh:264` |
 | 磁盘增长与 WAL 水位 | 数据根与备份目录剩余空间安全、SQLite `-wal` 文件无异常膨胀 | `ARCH-PLAN-SQLITE-COMPOSE-20261119.md` §4、§5A |
