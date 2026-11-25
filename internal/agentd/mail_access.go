@@ -128,7 +128,7 @@ func (m *ApplyManager) StartMailAccessWatcher(ctx context.Context, logger *slog.
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	q := db.Queries(m.pool.Pool)
+	q := db.Queries(m.pool)
 	go func() {
 		defer close(done)
 		watchMailAccess(ctx, func(queryCtx context.Context) ([]MailAccess, time.Time, error) {

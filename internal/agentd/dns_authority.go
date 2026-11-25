@@ -184,7 +184,7 @@ func (m *ApplyManager) authorizedDNS(ctx context.Context, domain string, tenantI
 		return store.PlatformGetDNSSecurityRow{}, fmt.Errorf("%w: authoritative DNS management is unavailable", ErrRejected)
 	}
 	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: actorID})
-	row, err := db.Queries(m.pool.Pool).PlatformGetDNSSecurity(platCtx, domain)
+	row, err := db.Queries(m.pool).PlatformGetDNSSecurity(platCtx, domain)
 	if err != nil {
 		return row, err
 	}
@@ -618,7 +618,7 @@ func (m *ApplyManager) ManageDNSAuthority(raw json.RawMessage) (string, string, 
 			row.PrimaryAddress = secondary.PrimaryAddress
 			row.TsigKeyName = secondary.TSIGKeyName
 		}
-		_, writeErr := db.Queries(m.pool.Pool).PlatformSetDNSSecurity(ctx, row)
+		_, writeErr := db.Queries(m.pool).PlatformSetDNSSecurity(ctx, row)
 		return writeErr
 	}
 	switch params.Action {

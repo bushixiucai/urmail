@@ -416,6 +416,11 @@ func TestProductionTarArchiveRoundTripWithOwnerModeAndLinks(t *testing.T) {
 	if err := os.WriteFile(preKeyPath, []byte("old-0644-key-contents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A process umask can narrow the creation mode; the fixture must be 0644
+	// regardless, because the restore asserts it preserves that mode.
+	if err := os.Chmod(preKeyPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	preKeyStat, err := os.Stat(preKeyPath)
 	if err != nil {
 		t.Fatal(err)

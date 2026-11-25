@@ -199,7 +199,7 @@ func (m *ApplyManager) brandHostCertEligible(domain string) bool {
 	}
 	ctx, cancel := platformContext(3 * time.Second)
 	defer cancel()
-	eligible, err := db.Queries(m.pool.Pool).PlatformBrandHostCertEligible(ctx, domain)
+	eligible, err := db.Queries(m.pool).PlatformBrandHostCertEligible(ctx, domain)
 	return err == nil && eligible
 }
 
@@ -520,7 +520,7 @@ func (m *ApplyManager) customWebEnabled(domain string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	enabled, err := db.Queries(m.pool.Pool).PlatformCustomWebEnabled(ctx, domain)
+	enabled, err := db.Queries(m.pool).PlatformCustomWebEnabled(ctx, domain)
 	return err == nil && enabled
 }
 func (m *ApplyManager) certificateProvisioningAllowed(domain string) bool {
@@ -535,6 +535,6 @@ func (m *ApplyManager) certificateProvisioningAllowed(domain string) bool {
 	}
 	ctx, cancel := platformContext(3 * time.Second)
 	defer cancel()
-	allowed, err := db.Queries(m.pool.Pool).PlatformProvisioningCertificateAllowed(ctx, domain)
+	allowed, err := db.Queries(m.pool).PlatformProvisioningCertificateAllowed(ctx, domain)
 	return err == nil && allowed
 }
