@@ -153,7 +153,7 @@ services:
       # 绝不把含 master.key/db 的整数据根暴露给 MTA 容器
       - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
     healthcheck:
-      test: ["CMD", "postfix", "-c", "${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/config}/postfix", "status"]
+      test: ["CMD-SHELL", "if [ \"$${URMAIL_RENDERED_CONFIG:-0}\" = \"1\" ]; then d=\"$${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/data/config}/postfix\"; else d=/srv/urmail/config/postfix; fi; postfix -c \"$$d\" status"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -176,7 +176,7 @@ services:
     healthcheck:
       # doveadm process status talks to the running master; Dovecot 2.3 has
       # no `doveadm ping` subcommand, so the earlier check always exited 64.
-      test: ["CMD", "doveadm", "-c", "${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/config}/dovecot/dovecot.conf", "process", "status"]
+      test: ["CMD-SHELL", "if [ \"$${URMAIL_RENDERED_CONFIG:-0}\" = \"1\" ]; then c=\"$${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/data/config}/dovecot/dovecot.conf\"; else c=/srv/urmail/config/dovecot/dovecot.conf; fi; doveadm -c \"$$c\" process status"]
       interval: 30s
       timeout: 10s
       retries: 3
