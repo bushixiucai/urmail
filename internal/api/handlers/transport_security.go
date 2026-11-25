@@ -21,6 +21,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/maildnsreport"
 	"github.com/bushixiucai/urmail/internal/mailtransport"
@@ -67,7 +68,7 @@ func (h *TransportSecurityHandler) owned(c *gin.Context) (store.GetDomainByIDRow
 func transportDTO(row store.DomainTransportSecurity, domain, host string) gin.H {
 	p := mailtransport.Publication(row)
 	body, _ := maildnsreport.RenderWellKnown(p.Policy)
-	return gin.H{"enabled": row.Enabled, "version": row.Version, "mode": row.MtastsMode, "policy_id": row.MtastsPolicyID, "mx": row.PolicyMx, "max_age": row.MaxAge, "policy_url": "https://mta-sts." + domain + maildnsreport.WellKnownPath, "policy_body": body, "report_uri": row.TlsRptRua, "dns_records": p.DNSRecords(host), "testing_since": row.TestingSince, "cache_safe_after": row.CacheSafeAfter, "observed_at": row.ObservedAt, "observation_status": row.ObservationStatus, "observation_detail": json.RawMessage(row.ObservationDetail), "dane_enabled": false}
+	return gin.H{"enabled": row.Enabled, "version": row.Version, "mode": row.MtastsMode, "policy_id": row.MtastsPolicyID, "mx": row.PolicyMx, "max_age": row.MaxAge, "policy_url": "https://mta-sts." + domain + maildnsreport.WellKnownPath, "policy_body": body, "report_uri": row.TlsRptRua, "dns_records": p.DNSRecords(host), "testing_since": row.TestingSince, "cache_safe_after": timeutil.FromMicro(row.CacheSafeAfter), "observed_at": row.ObservedAt, "observation_status": row.ObservationStatus, "observation_detail": json.RawMessage(row.ObservationDetail), "dane_enabled": false}
 }
 
 // Get reads the authenticated tenant domain publication.
@@ -248,6 +249,9 @@ func (h *TransportSecurityHandler) Reports(c *gin.Context) {
 
 // Policy serves public text only for the exact registered mta-sts hostname.
 func (h *TransportSecurityHandler) Policy(c *gin.Context) {
+	// Public transport endpoints read platform-owned policy/report rows; bind
+	// the platform scope at this trusted entry.
+	c.Request = c.Request.WithContext(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform}))
 	c.Header("Cache-Control", "no-store")
 	host := c.Request.Host
 	if name, _, err := net.SplitHostPort(host); err == nil {
@@ -277,6 +281,9 @@ func (h *TransportSecurityHandler) Policy(c *gin.Context) {
 
 // Intake retains bounded, deduplicated and explicitly unverified report summaries.
 func (h *TransportSecurityHandler) Intake(c *gin.Context) {
+	// Public transport endpoints read platform-owned policy/report rows; bind
+	// the platform scope at this trusted entry.
+	c.Request = c.Request.WithContext(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform}))
 	if h.Pool == nil {
 		c.Status(503)
 		return
