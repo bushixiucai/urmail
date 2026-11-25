@@ -872,10 +872,10 @@ func (m *ApplyManager) write(path string, data []byte, mode os.FileMode) error {
 	}
 	if strings.HasSuffix(path, "/urmail-spam/spam-before.sieve") || strings.HasSuffix(path, "/urmail-spam/spam-before.svbin") {
 		if os.Geteuid() == 0 {
-			if err := chownGroup(path, "mail"); err != nil {
+			if err := chownGroup(path, mailIdentityName(m.cfg.MailGroup)); err != nil {
 				return err
 			}
-			if err := chownGroup(filepath.Dir(path), "mail"); err != nil {
+			if err := chownGroup(filepath.Dir(path), mailIdentityName(m.cfg.MailGroup)); err != nil {
 				return err
 			}
 		}
@@ -934,7 +934,7 @@ func (m *ApplyManager) compileSpamScript(ctx context.Context) error {
 		return err
 	}
 	if os.Geteuid() == 0 {
-		return chownGroup(m.target(binary), "mail")
+		return chownGroup(m.target(binary), mailIdentityName(m.cfg.MailGroup))
 	}
 	return nil
 }

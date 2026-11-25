@@ -77,7 +77,7 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 	destination := filepath.Join(root, "sieve", target.Address+".sieve")
 	uid, gid := -1, -1
 	if os.Geteuid() == 0 {
-		group, lookupErr := user.LookupGroup("mail")
+		group, lookupErr := user.LookupGroup(mailIdentityName(m.cfg.MailGroup))
 		if lookupErr != nil {
 			return "", "", ErrFailed
 		}

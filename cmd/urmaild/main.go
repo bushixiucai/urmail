@@ -337,7 +337,7 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 
 	var sieveGateReady func() bool
 	if !cfg.DevMode && !cfg.Quarantined {
-		sieveGateReady, err = startSieveGate(ctx, platformPool, logger)
+		sieveGateReady, err = startSieveGate(ctx, platformPool, cfg, logger)
 		if err != nil {
 			return fail(fmt.Errorf("start personal Sieve entitlement gate: %w", err))
 		}
