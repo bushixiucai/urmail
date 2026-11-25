@@ -82,7 +82,7 @@ func (m *Manager) applyChange(ctx context.Context, tx *sql.Tx, change Change) er
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		if rows.Next() {
 			var address, password, status, sieveMode, sieveScript string
 			var tenantID, domainID, quota int64
@@ -107,7 +107,7 @@ sieve_mode=excluded.sieve_mode, sieve_script=excluded.sieve_script`,
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		if rows.Next() {
 			var tenantID, domainID, mailReady int64
 			var status string
@@ -129,7 +129,7 @@ ON CONFLICT(tenant_id,domain_id) DO UPDATE SET status=excluded.status, mail_read
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		if rows.Next() {
 			var id int64
 			var status string

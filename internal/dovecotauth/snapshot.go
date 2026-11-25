@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // registers the sqlite driver used by the snapshot file
 )
 
 // DefaultPath is the snapshot dovecot's db.conf points at.
@@ -72,8 +72,6 @@ type Rows interface {
 }
 
 const tenantQuery = `SELECT id, status FROM tenants`
-
-const domainQuery = `SELECT tenant_id, id, status FROM domains`
 
 // mailReadyExpr mirrors urmail_domain_mail_ready: a domain is delivery-ready
 // when it is active, verified and has been provisioned.
@@ -232,19 +230,19 @@ func (m *Manager) build(ctx context.Context, db *sql.DB) (int, error) {
 		var id int64
 		var status string
 		if err = tenants.Scan(&id, &status); err != nil {
-			tenants.Close()
+			_ = tenants.Close()
 			return 0, err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO tenants(tenant_id,status) VALUES(?,?)`, id, status); err != nil {
-			tenants.Close()
+			_ = tenants.Close()
 			return 0, err
 		}
 	}
 	if err = tenants.Err(); err != nil {
-		tenants.Close()
+		_ = tenants.Close()
 		return 0, err
 	}
-	tenants.Close()
+	_ = tenants.Close()
 
 	domains, err := m.src.Query(ctx, `SELECT tenant_id, id, status, `+mailReadyExpr+` FROM domains d`)
 	if err != nil {
@@ -254,19 +252,19 @@ func (m *Manager) build(ctx context.Context, db *sql.DB) (int, error) {
 		var tenantID, domainID, mailReady int64
 		var status string
 		if err = domains.Scan(&tenantID, &domainID, &status, &mailReady); err != nil {
-			domains.Close()
+			_ = domains.Close()
 			return 0, err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO domains(tenant_id,domain_id,status,mail_ready) VALUES(?,?,?,?)`, tenantID, domainID, status, mailReady); err != nil {
-			domains.Close()
+			_ = domains.Close()
 			return 0, err
 		}
 	}
 	if err = domains.Err(); err != nil {
-		domains.Close()
+		_ = domains.Close()
 		return 0, err
 	}
-	domains.Close()
+	_ = domains.Close()
 
 	boxes, err := m.src.Query(ctx, mailboxQuery)
 	if err != nil {
@@ -277,21 +275,21 @@ func (m *Manager) build(ctx context.Context, db *sql.DB) (int, error) {
 		var address, password, status, sieveMode, sieveScript string
 		var tenantID, domainID, quota int64
 		if err = boxes.Scan(&address, &password, &tenantID, &domainID, &status, &quota, &sieveMode, &sieveScript); err != nil {
-			boxes.Close()
+			_ = boxes.Close()
 			return 0, err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO mailboxes(address,password_hash,tenant_id,domain_id,status,quota_bytes,sieve_mode,sieve_script) VALUES(?,?,?,?,?,?,?,?)`,
 			address, password, tenantID, domainID, status, quota, sieveMode, sieveScript); err != nil {
-			boxes.Close()
+			_ = boxes.Close()
 			return 0, err
 		}
 		count++
 	}
 	if err = boxes.Err(); err != nil {
-		boxes.Close()
+		_ = boxes.Close()
 		return 0, err
 	}
-	boxes.Close()
+	_ = boxes.Close()
 	if err = tx.Commit(); err != nil {
 		return 0, err
 	}

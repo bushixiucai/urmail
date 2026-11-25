@@ -14,7 +14,7 @@ import (
 func gatherMetric(t *testing.T) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	promhttp.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/internal/metrics", nil))
+	promhttp.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/internal/metrics", nil))
 	return rec.Body.String()
 }
 

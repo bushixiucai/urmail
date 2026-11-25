@@ -152,14 +152,14 @@ func TestRebuildWritesSingleFileWithoutWAL(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	var mode string
-	if err = db.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
+	if err = db.QueryRowContext(context.Background(), `PRAGMA journal_mode`).Scan(&mode); err != nil {
 		t.Fatal(err)
 	}
 	if strings.EqualFold(mode, "wal") {
 		t.Fatalf("snapshot journal mode %q, want delete", mode)
 	}
 	var version int
-	if err = db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != SchemaVersion {
+	if err = db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&version); err != nil || version != SchemaVersion {
 		t.Fatalf("user_version=%d err=%v", version, err)
 	}
 }
@@ -182,7 +182,7 @@ func TestApplyCompensatesCommittedChange(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	var hash string
-	if err = db.QueryRow(`SELECT password_hash FROM mailboxes WHERE address=?`, "alice@example.test").Scan(&hash); err != nil {
+	if err = db.QueryRowContext(context.Background(), `SELECT password_hash FROM mailboxes WHERE address=?`, "alice@example.test").Scan(&hash); err != nil {
 		t.Fatal(err)
 	}
 	if hash != "$6$newhash" {
@@ -223,7 +223,7 @@ func TestApplyFailureMarksDirtyAndRetries(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	var hash string
-	if err = db.QueryRow(`SELECT password_hash FROM mailboxes WHERE address=?`, "alice@example.test").Scan(&hash); err != nil {
+	if err = db.QueryRowContext(context.Background(), `SELECT password_hash FROM mailboxes WHERE address=?`, "alice@example.test").Scan(&hash); err != nil {
 		t.Fatal(err)
 	}
 	if hash != "$6$after-failure" {

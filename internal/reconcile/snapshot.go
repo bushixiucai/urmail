@@ -261,6 +261,7 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			MailUID:       cfg.MailUser,
 			MailGID:       cfg.MailGroup,
 			AuthDBPath:    cfg.DovecotAuthDB,
+			AuthEngine:    cfg.AuthEngineName(),
 		},
 
 		NSDNode: nsd.NodeConfig{

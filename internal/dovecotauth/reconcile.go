@@ -54,7 +54,7 @@ func (m *Manager) Reconcile(ctx context.Context, sample int) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var addresses []string
 	for rows.Next() {
 		var address, password, status, sieveMode, sieveScript string
@@ -108,7 +108,7 @@ func (m *Manager) sourceMailbox(ctx context.Context, address string) (mailboxRow
 	if err != nil {
 		return mailboxRow{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	if !rows.Next() {
 		if err = rows.Err(); err != nil {
 			return mailboxRow{}, err
@@ -139,14 +139,14 @@ func (m *Manager) sourceCounts(ctx context.Context) (Counts, error) {
 			return Counts{}, err
 		}
 		if !rows.Next() {
-			rows.Close()
+			_ = rows.Close()
 			return Counts{}, fmt.Errorf("count query returned no row")
 		}
 		if err = rows.Scan(probe.dst); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return Counts{}, err
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 	return out, nil
 }

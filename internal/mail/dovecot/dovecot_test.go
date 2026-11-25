@@ -165,10 +165,18 @@ func TestErrorPaths(t *testing.T) {
 		}
 	})
 
-	// The PG DSN left the rendered contract in S6; the snapshot path inherits
-	// the fail-closed validation it used to carry.
-	t.Run("relative_auth_snapshot_path", func(t *testing.T) {
+	t.Run("empty_database_url", func(t *testing.T) {
 		bad := node
+		bad.DatabaseURL = ""
+		_, err := dovecot.Generate(bad)
+		if err == nil || !strings.Contains(err.Error(), dovecot.ErrInvalidConfig.Error()) {
+			t.Errorf("expected ErrInvalidConfig, got %v", err)
+		}
+	})
+
+	t.Run("relative_auth_snapshot_path_in_sqlite_mode", func(t *testing.T) {
+		bad := node
+		bad.AuthEngine = "sqlite"
 		bad.AuthDBPath = "dovecot-auth.db"
 		_, err := dovecot.Generate(bad)
 		if err == nil || !strings.Contains(err.Error(), dovecot.ErrInvalidConfig.Error()) {

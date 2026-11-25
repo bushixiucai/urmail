@@ -607,6 +607,15 @@ func (c *Config) BackgroundWorkersAllowed() bool {
 	return c != nil && !c.DevMode && !c.Quarantined && !c.WorkersHeld
 }
 
+// AuthEngineName names the dovecot auth source: the single-engine snapshot or
+// the PostgreSQL DSN contract. It keeps the renderer and validator agreeing.
+func (c *Config) AuthEngineName() string {
+	if c != nil && c.IsSQLite() {
+		return "sqlite"
+	}
+	return ""
+}
+
 // IsSQLite reports whether the daemon is configured for single-engine SQLite mode.
 func (c *Config) IsSQLite() bool {
 	if c == nil {
