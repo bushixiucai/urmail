@@ -1003,6 +1003,12 @@ func (m *ApplyManager) compileSpamScript(ctx context.Context) error {
 }
 func (m *ApplyManager) check(ctx context.Context, p ApplyParams) error {
 	if m.cfg != nil && strings.TrimSpace(m.cfg.RenderedConfigDir) != "" {
+		// Compose first-boot / offline prepare renders files before protocol
+		// containers provision certs or postfix spool permissions; live
+		// validation runs in the protocol containers themselves.
+		if m.prepareOnly {
+			return nil
+		}
 		root := m.configRoot()
 		checks := [][]string{
 			{"/usr/bin/doveconf", "-n", "-c", filepath.Join(root, "dovecot", "dovecot.conf")},

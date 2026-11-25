@@ -200,6 +200,26 @@ func TestApplyWriteSkipsChownGroupWhenNonRoot(t *testing.T) {
 }
 
 func TestCheckComposeModeAndHostModeMatrix(t *testing.T) {
+	t.Run("compose_prepare_only_skips_live_checks", func(t *testing.T) {
+		var ran []string
+		cfg := firstBootConfig()
+		cfg.RenderedConfigDir = "/srv/urmail/data/config"
+		m := &ApplyManager{
+			cfg:         cfg,
+			prepareOnly: true,
+			run: func(_ context.Context, name string, args ...string) error {
+				ran = append(ran, name+" "+strings.Join(args, " "))
+				return nil
+			},
+		}
+		if err := m.check(context.Background(), ApplyParams{}); err != nil {
+			t.Fatalf("compose prepareOnly check failed: %v", err)
+		}
+		if len(ran) != 0 {
+			t.Fatalf("compose prepareOnly must not invoke external check binaries, ran: %v", ran)
+		}
+	})
+
 	t.Run("compose_skips_host_checks_and_targets_rendered_root", func(t *testing.T) {
 		var ran []string
 		cfg := firstBootConfig()
