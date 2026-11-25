@@ -35,7 +35,11 @@ func renderDovecotConf(node NodeConfig) string {
 	// so it is reinstated on every service restart (durable protection).
 	b.WriteString("auth_failure_delay = 2 secs\n\n")
 
-	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-sql.conf.ext\n\n")
+	includeRoot := node.IncludePrefix
+	if includeRoot == "" {
+		includeRoot = "/etc/dovecot"
+	}
+	fmt.Fprintf(&b, "!include %s/conf.d/urmail/dovecot-sql.conf.ext\n\n", includeRoot)
 
 	b.WriteString("# Mail Location and Permissions\n")
 	fmt.Fprintf(&b, "mail_location = maildir:%s/mail/mailboxes/%%d/%%n\n", storageRoot)
@@ -80,8 +84,8 @@ func renderDovecotConf(node NodeConfig) string {
 	b.WriteString("  sieve_after = /etc/dovecot/urmail-spam/spam-after.sieve\n")
 	b.WriteString("  sieve_plugins = sieve_extprograms\n  sieve_extensions = -vnd.dovecot.execute\n  sieve_global_extensions = +vnd.dovecot.execute\n  sieve_execute_bin_dir = /etc/dovecot/urmail-spam/execute\n  sieve_execute_exec_timeout = 2s\n")
 	b.WriteString("}\n\n")
-	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-mailboxes.conf.ext\n")
-	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-quota.conf.ext\n")
+	fmt.Fprintf(&b, "!include %s/conf.d/urmail/dovecot-mailboxes.conf.ext\n", includeRoot)
+	fmt.Fprintf(&b, "!include %s/conf.d/urmail/dovecot-quota.conf.ext\n", includeRoot)
 
 	return b.String()
 }

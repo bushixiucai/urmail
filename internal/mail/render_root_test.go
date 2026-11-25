@@ -51,7 +51,7 @@ func TestRenderRootInjectsComposeLayout(t *testing.T) {
 	}
 	required := []string{
 		"/srv/urmail/data/config/postfix/main.cf",
-		"/srv/urmail/data/config/dovecot/conf.d/urmail/dovecot.conf",
+		"/srv/urmail/data/config/dovecot/dovecot.conf",
 		"/srv/urmail/data/config/caddy/Caddyfile",
 	}
 	for _, path := range required {

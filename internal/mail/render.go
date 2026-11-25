@@ -53,12 +53,22 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 	}
 
 	// 2. Dovecot
-	dcFiles, err := dovecot.Generate(ctx.DovecotNode)
+	dcNode := ctx.DovecotNode
+	dovecotRoot := filepath.Join(configRoot, "dovecot")
+	if renderRoot != "" {
+		dcNode.IncludePrefix = dovecotRoot
+	}
+	dcFiles, err := dovecot.Generate(dcNode)
 	if err != nil {
 		return nil, fmt.Errorf("render dovecot: %w", err)
 	}
 	for rel, content := range dcFiles {
-		abs := filepath.Join(configRoot, "dovecot", rel)
+		// The compose contract pins the main config at <root>/dovecot/dovecot.conf;
+		// the conf.d fragment keeps its historical nesting elsewhere.
+		abs := filepath.Join(dovecotRoot, rel)
+		if renderRoot != "" && rel == dovecot.FileDovecotConf {
+			abs = filepath.Join(dovecotRoot, "dovecot.conf")
+		}
 		result[abs] = content
 	}
 
