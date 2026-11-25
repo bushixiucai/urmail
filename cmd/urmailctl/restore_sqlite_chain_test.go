@@ -58,6 +58,15 @@ func TestSQLiteRestoreRebuildsAuthSnapshot(t *testing.T) {
 		t.Fatalf("sqlite restore chain: %v", err)
 	}
 
+	for _, suffix := range []string{"-wal", "-shm"} {
+		matches, globErr := filepath.Glob(livePath + suffix)
+		if globErr != nil {
+			t.Fatal(globErr)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("restore left a %s sidecar behind: %v", suffix, matches)
+		}
+	}
 	restored, err := sql.Open("sqlite", "file:"+livePath+"?mode=ro")
 	if err != nil {
 		t.Fatal(err)
@@ -73,11 +82,6 @@ func TestSQLiteRestoreRebuildsAuthSnapshot(t *testing.T) {
 	var version int
 	if err = restored.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != sqlitedb.ExpectedSchemaVersion {
 		t.Fatalf("restored user_version=%d err=%v", version, err)
-	}
-	for _, suffix := range []string{"-wal", "-shm"} {
-		if _, err = filepath.Glob(livePath + suffix); err != nil {
-			t.Fatal(err)
-		}
 	}
 
 	// The restore gate rebuilt the auth snapshot from the restored store.

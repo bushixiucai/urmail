@@ -240,6 +240,14 @@ PYCODE
   [ -f /etc/urmail/agent.env ] || die "Existing agent configuration is required for an upgrade checkpoint; fence retained."
   install -o root -g root -m 0600 /etc/urmail/agent.env "$BACKUP_DIR/agent.env"
 
+  if [ "${URMAIL_DB_ENGINE:-}" = "sqlite" ] && [ -n "${URMAIL_SQLITE_PATH:-}" ]; then
+    # Single-engine checkpoint: VACUUM INTO takes a consistent copy of the
+    # live database while the fence keeps every writer stopped. No PostgreSQL
+    # gate applies to this topology.
+    rm -f "$BACKUP_DIR/database.sqlite"
+    sqlite3 "$URMAIL_SQLITE_PATH" "VACUUM INTO '$BACKUP_DIR/database.sqlite'" || die "SQLite pre-upgrade checkpoint failed; fence retained."
+    chmod 0600 "$BACKUP_DIR/database.sqlite"
+  else
   # 4. Ensure PostgreSQL is accessible to perform CHECKPOINT and database dump BEFORE unpacking new binaries
   systemctl daemon-reload
   systemctl enable --now postgresql >/dev/null 2>&1 || die "Cannot start PostgreSQL service."
@@ -265,13 +273,6 @@ subprocess.run(["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql",
                 "-v", "ON_ERROR_STOP=1", "-c", "CHECKPOINT"],
                env=environment, stdout=subprocess.DEVNULL, check=True)
 PYCODE
-    if [ "${URMAIL_DB_ENGINE:-}" = "sqlite" ] && [ -n "${URMAIL_SQLITE_PATH:-}" ]; then
-      # Single-engine checkpoint: VACUUM INTO takes a consistent copy of the
-      # live database while the fence keeps every writer stopped.
-      rm -f "$BACKUP_DIR/database.sqlite"
-      sqlite3 "$URMAIL_SQLITE_PATH" "VACUUM INTO '$BACKUP_DIR/database.sqlite'" || die "SQLite pre-upgrade checkpoint failed; fence retained."
-      chmod 0600 "$BACKUP_DIR/database.sqlite"
-    else
     log "saving the pre-upgrade database checkpoint"
     python3 - "$BACKUP_DIR/urmaild.env" "$BACKUP_DIR/database.dump" <<'PYCODE'
 import os, re, subprocess, sys, urllib.parse
@@ -309,10 +310,11 @@ with os.fdopen(fd, "wb") as output:
     output.flush()
     os.fsync(output.fileno())
 PYCODE
-    fi
   else
     die "PostgreSQL is unavailable for the pre-upgrade dump; fence retained."
   fi
+  fi
+  # The checkpoint manifest and archive capture are engine-neutral.
   python3 "$CLI_EXTRACT_DIR/usr/share/urmail/upgrade-checkpoint.py" create "$BACKUP_DIR" || die "Cannot finalize upgrade checkpoint; fence retained."
 fi
 
