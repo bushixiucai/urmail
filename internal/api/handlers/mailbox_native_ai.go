@@ -254,7 +254,7 @@ func (h *NativeMailboxAI) Target(c *gin.Context) {
 		})
 		return
 	}
-	cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(c.Request.Context(), sess.TenantID)
+	cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"enabled": false, "allowed": false})
 		return
@@ -263,7 +263,7 @@ func (h *NativeMailboxAI) Target(c *gin.Context) {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return
 	}
-	target, err := aiTargetPolicy(c.Request.Context(), db.Queries(h.Service.Pool), cfg)
+	target, err := aiTargetPolicy(platformCtx(c), db.Queries(h.Service.Pool), cfg)
 	if err != nil {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return
@@ -306,7 +306,7 @@ func (h *NativeMailboxAI) requireTarget(c *gin.Context, sess webmail.Session, di
 		}
 		return true
 	}
-	cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(c.Request.Context(), sess.TenantID)
+	cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 	if err != nil || !cfg.Enabled {
 		authError(c, 503, "AI_DISABLED")
 		return false
@@ -315,7 +315,7 @@ func (h *NativeMailboxAI) requireTarget(c *gin.Context, sess webmail.Session, di
 		authError(c, 409, "AI_CLOUD_CONSENT_STALE")
 		return false
 	}
-	target, err := aiTargetPolicy(c.Request.Context(), db.Queries(h.Service.Pool), cfg)
+	target, err := aiTargetPolicy(platformCtx(c), db.Queries(h.Service.Pool), cfg)
 	if err != nil {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return false
@@ -498,7 +498,7 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 		if custom {
 			provider, model, endpoint = userAI.Provider, userAI.Model, userAI.Endpoint
 		} else {
-			cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(c.Request.Context(), sess.TenantID)
+			cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 			if err != nil {
 				authError(c, 503, "AI_UNAVAILABLE")
 				return
@@ -689,7 +689,7 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 		if input.Model == "" {
 			input.Model = "gpt-4o"
 		}
-		governance, gErr := db.Queries(h.Service.Pool).PlatformGetAIProvider(c.Request.Context(), sess.TenantID)
+		governance, gErr := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 		if gErr == nil {
 			switch governance.PersonalMode {
 			case "disabled":
@@ -752,7 +752,7 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 			return
 		}
 	} else {
-		cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(c.Request.Context(), sess.TenantID)
+		cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 		if err != nil || !cfg.Enabled {
 			authError(c, 409, "AI_DISABLED")
 			return
