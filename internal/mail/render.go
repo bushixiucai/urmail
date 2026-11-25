@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/bushixiucai/urmail/internal/mail/caddy"
 	"github.com/bushixiucai/urmail/internal/mail/dovecot"
 	"github.com/bushixiucai/urmail/internal/mail/nginx"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
@@ -25,12 +26,21 @@ type ConfigContext struct {
 	NginxSnap nginx.Snapshot
 
 	DKIM opendkim.Snapshot
+
+	// RenderRoot relocates the rendered tree (compose binds it under the data
+	// volume). Empty keeps the historical /etc targets.
+	RenderRoot string
 }
 
 // RenderAll renders configuration files for Postfix, Dovecot, NSD, and Nginx.
 // Returns a map of absolute filesystem path -> file contents.
 func RenderAll(ctx ConfigContext) (map[string]string, error) {
 	result := make(map[string]string)
+	renderRoot := ctx.RenderRoot
+	configRoot := "/etc"
+	if renderRoot != "" {
+		configRoot = renderRoot
+	}
 
 	// 1. Postfix
 	pfFiles, err := postfix.Generate(ctx.PostfixNode, ctx.PostfixSnap)
@@ -38,7 +48,7 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 		return nil, fmt.Errorf("render postfix: %w", err)
 	}
 	for rel, content := range pfFiles {
-		abs := filepath.Join("/etc/postfix", rel)
+		abs := filepath.Join(configRoot, "postfix", rel)
 		result[abs] = content
 	}
 
@@ -48,7 +58,7 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 		return nil, fmt.Errorf("render dovecot: %w", err)
 	}
 	for rel, content := range dcFiles {
-		abs := filepath.Join("/etc/dovecot", rel)
+		abs := filepath.Join(configRoot, "dovecot", rel)
 		result[abs] = content
 	}
 
@@ -77,6 +87,18 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 	for rel, content := range ngFiles {
 		abs := filepath.Join("/etc/nginx", rel)
 		result[abs] = content
+	}
+
+	// 4b. Caddy (compose topology): only inside an injected render root, so a
+	// host deployment keeps its /etc tree untouched.
+	if renderRoot != "" {
+		caddyFiles, caddyErr := caddy.Generate(ctx.NginxSnap)
+		if caddyErr != nil {
+			return nil, fmt.Errorf("render caddy: %w", caddyErr)
+		}
+		for rel, content := range caddyFiles {
+			result[filepath.Join(renderRoot, "caddy", rel)] = content
+		}
 	}
 
 	// 5. OpenDKIM: signing keys plus key/signing/trusted-host tables.

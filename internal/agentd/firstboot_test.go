@@ -70,9 +70,6 @@ func emptySQLitePool(t *testing.T) *db.Pool {
 }
 
 func TestFirstBootPrepareRendersEmptySQLiteRoot(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("first-boot preparation writes root-owned agent state")
-	}
 	isolateOfflineRoots(t)
 	status, err := PrepareOfflineFirstBoot(context.Background(), firstBootConfig(), emptySQLitePool(t), json.RawMessage(`{}`))
 	if err != nil {
@@ -87,9 +84,6 @@ func TestFirstBootPrepareRendersEmptySQLiteRoot(t *testing.T) {
 }
 
 func TestFirstBootPrepareRefusesExistingGeneration(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("first-boot preparation writes root-owned agent state")
-	}
 	isolateOfflineRoots(t)
 	pool := emptySQLitePool(t)
 	if _, err := PrepareOfflineFirstBoot(context.Background(), firstBootConfig(), pool, json.RawMessage(`{}`)); err != nil {
@@ -102,12 +96,22 @@ func TestFirstBootPrepareRefusesExistingGeneration(t *testing.T) {
 	}
 }
 
-func TestFirstBootPrepareRejectsNonRoot(t *testing.T) {
+// TestFirstBootPrepareRunsAsContainerIdentity proves the container topology:
+// first boot renders as the unprivileged owner of the config volume, while the
+// fenced upgrade entry stays root-only.
+func TestFirstBootPrepareRunsAsContainerIdentity(t *testing.T) {
 	if os.Geteuid() == 0 {
-		t.Skip("this process is root")
+		t.Skip("this process is root; the unprivileged path is exercised elsewhere")
 	}
-	_, err := PrepareOfflineFirstBoot(context.Background(), firstBootConfig(), nil, json.RawMessage(`{}`))
-	if err == nil {
-		t.Fatal("non-root first boot was accepted")
+	isolateOfflineRoots(t)
+	status, err := PrepareOfflineFirstBoot(context.Background(), firstBootConfig(), emptySQLitePool(t), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("non-root first boot refused: %v", err)
+	}
+	if status.Step != "prepared" {
+		t.Fatalf("first boot status %+v", status)
+	}
+	if _, err = PrepareOffline(context.Background(), firstBootConfig(), json.RawMessage(`{}`)); err == nil {
+		t.Fatal("fenced upgrade preparation no longer requires root")
 	}
 }

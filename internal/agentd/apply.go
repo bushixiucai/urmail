@@ -780,6 +780,7 @@ func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 		DovecotNode: dovecot.NodeConfig{SpamPolicies: p.SpamPolicies, Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, DatabaseURL: cfg.DatabaseURLDovecot, V80Preserve: cfg.PostfixV80Preserve, MailUID: cfg.MailUser, MailGID: cfg.MailGroup, AuthDBPath: cfg.DovecotAuthDB},
 		NSDNode:     nsd.NodeConfig{ListenAddresses: cfg.DNSListenAddresses, Hostname: host, PrimaryDomain: cfg.PrimaryDomain, PublicIPv4: cfg.PublicIPv4, Nameservers: cfg.Nameservers}, NSDSnap: p.DNS,
 		NginxNode: nginx.NodeConfig{PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, BackendHTTP: "http://" + cfg.ListenAddr, WebmailBackend: fixedWebmailBackend(cfg)}, DKIM: p.DKIM,
+		RenderRoot: cfg.RenderedConfigDir,
 	}
 	// An explicit panel hostname wins over the distribution's default HTTP
 	// server, so HTTP-01 never falls through to /var/www/html.

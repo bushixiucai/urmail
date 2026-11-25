@@ -28,7 +28,7 @@ func runConfigPrepare(ctx context.Context, args []string) error {
 		}
 		return errors.New("usage: config prepare [--first-boot]")
 	}
-	if os.Geteuid() != 0 {
+	if os.Geteuid() != 0 && !firstBoot {
 		return errors.New("config prepare requires root")
 	}
 	root := currentMaintenanceRoot()

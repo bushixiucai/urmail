@@ -17,6 +17,11 @@ import (
 // CLI must hold operation.lock, verify the upgrade fence, and stop all writers.
 // It is intentionally not registered as a socket capability.
 func PrepareOffline(ctx context.Context, cfg *config.Config, raw json.RawMessage) (ApplyStatus, error) {
+	// The fenced upgrade preparation stays root-only; only the first-boot entry
+	// may render as the unprivileged container identity into its own volume.
+	if os.Geteuid() != 0 {
+		return ApplyStatus{}, errors.New("offline configuration preparation requires root")
+	}
 	if err := offlinePreparationGuard(ctx, cfg); err != nil {
 		return ApplyStatus{}, err
 	}
@@ -59,9 +64,6 @@ var (
 
 // offlinePreparationGuard keeps every refusal shared by both entries.
 func offlinePreparationGuard(ctx context.Context, cfg *config.Config) error {
-	if os.Geteuid() != 0 {
-		return errors.New("offline configuration preparation requires root")
-	}
 	if cfg == nil || cfg.DevMode || cfg.Quarantined || cfg.WorkersHeld || cfg.DNSSecondaryOnly {
 		return errors.New("unsupported offline preparation configuration")
 	}
@@ -114,7 +116,8 @@ func prepareOffline(_ context.Context, cfg *config.Config, pool *db.Pool, raw js
 	if ownsPool {
 		defer m.Close()
 	}
-	m.versions = &reconcile.VersionedStore{StoreQuerier: db.Queries(pool), DB: pool.Pool}
+	// The SQLite pool has no pgxpool; the pool itself is the DBTX.
+	m.versions = &reconcile.VersionedStore{StoreQuerier: db.Queries(pool), DB: pool}
 	_, _, err := m.Apply(raw)
 	return m.status, err
 }
