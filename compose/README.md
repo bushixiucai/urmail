@@ -41,10 +41,25 @@ docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
 
 ## 占位件（Backend 接手后替换）
 
-- `compose/caddy/Caddyfile`：静态占位（`:80` 应答文本）；渲染归 Go 配置生成器。
-- `compose/postfix/main.cf`、`compose/dovecot/dovecot.conf`：最小占位（loopback/ssl=no，
-  安全优先），真实证书/端口/映射由渲染卷替换。
-- pg 服务：SQLite Phase 1 接入后退役（§1.1 退役清单），数据卷 `data/db/pg` 一并移除。
+- 占位件说明：
+  - `compose/caddy/Caddyfile`：静态占位（`:80` 应答文本）；渲染归 Go 配置生成器。
+  - `compose/postfix/main.cf`、`compose/dovecot/dovecot.conf`：最小占位（loopback/ssl=no，安全优先），真实证书/端口/映射由渲染卷替换。
+  - `pg` 容器已按 §1.1「退役」清单移除，默认数据层已切至 SQLite（`URMAIL_DB_ENGINE=sqlite`、`URMAIL_SQLITE_PATH=/srv/urmail/data/db/urmail.sqlite`）；`litestream` 已从 `profiles: ["sqlite"]` 转正为默认启用服务。
+
+## Phase 1 SQLite / Litestream / Canary 新增变量（DRAFT）
+
+| 变量名 | 默认值 | 说明 |
+|---|---|---|
+| `DB_ENGINE` / `URMAIL_DB_ENGINE` | `sqlite` | 显式启用 SQLite 单库引擎 |
+| `URMAIL_SQLITE_PATH` | `/srv/urmail/data/db/urmail.sqlite` | SQLite 平台库路径（位于 `data/db` 挂载卷） |
+| `LITESTREAM_S3_BUCKET` | 空 | Litestream 异地 S3 兼容桶名（凭据通过环境变量注入，不写仓库） |
+| `LITESTREAM_S3_REGION` | 空 | Litestream S3 区域 |
+| `LITESTREAM_S3_ENDPOINT` | 空 | Litestream S3 兼容端点 |
+| `LITESTREAM_S3_PATH` | `urmail-db` | Litestream S3 对象前缀 |
+| `URMAIL_RENDERED_CONFIG` | `0` | 设为 `1` 时，`postfix`/`dovecot` entrypoint 对 `/srv/urmail/data/config/<svc>` 渲染产物做非空 fail-closed 校验（`DEPENDS-GENERATOR`） |
+| `URMAIL_CANARY_INBOUND_DEFER` | `0` | Canary 期入站 4xx 暂缓单一开关（默认关闭）；开启后若缺少 `canary-defer.cf` 拒绝启动（fail-closed） |
+
+与 `compose.test.local.yaml` 差异：`compose.test.local.yaml` 仅用于本机非特权端口映射测试（`2025/2465/2587/8080/8443/1993/1143`、`litestream-local.yml` 与 `urmail-signer-test`），不包含生产 `host` 网络与 S3 异地参数。
 
 ## 构建代理（受限网络）
 

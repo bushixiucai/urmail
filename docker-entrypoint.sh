@@ -115,6 +115,36 @@ init_sqlite() {
     export URMAIL_SQLITE_PATH="$db"
 }
 
+if [ "$cmd" = "postfix" ] || [ "$cmd" = "dovecot" ]; then
+    # Rendered config hook (DEPENDS-GENERATOR): when URMAIL_RENDERED_CONFIG=1,
+    # require non-empty rendered artifacts under /srv/urmail/data/config/<svc>
+    # and fail closed if missing.
+    if [ "${URMAIL_RENDERED_CONFIG:-0}" = "1" ]; then
+        if [ "$cmd" = "postfix" ]; then
+            for req in /srv/urmail/data/config/postfix/main.cf /srv/urmail/data/config/postfix/master.cf; do
+                if [ ! -s "$req" ]; then
+                    echo "[entrypoint] FATAL: URMAIL_RENDERED_CONFIG=1 requires non-empty $req (fail-closed)" >&2
+                    exit 1
+                fi
+            done
+        elif [ "$cmd" = "dovecot" ]; then
+            if [ ! -s /srv/urmail/data/config/dovecot/dovecot.conf ]; then
+                echo "[entrypoint] FATAL: URMAIL_RENDERED_CONFIG=1 requires non-empty /srv/urmail/data/config/dovecot/dovecot.conf (fail-closed)" >&2
+                exit 1
+            fi
+        fi
+    fi
+    # Canary inbound 4xx deferral switch (default off). Fail closed until
+    # postfix 4xx defer config generation/wiring is implemented (no silent accept/5xx).
+    if [ "$cmd" = "postfix" ] && [ "${URMAIL_CANARY_INBOUND_DEFER:-0}" = "1" ]; then
+        defer_cfg="/srv/urmail/data/config/postfix/canary-defer.cf"
+        if [ ! -s "$defer_cfg" ]; then
+            echo "[entrypoint] FATAL: URMAIL_CANARY_INBOUND_DEFER=1 requested, but $defer_cfg is absent (TODO: wire postfix 4xx defer config; refusing to start fail-closed)" >&2
+            exit 1
+        fi
+    fi
+fi
+
 if [ "$cmd" = "urmaild" ] || [ "$cmd" = "serve" ]; then
     # P3-DW-01: take the data-root writer lease BEFORE touching the DB, the
     # Maildir or the rendered config.  A live holder makes this container exit
