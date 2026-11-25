@@ -109,3 +109,21 @@ services:
       - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
       - ${URMAIL_DATA_ROOT:-./data}/litestream:/srv/urmail/data/litestream
       - ./compose/test-local/litestream-local.yml:/etc/litestream.yml:ro
+
+  # 两阶段渲染用例（render -> require -> 删产物 fail-closed exit 1）。
+  # 状态：BLOCKED-BY-BACKEND（待 Backend pm-s9-render-impl-1 交付 D1-D4 后解阻实跑）。
+  render-two-stage:
+    profiles: ["render-test"]
+    image: urmail-local:${URMAIL_IMAGE_VERSION:-snapshot}
+    network_mode: none
+    environment:
+      URMAIL_DB_ENGINE: sqlite
+      URMAIL_SQLITE_PATH: /srv/urmail/data/db/urmail.sqlite
+      URMAIL_RENDERED_CONFIG: "1"
+      URMAIL_RENDERED_CONFIG_DIR: ${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/data/config}
+      URMAIL_RENDERED_SOURCE: ${URMAIL_RENDERED_SOURCE:-render}
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+      - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/data/config
+      - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
+    command: ["postfix", "-c", "/srv/urmail/config/postfix", "start-fg"]

@@ -41,10 +41,40 @@ docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
 
 ## 占位件（Backend 接手后替换）
 
-- `compose/caddy/Caddyfile`：静态占位（`:80` 应答文本）；渲染归 Go 配置生成器。
-- `compose/postfix/main.cf`、`compose/dovecot/dovecot.conf`：最小占位（loopback/ssl=no，
-  安全优先），真实证书/端口/映射由渲染卷替换。
-- pg 服务：SQLite Phase 1 接入后退役（§1.1 退役清单），数据卷 `data/db/pg` 一并移除。
+- 占位件说明：
+  - `compose/caddy/Caddyfile`：静态占位（`:80` 应答文本）；渲染归 Go 配置生成器。
+  - `compose/postfix/main.cf`、`compose/dovecot/dovecot.conf`：最小占位（loopback/ssl=no，安全优先），真实证书/端口/映射由渲染卷替换。
+  - `pg` 容器已按 §1.1「退役」清单移除，默认数据层已切至 SQLite（`URMAIL_DB_ENGINE=sqlite`、`URMAIL_SQLITE_PATH=/srv/urmail/data/db/urmail.sqlite`）；`litestream` 已从 `profiles: ["sqlite"]` 转正为默认启用服务。
+
+## Phase 1 SQLite / Litestream / Canary 新增变量（DRAFT）
+
+| 变量名 | 默认值 | 说明 |
+|---|---|---|
+| `DB_ENGINE` / `URMAIL_DB_ENGINE` | `sqlite` | 显式启用 SQLite 单库引擎 |
+| `URMAIL_SQLITE_PATH` | `/srv/urmail/data/db/urmail.sqlite` | SQLite 平台库路径（位于 `data/db` 挂载卷） |
+| `LITESTREAM_S3_BUCKET` | 空 | Litestream 异地 S3 兼容桶名（凭据通过环境变量注入，不写仓库） |
+| `LITESTREAM_S3_REGION` | 空 | Litestream S3 区域 |
+| `LITESTREAM_S3_ENDPOINT` | 空 | Litestream S3 兼容端点 |
+| `LITESTREAM_S3_PATH` | `urmail-db` | Litestream S3 对象前缀 |
+| `URMAIL_RENDERED_CONFIG` | `0` | 设为 `1` 时，`postfix`/`dovecot` entrypoint 对 `${URMAIL_RENDERED_CONFIG_DIR}` 渲染产物做非空 fail-closed 校验，并把默认占位 `-c /srv/urmail/config/...` 重定向至 `${URMAIL_RENDERED_CONFIG_DIR}/...` |
+| `URMAIL_RENDERED_CONFIG_DIR` | `/srv/urmail/data/config` | 渲染产物根目录（契约：`<root>/postfix/...`、`<root>/dovecot/dovecot.conf`、`<root>/caddy/Caddyfile`），注入 `urmaild`/`postfix`/`dovecot` |
+| `URMAIL_RENDERED_SOURCE` | `require` | 配合 `URMAIL_RENDERED_CONFIG=1`：默认 `require` 仅校验；设为 `render` 时先调用 `urmailctl config prepare --first-boot` 再做非空校验，任一失败即 `exit 1` |
+| `URMAIL_CADDY_CONFIG` | `/etc/caddy/Caddyfile` | Caddy 启动与健康检查配置文件路径；占位模式用默认 `/etc/caddy/Caddyfile`，切换渲染产物时设为 `/srv/urmail/data/config/caddy/Caddyfile` |
+| `URMAIL_CANARY_INBOUND_DEFER` | `0` | Canary 期入站 4xx 暂缓单一开关（默认关闭）；开启后若缺少 `canary-defer.cf` 拒绝启动（fail-closed） |
+
+| 模式 | `URMAIL_RENDERED_CONFIG` | `postfix` / `dovecot` `-c` 实际路径 | `caddy` `--config` 路径 |
+|---|---|---|---|
+| 非 render（占位默认） | `0` | `/srv/urmail/config/...`（静态占位卷） | `/etc/caddy/Caddyfile`（静态占位卷） |
+| render / require | `1` | `${URMAIL_RENDERED_CONFIG_DIR}/{postfix,dovecot/dovecot.conf}` | 需设 `URMAIL_CADDY_CONFIG=/srv/urmail/data/config/caddy/Caddyfile` |
+
+### profiles 脱钩条件（当前均保持延后，DRAFT）
+
+- `urmail-signer` / `urmail-spam`（`profiles: ["milter"]`）：**未就绪**。脱 profile 条件：由 **Backend** 在仓内实现并随 `Dockerfile` 产出 `urmail-milter` 二进制（含 `sign`/`spam` 子命令），且经 **DevOps + QA** 在隔离全栈通过真实 25/465/587 DKIM/spam 协议冒烟后，再提交移除 `profiles: ["milter"]`。
+- `urmail-agent`（`profiles: ["agent"]`）：**未就绪**。脱 profile 条件：由 **Backend** 修复 `internal/mail/render.go` 输出路径至 `/srv/urmail/data/config/{postfix,dovecot,caddy}`、补齐 `Caddyfile` 渲染与 SQLite `config prepare --first-boot` 兼容并提交，再由 **DevOps + QA** 实跑验证渲染重载闭环后，方可移除 `profiles: ["agent"]`。
+
+与 `compose.test.local.yaml` 差异：`compose.test.local.yaml` 仅作为 `compose.yaml` 的本地覆盖文件使用（**必须联合执行** `docker compose -f compose.yaml -f compose.test.local.yaml ...`，不可单独执行），用于非特权端口映射测试（`2025/2465/2587/8080/8443/1993/1143`、`litestream-local.yml` 与 `urmail-signer-test`），不包含生产 `host` 网络与 S3 异地参数。
+
+写入面说明：`urmaild` 与 `postfix`/`dovecot` 容器仅对 `config/` 子树（`/srv/urmail/data/config/{postfix,dovecot}`）保持 `rw` 挂载以支持容器内 `render` 模式写入与读取；`holds/`、静态占位卷及密钥/整数据根对 MTA/IMAP 容器仍保持隔离或 `:ro`。
 
 ## 构建代理（受限网络）
 
