@@ -37,8 +37,27 @@ const OpConfigApply = "config.apply"
 // OpConfigStatus reads the applied generation state.
 const OpConfigStatus = "config.status"
 
-// StateRoot is private to the privileged agent.
+// StateRoot is the default private state directory for the agent.
 const StateRoot = "/var/lib/urmail-agent"
+
+func resolveStateRootPath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return StateRoot, nil
+	}
+	cleaned := filepath.Clean(trimmed)
+	if !filepath.IsAbs(cleaned) || cleaned == string(filepath.Separator) {
+		return "", fmt.Errorf("%w: URMAIL_AGENT_STATE_ROOT %q must be a non-root absolute path", ErrRejected, raw)
+	}
+	return cleaned, nil
+}
+
+func resolveStateRoot(cfg *config.Config) (string, error) {
+	if cfg == nil {
+		return StateRoot, nil
+	}
+	return resolveStateRootPath(cfg.AgentStateRoot)
+}
 
 // ApplyParams deliberately excludes paths, node configuration and file bodies.
 // The caller can only supply bounded domain data consumed by pure generators.
@@ -225,13 +244,17 @@ func NewTestApplyManager(tempDir string, cfg *config.Config) (*ApplyManager, err
 
 // NewApplyManager creates the serialized root configuration controller.
 func NewApplyManager(cfg *config.Config) (*ApplyManager, error) {
-	m := &ApplyManager{cfg: cfg, root: StateRoot, run: runCommand, automaticCertificates: true, fileWriter: writeFileAtomic}
-	if cfg.DNSSecondaryOnly {
+	stateRoot, err := resolveStateRoot(cfg)
+	if err != nil {
+		return nil, err
+	}
+	m := &ApplyManager{cfg: cfg, root: stateRoot, run: runCommand, automaticCertificates: true, fileWriter: writeFileAtomic}
+	if cfg != nil && cfg.DNSSecondaryOnly {
 		if err := os.MkdirAll(m.root, 0700); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("agent state root %s: %w", m.root, err)
 		}
 		if err := os.Chmod(m.root, 0700); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("agent state root %s: %w", m.root, err)
 		}
 		return m, nil
 	}
@@ -430,12 +453,12 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 			targets = append(targets, strings.TrimSuffix(path, ".sieve")+".svbin")
 		}
 	}
-	targets = append(targets, "/etc/dovecot/urmail-spam/spam-before.svbin")
-	if _, err := os.Stat(m.target("/etc/postfix/aliases.db")); err == nil {
-		targets = append(targets, "/etc/postfix/aliases.db")
+	targets = append(targets, m.spamSvbinPath())
+	if _, err := os.Stat(m.target(m.postfixAliasesDBPath())); err == nil {
+		targets = append(targets, m.postfixAliasesDBPath())
 	}
-	if _, err := os.Stat(m.target("/etc/postfix/aliases")); err == nil {
-		targets = append(targets, "/etc/postfix/aliases")
+	if _, err := os.Stat(m.target(m.postfixAliasesPath())); err == nil {
+		targets = append(targets, m.postfixAliasesPath())
 	}
 	if _, err := os.Stat(m.target(dnsTSIGPath)); err == nil {
 		targets = append(targets, dnsTSIGPath)
@@ -446,7 +469,10 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 			continue
 		}
 		m.status.Step = "stage:" + path
-		roots := allowedWriteRoots
+		roots, err := writeRootsForConfig(m.cfg)
+		if err != nil {
+			return "", "", err
+		}
 		if path == brandManagedNginxPath {
 			roots = []string{filepath.Dir(brandManagedNginxPath)}
 		}
@@ -579,8 +605,8 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 				postmapTargets = append(postmapTargets, path)
 			}
 		}
-		if _, err := os.Stat(m.target("/etc/postfix/aliases")); err == nil {
-			postmapTargets = append(postmapTargets, "/etc/postfix/aliases")
+		if _, err := os.Stat(m.target(m.postfixAliasesPath())); err == nil {
+			postmapTargets = append(postmapTargets, m.postfixAliasesPath())
 		}
 		for _, path := range postmapTargets {
 			if err := m.run(ctx, "/usr/sbin/postmap", path); err != nil {
@@ -843,7 +869,10 @@ func runtimeMode(path string) os.FileMode {
 	return 0644
 }
 func (m *ApplyManager) write(path string, data []byte, mode os.FileMode) error {
-	roots := allowedWriteRoots
+	roots, err := writeRootsForConfig(m.cfg)
+	if err != nil {
+		return err
+	}
 	// This single additive include is a typed capability, never a new general
 	// /etc/nginx/conf.d write root for other agent operations.
 	if path == brandManagedNginxPath {
@@ -906,28 +935,55 @@ func (m *ApplyManager) write(path string, data []byte, mode os.FileMode) error {
 		}
 		return os.Chmod(filepath.Dir(filepath.Dir(path)), 0750)
 	}
-	if strings.HasPrefix(path, m.target("/etc/postfix/urmail/")) || strings.HasPrefix(path, m.target("/etc/nsd/zones/")) {
+	if strings.HasPrefix(path, m.target(m.postfixUrmailDir())) || strings.HasPrefix(path, m.target("/etc/nsd/zones/")) {
 		return os.Chmod(filepath.Dir(path), 0755)
 	}
 	return nil
 }
 
+func (m *ApplyManager) configRoot() string {
+	if m.cfg != nil && strings.TrimSpace(m.cfg.RenderedConfigDir) != "" {
+		return filepath.Clean(strings.TrimSpace(m.cfg.RenderedConfigDir))
+	}
+	return "/etc"
+}
+
+func (m *ApplyManager) spamSievePath() string {
+	return filepath.Join(m.configRoot(), "dovecot/urmail-spam/spam-before.sieve")
+}
+
+func (m *ApplyManager) spamSvbinPath() string {
+	return filepath.Join(m.configRoot(), "dovecot/urmail-spam/spam-before.svbin")
+}
+
+func (m *ApplyManager) postfixAliasesPath() string {
+	return filepath.Join(m.configRoot(), "postfix/aliases")
+}
+
+func (m *ApplyManager) postfixAliasesDBPath() string {
+	return filepath.Join(m.configRoot(), "postfix/aliases.db")
+}
+
+func (m *ApplyManager) postfixUrmailDir() string {
+	return filepath.Join(m.configRoot(), "postfix/urmail") + string(filepath.Separator)
+}
+
 // spamBinaryCurrent repairs a missing/stale derived artifact even when the
 // canonical source generation did not change during an agent upgrade.
 func (m *ApplyManager) spamBinaryCurrent() bool {
-	source, err := os.Stat(m.target("/etc/dovecot/urmail-spam/spam-before.sieve"))
+	source, err := os.Stat(m.target(m.spamSievePath()))
 	if err != nil || !source.Mode().IsRegular() {
 		return false
 	}
-	binary, err := os.Stat(m.target("/etc/dovecot/urmail-spam/spam-before.svbin"))
+	binary, err := os.Stat(m.target(m.spamSvbinPath()))
 	return err == nil && binary.Mode().IsRegular() && binary.Mode().Perm() == 0640 && !binary.ModTime().Before(source.ModTime())
 }
 
 // compileSpamScript keeps the private global source read-only for mail workers.
 // The compiled artifact participates in the same rollback journal as its source.
 func (m *ApplyManager) compileSpamScript(ctx context.Context) error {
-	const source = "/etc/dovecot/urmail-spam/spam-before.sieve"
-	const binary = "/etc/dovecot/urmail-spam/spam-before.svbin"
+	source := m.spamSievePath()
+	binary := m.spamSvbinPath()
 	if err := m.run(ctx, "/usr/bin/sievec", "-P", "sieve_extprograms", "-x", "+vnd.dovecot.execute", source, binary); err != nil {
 		return fmt.Errorf("compile private spam sieve: %w", err)
 	}
@@ -1072,7 +1128,7 @@ func (m *ApplyManager) restore(j applyJournal) error {
 	defer cancel()
 	// Restore writes may change source/binary mtimes in either order. Compile
 	// the restored source before reloading workers so they never need write access.
-	if _, err := os.Stat(m.target("/etc/dovecot/urmail-spam/spam-before.sieve")); err == nil {
+	if _, err := os.Stat(m.target(m.spamSievePath())); err == nil {
 		if err := m.compileSpamScript(ctx); err != nil {
 			return err
 		}
@@ -1202,16 +1258,16 @@ func (m *ApplyManager) collectManifestFiles(paths []string, dns nsd.Snapshot) (m
 			allPaths[p+".db"] = struct{}{}
 		}
 		if strings.HasSuffix(p, "/urmail-spam/spam-before.sieve") {
-			allPaths["/etc/dovecot/urmail-spam/spam-before.svbin"] = struct{}{}
+			allPaths[m.spamSvbinPath()] = struct{}{}
 		}
 	}
-	allPaths["/etc/dovecot/urmail-spam/spam-before.svbin"] = struct{}{}
-	if _, err := os.Stat(m.target("/etc/postfix/aliases.db")); err == nil {
-		allPaths["/etc/postfix/aliases.db"] = struct{}{}
+	allPaths[m.spamSvbinPath()] = struct{}{}
+	if _, err := os.Stat(m.target(m.postfixAliasesDBPath())); err == nil {
+		allPaths[m.postfixAliasesDBPath()] = struct{}{}
 	}
-	if _, err := os.Stat(m.target("/etc/postfix/aliases")); err == nil {
-		allPaths["/etc/postfix/aliases"] = struct{}{}
-		allPaths["/etc/postfix/aliases.db"] = struct{}{}
+	if _, err := os.Stat(m.target(m.postfixAliasesPath())); err == nil {
+		allPaths[m.postfixAliasesPath()] = struct{}{}
+		allPaths[m.postfixAliasesDBPath()] = struct{}{}
 	}
 	if tsigContent, err := m.dnsTSIGContent(dns); err == nil && tsigContent != "" {
 		allPaths[dnsTSIGPath] = struct{}{}

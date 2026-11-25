@@ -39,7 +39,7 @@ func recoverPendingJournalOfflineCoreWithHooks(ctx context.Context, stateRoot, t
 	if !filepath.IsAbs(stateRoot) || filepath.Clean(stateRoot) != stateRoot {
 		return "", errors.New("state root must be clean absolute")
 	}
-	info, err := os.Lstat(stateRoot)
+	info, err := os.Lstat(stateRoot) // #nosec G703 -- caller validates non-root clean absolute path and private 0700 directory.
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0700 {
 		return "", errors.New("state root must be private real directory")
 	}
@@ -122,7 +122,7 @@ func recoverPendingJournalOfflineData(ctx context.Context, stateRoot, targetRoot
 		}
 		return backupDir, fmt.Errorf("offline recovery failed; original files restored and journal retained: %w", err)
 	}
-	pendingInfo, pendingErr := os.Lstat(pendingPath)
+	pendingInfo, pendingErr := os.Lstat(pendingPath) // #nosec G703 -- fixed pending.json inside validated private stateRoot.
 	if pendingErr == nil {
 		matches, verifyErr := pendingJournalStillMatches(pendingPath, raw)
 		if matches {

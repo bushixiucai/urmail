@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bushixiucai/urmail/internal/config"
 )
 
 func TestRegistryRejectsUnknownOperation(t *testing.T) {
@@ -84,6 +86,31 @@ func TestResolveAllowedPathAcceptsPathInsideAllowedRoot(t *testing.T) {
 	}
 	if root != "/etc/urmail" {
 		t.Fatalf("unexpected matching root %q", root)
+	}
+}
+
+func TestWriteRootsForConfigIncludesRenderedConfigDir(t *testing.T) {
+	defaultRoots, err := writeRootsForConfig(nil)
+	if err != nil {
+		t.Fatalf("writeRootsForConfig(nil): %v", err)
+	}
+	if _, _, err := resolveAllowedPath("/srv/urmail/data/config/caddy/Caddyfile", defaultRoots); err == nil {
+		t.Fatal("default roots must reject /srv/urmail/data/config without RenderedConfigDir")
+	}
+
+	cfg := &config.Config{RenderedConfigDir: "/srv/urmail/data/config"}
+	roots, err := writeRootsForConfig(cfg)
+	if err != nil {
+		t.Fatalf("writeRootsForConfig(cfg): %v", err)
+	}
+	if _, root, err := resolveAllowedPath("/srv/urmail/data/config/caddy/Caddyfile", roots); err != nil || root != "/srv/urmail/data/config" {
+		t.Fatalf("expected injected render root to be allowed, got root=%q err=%v", root, err)
+	}
+	if _, _, err := resolveAllowedPath("/srv/urmail/data/other/secret", roots); err == nil {
+		t.Fatal("path outside RenderedConfigDir must still be rejected")
+	}
+	if _, err := writeRootsForConfig(&config.Config{RenderedConfigDir: "relative/config"}); err == nil {
+		t.Fatal("relative RenderedConfigDir must be rejected")
 	}
 }
 

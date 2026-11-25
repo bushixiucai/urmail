@@ -304,12 +304,12 @@ func verifyEffectiveHoldGuards(service, serviceDropins, timer, timerDropins, mai
 
 func createOfflineWriterEvidenceDir(stateRoot string) (string, error) {
 	root := filepath.Join(stateRoot, "pending-recovery-backups")
-	st, e := os.Lstat(root)
+	st, e := os.Lstat(root) // #nosec G703 -- private subdirectory inside validated root-owned 0700 stateRoot.
 	if errors.Is(e, os.ErrNotExist) {
-		if e = os.Mkdir(root, 0700); e != nil {
+		if e = os.Mkdir(root, 0700); e != nil { // #nosec G703 -- private subdirectory inside validated root-owned 0700 stateRoot.
 			return "", e
 		}
-		st, e = os.Lstat(root)
+		st, e = os.Lstat(root) // #nosec G703 -- private subdirectory inside validated root-owned 0700 stateRoot.
 	}
 	if e != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 || st.Mode().Perm() != 0700 {
 		return "", errors.New("private writer evidence root unsafe")

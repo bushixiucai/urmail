@@ -71,13 +71,21 @@ func offlinePreparationGuard(ctx context.Context, cfg *config.Config) error {
 }
 
 func prepareOffline(_ context.Context, cfg *config.Config, pool *db.Pool, raw json.RawMessage, ownsPool, firstBoot bool) (ApplyStatus, error) {
+	stateRoot := offlineStateRoot
+	if stateRoot == StateRoot {
+		var err error
+		stateRoot, err = resolveStateRoot(cfg)
+		if err != nil {
+			return ApplyStatus{}, err
+		}
+	}
 	// Never use NewApplyManager here: its recovery may restart protocol services.
-	m := &ApplyManager{cfg: cfg, root: offlineStateRoot, targetRoot: offlineTargetRoot, run: offlineCommand, fileWriter: writeFileAtomic, prepareOnly: true}
+	m := &ApplyManager{cfg: cfg, root: stateRoot, targetRoot: offlineTargetRoot, run: offlineCommand, fileWriter: writeFileAtomic, prepareOnly: true}
 	if err := os.MkdirAll(m.root, 0700); err != nil {
-		return ApplyStatus{}, err
+		return ApplyStatus{}, fmt.Errorf("agent state root %s: %w", m.root, err)
 	}
 	if err := os.Chmod(m.root, 0700); err != nil {
-		return ApplyStatus{}, err
+		return ApplyStatus{}, fmt.Errorf("agent state root %s: %w", m.root, err)
 	}
 	if _, err := os.Lstat(filepath.Join(m.root, "pending.json")); err == nil {
 		return ApplyStatus{}, errors.New("pending apply journal requires explicit recovery before offline preparation")

@@ -60,6 +60,7 @@ type Config struct {
 	DatabaseURLDovecot string
 	DovecotAuthDB      string // read-only SQLite auth snapshot dovecot authenticates against
 	RenderedConfigDir  string // injected render root (compose data volume); empty keeps /etc
+	AgentStateRoot     string // private agent state root (URMAIL_AGENT_STATE_ROOT); empty keeps /var/lib/urmail-agent
 
 	// DBEngine selects the single database engine ("postgres" or "sqlite").
 	// Empty defaults to postgres unless SQLitePath is set.
@@ -295,6 +296,7 @@ func Load() (*Config, error) {
 		DatabaseURLDovecot:          values["URMAIL_DATABASE_URL_DOVECOT"],
 		DovecotAuthDB:               dovecotAuthDB(values["URMAIL_DOVECOT_AUTH_DB"]),
 		RenderedConfigDir:           strings.TrimSpace(values["URMAIL_RENDERED_CONFIG_DIR"]),
+		AgentStateRoot:              strings.TrimSpace(values["URMAIL_AGENT_STATE_ROOT"]),
 		DBEngine:                    strings.ToLower(strings.TrimSpace(values["URMAIL_DB_ENGINE"])),
 		SQLitePath:                  strings.TrimSpace(values["URMAIL_SQLITE_PATH"]),
 		MyHostname:                  values["URMAIL_MYHOSTNAME"],

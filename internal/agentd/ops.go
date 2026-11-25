@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/config"
 )
 
 // OpSieveActivate compiles and atomically activates one persisted structured script.
@@ -40,6 +42,20 @@ var allowedWriteRoots = []string{
 	"/etc/opendkim/keys",
 	"/var/lib/urmail",
 	"/var/lib/urmail-backup",
+}
+
+// writeRootsForConfig returns the allowed write roots for a configuration,
+// appending cfg.RenderedConfigDir when an injected render root is active.
+func writeRootsForConfig(cfg *config.Config) ([]string, error) {
+	roots := append([]string(nil), allowedWriteRoots...)
+	if cfg == nil || strings.TrimSpace(cfg.RenderedConfigDir) == "" {
+		return roots, nil
+	}
+	dir := filepath.Clean(strings.TrimSpace(cfg.RenderedConfigDir))
+	if !filepath.IsAbs(dir) || dir == string(filepath.Separator) {
+		return nil, fmt.Errorf("%w: URMAIL_RENDERED_CONFIG_DIR %q must be a non-root absolute path", ErrRejected, cfg.RenderedConfigDir)
+	}
+	return append(roots, dir), nil
 }
 
 // allowedUnits lists the systemd units the agent may restart.

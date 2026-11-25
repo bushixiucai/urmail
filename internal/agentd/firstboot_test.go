@@ -115,3 +115,54 @@ func TestFirstBootPrepareRunsAsContainerIdentity(t *testing.T) {
 		t.Fatal("fenced upgrade preparation no longer requires root")
 	}
 }
+
+func TestFirstBootPrepareUsesConfiguredStateRootAndRenderedDir(t *testing.T) {
+	tree := filepath.Join(t.TempDir(), "root")
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prevTarget, prevCmd := offlineTargetRoot, offlineCommand
+	offlineTargetRoot = filepath.Join(tree, "system")
+	manager, err := NewTestApplyManager(tree, firstBootConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	offlineCommand = manager.run
+	t.Cleanup(func() {
+		offlineTargetRoot, offlineCommand = prevTarget, prevCmd
+	})
+
+	stateDir := filepath.Join(t.TempDir(), "agent-state")
+	renderDir := filepath.Join(t.TempDir(), "config")
+	cfg := firstBootConfig()
+	cfg.AgentStateRoot = stateDir
+	cfg.RenderedConfigDir = renderDir
+
+	status, err := PrepareOfflineFirstBoot(context.Background(), cfg, emptySQLitePool(t), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("PrepareOfflineFirstBoot with AgentStateRoot+RenderedConfigDir: %v", err)
+	}
+	if status.Step != "prepared" {
+		t.Fatalf("first boot status %+v", status)
+	}
+	if _, err = os.Stat(filepath.Join(stateDir, "manifest.json")); err != nil {
+		t.Fatalf("manifest missing in configured AgentStateRoot %s: %v", stateDir, err)
+	}
+}
+
+func TestFirstBootPrepareFailsClosedOnUnwritableStateRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions")
+	}
+	lockedParent := filepath.Join(t.TempDir(), "locked")
+	if err := os.MkdirAll(lockedParent, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(lockedParent, 0o755) })
+
+	cfg := firstBootConfig()
+	cfg.AgentStateRoot = filepath.Join(lockedParent, "state")
+	if _, err := PrepareOfflineFirstBoot(context.Background(), cfg, emptySQLitePool(t), json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected fail-closed error for unwritable AgentStateRoot")
+	}
+}
