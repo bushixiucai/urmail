@@ -246,16 +246,41 @@ func (w *Worker) applyRetention(ctx context.Context) (int, RetentionPlan, error)
 }
 
 func completeLocalArtifacts(stamp string, artifacts []LocalArtifact) error {
-	expected := map[string]string{"urmail-" + stamp + ".dump": KindPgDump, "urmail-config-" + stamp + ".tar.gz": KindConfigTar, "urmail-mail-" + stamp + ".tar.gz": KindMailTar}
-	if len(artifacts) != len(expected) {
-		return fmt.Errorf("complete backup requires database, configuration and mail artifacts")
+	return VerifyCompleteArtifactSet(stamp, artifacts)
+}
+
+// VerifyCompleteArtifactSet is the single completeness predicate for a
+// generation: the database dump, the configuration archive and the mail
+// archive must all be present with their expected kind, a positive size and a
+// well-formed sha256. The upgrade fence reuses it so a manifest that lists only
+// one of the three can never authorize a cut-over.
+func VerifyCompleteArtifactSet(stamp string, artifacts []LocalArtifact) error {
+	expected := map[string]string{
+		"urmail-" + stamp + ".dump":          KindPgDump,
+		"urmail-config-" + stamp + ".tar.gz": KindConfigTar,
+		"urmail-mail-" + stamp + ".tar.gz":   KindMailTar,
 	}
+	present := map[string]bool{}
 	for _, artifact := range artifacts {
 		kind, ok := expected[artifact.Name]
-		if !ok || artifact.Kind != kind || artifact.Size <= 0 || !retentionHash.MatchString(artifact.SHA256) {
-			return fmt.Errorf("complete backup artifact identity/integrity invalid")
+		if !ok {
+			return fmt.Errorf("complete backup artifact %q is not part of generation %s", artifact.Name, stamp)
 		}
-		delete(expected, artifact.Name)
+		if artifact.Kind != kind {
+			return fmt.Errorf("complete backup artifact %q has kind %q, want %q", artifact.Name, artifact.Kind, kind)
+		}
+		if artifact.Size <= 0 {
+			return fmt.Errorf("complete backup artifact %q has non-positive size %d", artifact.Name, artifact.Size)
+		}
+		if !retentionHash.MatchString(artifact.SHA256) {
+			return fmt.Errorf("complete backup artifact %q has an invalid sha256", artifact.Name)
+		}
+		present[artifact.Name] = true
+	}
+	for name, kind := range expected {
+		if !present[name] {
+			return fmt.Errorf("complete backup generation %s is missing its %s artifact %q", stamp, kind, name)
+		}
 	}
 	return nil
 }

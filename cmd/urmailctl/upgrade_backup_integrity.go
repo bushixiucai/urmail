@@ -47,13 +47,36 @@ func verifyBackupArtifacts(spoolDir, manifestName string) error {
 		return fmt.Errorf("read backup manifest %s: %w", name, err)
 	}
 	var manifest struct {
-		Artifacts []backupauto.Artifact `json:"artifacts"`
+		Version       int                        `json:"version"`
+		LayoutVersion int                        `json:"layout_version"`
+		Artifacts     []backupauto.Artifact      `json:"artifacts"`
+		Slots         map[string]backupauto.Slot `json:"slots"`
 	}
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		return fmt.Errorf("parse backup manifest %s: %w", name, err)
 	}
+	if manifest.Version >= 3 {
+		// v3 keeps the artifact set and adds layout_version plus logical slots.
+		// A v3 manifest without those fields is internally inconsistent and is
+		// rejected explicitly; a well-formed v3 still has to pass the same
+		// dump/config/mail completeness check below.
+		if manifest.LayoutVersion != backupauto.LayoutVersion1 || len(manifest.Slots) == 0 {
+			return fmt.Errorf("backup manifest %s is a malformed v3 manifest (layout_version=%d slots=%d)", name, manifest.LayoutVersion, len(manifest.Slots))
+		}
+	}
 	if len(manifest.Artifacts) == 0 {
 		return fmt.Errorf("backup manifest %s lists no artifacts", name)
+	}
+	stamp, err := manifestStamp(name)
+	if err != nil {
+		return err
+	}
+	local := make([]backupauto.LocalArtifact, 0, len(manifest.Artifacts))
+	for _, artifact := range manifest.Artifacts {
+		local = append(local, backupauto.LocalArtifact{Name: artifact.Name, Kind: artifact.Kind, Size: artifact.Size, SHA256: artifact.SHA256})
+	}
+	if err := backupauto.VerifyCompleteArtifactSet(stamp, local); err != nil {
+		return err
 	}
 	for _, artifact := range manifest.Artifacts {
 		if artifact.Name == "" || filepath.Base(artifact.Name) != artifact.Name {
@@ -97,6 +120,16 @@ func verifyArtifactFile(path, want string) error {
 // verifyFreeSpace refuses the fence when the filesystem holding the backup
 // spool cannot take another generation. The threshold defaults to 2 GiB and
 // can be raised or lowered with URMAIL_UPGRADE_MIN_FREE_BYTES.
+// manifestStamp extracts the generation stamp from urmail-<stamp>.manifest.json.
+func manifestStamp(name string) (string, error) {
+	trimmed := strings.TrimSuffix(name, ".manifest.json")
+	trimmed = strings.TrimPrefix(trimmed, "urmail-")
+	if trimmed == "" || strings.Contains(trimmed, "/") || strings.Contains(trimmed, "..") {
+		return "", fmt.Errorf("backup manifest name %q carries no generation stamp", name)
+	}
+	return trimmed, nil
+}
+
 func verifyFreeSpace(spoolDir string) error {
 	minimum := int64(2 << 30)
 	if raw := strings.TrimSpace(os.Getenv("URMAIL_UPGRADE_MIN_FREE_BYTES")); raw != "" {
