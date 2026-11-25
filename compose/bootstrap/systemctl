@@ -1,0 +1,3 @@
+#!/bin/sh
+case "$1" in show) echo LoadState=loaded; echo ActiveState=inactive; exit 0;; is-active) echo inactive; exit 3;; is-enabled) echo disabled; exit 1;; esac
+exit 0
