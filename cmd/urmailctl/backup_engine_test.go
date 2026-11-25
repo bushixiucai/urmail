@@ -46,11 +46,12 @@ func TestBackupDatabaseArtifactEngineExclusive(t *testing.T) {
 	}
 }
 
-func TestRequirePostgresRestoreEngine(t *testing.T) {
-	if err := requirePostgresRestoreEngine(&config.Config{DBEngine: "sqlite", SQLitePath: "/tmp/x.sqlite"}); err == nil || !strings.Contains(err.Error(), "S6 auth-snapshot delivery") {
-		t.Fatalf("sqlite restore guard err=%v", err)
-	}
-	if err := requirePostgresRestoreEngine(&config.Config{DatabaseURLPlatform: "postgres://urmail@127.0.0.1/urmail"}); err != nil {
-		t.Fatalf("postgres restore guard: %v", err)
+// TestSQLiteRestoreRequiresLivePath keeps the single-engine restore gate: the
+// S6 fail-closed refusal is gone, but a missing live database path still
+// refuses before any file is replaced.
+func TestSQLiteRestoreRequiresLivePath(t *testing.T) {
+	err := restoreSQLiteDatabase(context.Background(), &config.Config{DBEngine: "sqlite"}, "/tmp/snap.sqlite")
+	if err == nil || !strings.Contains(err.Error(), "URMAIL_SQLITE_PATH") {
+		t.Fatalf("sqlite restore gate err=%v", err)
 	}
 }

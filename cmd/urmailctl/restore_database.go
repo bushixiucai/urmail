@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 )
 
@@ -89,16 +88,6 @@ func restoreDatabaseArchive(ctx context.Context, databaseURL, dump, directory st
 	consumer.ExtraFiles = append(consumer.ExtraFiles, operationLock)
 	if err = consumer.Run(); err != nil {
 		return fmt.Errorf("atomic database restore failed; writers remain quarantined: %w", err)
-	}
-	return nil
-}
-
-// requirePostgresRestoreEngine keeps the archive-based restore path
-// PostgreSQL-only. A SQLite deployment is restored by the S6 executor
-// (database + auth snapshot as one atomic generation), never here.
-func requirePostgresRestoreEngine(cfg *config.Config) error {
-	if cfg != nil && cfg.IsSQLite() {
-		return errors.New("SQLite restore execution is not provided by this tree yet (planned with the S6 auth-snapshot delivery); the PostgreSQL archive path is not used in single-engine mode")
 	}
 	return nil
 }
