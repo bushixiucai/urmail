@@ -39,7 +39,10 @@ services:
       DB_ENGINE: sqlite
       URMAIL_DB_ENGINE: sqlite
       URMAIL_SQLITE_PATH: ${URMAIL_SQLITE_PATH:-/srv/urmail/data/db/urmail.sqlite}
+      URMAIL_RENDERED_CONFIG: ${URMAIL_RENDERED_CONFIG:-0}
       URMAIL_RENDERED_CONFIG_DIR: ${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/data/config}
+      URMAIL_RENDERED_SOURCE: ${URMAIL_RENDERED_SOURCE:-placeholder}
+      URMAIL_AGENT_STATE_ROOT: /srv/urmail/data/agent-state
       URMAIL_AUTO_MIGRATE: ${URMAIL_AUTO_MIGRATE:-1}
       URMAIL_POLICY_ENABLED: "true"
       # policy sock 挪进 5000 可写卷（默认 /run/urmail-policy 对非 root 不可写）
@@ -63,6 +66,8 @@ services:
       # 渲染配置输出根（与 URMAIL_RENDERED_CONFIG_DIR=/srv/urmail/data/config 对齐）
       - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/data/config
       - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+      - ${URMAIL_DATA_ROOT:-./data}/mail:/srv/urmail/data/mail
+      - ${URMAIL_DATA_ROOT:-./data}/agent-state:/srv/urmail/data/agent-state
       - ${URMAIL_DATA_ROOT:-./data}/backup:/srv/urmail/data/backup
       # readiness-record 的 maintenance 根（独立子目录，不进 backup 卷枚举面）
       - ${URMAIL_DATA_ROOT:-./data}/maintenance:/srv/urmail/data/maintenance
@@ -118,11 +123,13 @@ services:
     restart: unless-stopped
     environment:
       URMAIL_CONFIG_DIR: /srv/urmail/config
+      URMAIL_AGENT_STATE_ROOT: /srv/urmail/data/agent-state
       URMAIL_ENV_FILE: /srv/urmail/config/urmail.env
     volumes:
       - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/config
       - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
       - ${URMAIL_DATA_ROOT:-./data}/certs:/srv/urmail/data/certs
+      - ${URMAIL_DATA_ROOT:-./data}/agent-state:/srv/urmail/data/agent-state
       - ${URMAIL_DATA_ROOT:-./data}/backup:/srv/urmail/data/backup
       - ${URMAIL_DATA_ROOT:-./data}/agent-run:/run/urmail
 
