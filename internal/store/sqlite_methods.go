@@ -3970,6 +3970,15 @@ func reportPayload(name string, facts []report.Fact) ([]byte, error) {
 // target SELECT doubles as the owner/admin authorization check the PG statement
 // performed with the session user setting.
 func (q *Queries) MarketingCampaignReportSnapshot(ctx context.Context, arg MarketingCampaignReportSnapshotParams) ([]byte, error) {
+	if !isSQLiteDBTX(q.db) {
+		// The PostgreSQL twin takes native timestamptz bounds; the shared
+		// params carry unix microseconds.
+		return pgstore.New(q.db).MarketingCampaignReportSnapshot(ctx, pgstore.MarketingCampaignReportSnapshotParams{
+			TenantID: arg.TenantID, ResourceID: arg.ResourceID,
+			FromTime:  pgtype.Timestamptz{Time: time.UnixMicro(arg.FromTime).UTC(), Valid: true},
+			UntilTime: pgtype.Timestamptz{Time: time.UnixMicro(arg.UntilTime).UTC(), Valid: true},
+		})
+	}
 	from, until, err := reportWindowMicro(arg.FromTime, arg.UntilTime)
 	if err != nil {
 		return nil, err
@@ -4048,6 +4057,15 @@ WHERE f.tenant_id=$1 AND r.campaign_id=$2 AND r.created_at>=$3 AND r.created_at<
 // MarketingFlowReportSnapshot renders one bounded flow snapshot (entries,
 // positions and node executions).
 func (q *Queries) MarketingFlowReportSnapshot(ctx context.Context, arg MarketingFlowReportSnapshotParams) ([]byte, error) {
+	if !isSQLiteDBTX(q.db) {
+		// The PostgreSQL twin takes native timestamptz bounds; the shared
+		// params carry unix microseconds.
+		return pgstore.New(q.db).MarketingFlowReportSnapshot(ctx, pgstore.MarketingFlowReportSnapshotParams{
+			TenantID: arg.TenantID, ResourceID: arg.ResourceID,
+			FromTime:  pgtype.Timestamptz{Time: time.UnixMicro(arg.FromTime).UTC(), Valid: true},
+			UntilTime: pgtype.Timestamptz{Time: time.UnixMicro(arg.UntilTime).UTC(), Valid: true},
+		})
+	}
 	from, until, err := reportWindowMicro(arg.FromTime, arg.UntilTime)
 	if err != nil {
 		return nil, err
