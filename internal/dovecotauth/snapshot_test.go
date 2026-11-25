@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -46,12 +48,24 @@ type fakeSource struct {
 	tenants   [][]any
 	domains   [][]any
 	mailboxes [][]any
-	fail      bool
+	failAll   atomic.Bool
+	mu        sync.Mutex
+	failAddr  map[string]bool
 }
 
 func (s *fakeSource) Query(_ context.Context, query string, args ...any) (Rows, error) {
-	if s.fail {
+	if s.failAll.Load() {
 		return nil, errors.New("source unavailable")
+	}
+	if len(args) == 1 {
+		if address, ok := args[0].(string); ok {
+			s.mu.Lock()
+			failing := s.failAddr[address]
+			s.mu.Unlock()
+			if failing {
+				return nil, errors.New("source row unavailable")
+			}
+		}
 	}
 	switch {
 	case strings.HasPrefix(query, "SELECT count(*) FROM tenants"):
@@ -90,9 +104,12 @@ func (s *fakeSource) Query(_ context.Context, query string, args ...any) (Rows, 
 
 func fixtureSource() *fakeSource {
 	return &fakeSource{
-		tenants:   [][]any{{int64(1), "active"}},
-		domains:   [][]any{{int64(1), int64(10), "active", int64(1)}},
-		mailboxes: [][]any{{"alice@example.test", "$6$hash", int64(1), int64(10), "active", int64(1048576), "managed", `require "fileinto";`}},
+		tenants: [][]any{{int64(1), "active"}},
+		domains: [][]any{{int64(1), int64(10), "active", int64(1)}},
+		mailboxes: [][]any{
+			{"alice@example.test", "$6$hash", int64(1), int64(10), "active", int64(1048576), "managed", `require "fileinto";`},
+			{"carol@example.test", "$6$hash", int64(1), int64(10), "locked", int64(1048576), "managed", ``},
+		},
 	}
 }
 
@@ -114,7 +131,7 @@ func TestRebuildWritesSingleFileWithoutWAL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Mailboxes != 1 || snap.Version != SchemaVersion {
+	if snap.Mailboxes != 2 || snap.Version != SchemaVersion {
 		t.Fatalf("snapshot %+v", snap)
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {
@@ -181,7 +198,7 @@ func TestApplyFailureMarksDirtyAndRetries(t *testing.T) {
 	if _, err := m.Rebuild(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	src.fail = true
+	src.failAll.Store(true)
 	src.mailboxes[0][1] = "$6$after-failure"
 	if err := m.Apply(context.Background(), Change{Address: "alice@example.test"}); err == nil {
 		t.Fatal("snapshot failure was reported as success")
@@ -189,7 +206,7 @@ func TestApplyFailureMarksDirtyAndRetries(t *testing.T) {
 	if !m.Dirty() {
 		t.Fatal("failed compensation did not mark the snapshot dirty")
 	}
-	src.fail = false
+	src.failAll.Store(false)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if !m.Dirty() {
@@ -221,11 +238,11 @@ func TestReconcileDetectsDivergence(t *testing.T) {
 	if _, err := m.Rebuild(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Reconcile(context.Background(), 1); err != nil {
+	if err := m.Reconcile(context.Background(), 2); err != nil {
 		t.Fatalf("consistent snapshot rejected: %v", err)
 	}
 	src.mailboxes[0][1] = "$6$diverged"
-	if err := m.Reconcile(context.Background(), 1); err == nil {
+	if err := m.Reconcile(context.Background(), 2); err == nil {
 		t.Fatal("diverged snapshot passed reconciliation")
 	}
 	if !m.Dirty() {
@@ -246,10 +263,52 @@ func TestRequireFreshAfterRestoreRebuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Mailboxes != 1 {
+	if snap.Mailboxes != 2 {
 		t.Fatalf("restore snapshot %+v", snap)
 	}
 	if _, err = RequireFreshAfterRestore(context.Background(), nil); err == nil {
 		t.Fatal("nil manager was accepted")
+	}
+}
+
+// TestPartialRetryKeepsDirty proves one successful item in a retry batch must
+// not clear the dirty flag while another item is still owed (and the repair
+// rebuild itself is failing too).
+func TestPartialRetryKeepsDirty(t *testing.T) {
+	src := fixtureSource()
+	m, _ := newTestManager(t, src)
+	m.retryDelay = 200 * time.Millisecond
+	m.maxRetry = 400 * time.Millisecond
+	if _, err := m.Rebuild(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	src.mu.Lock()
+	src.failAddr = map[string]bool{"alice@example.test": true}
+	src.mu.Unlock()
+	src.mailboxes[0][1] = "$6$alice-new"
+	src.mailboxes[1][1] = "$6$carol-new"
+	if err := m.Apply(context.Background(), Change{Address: "alice@example.test"}); err == nil {
+		t.Fatal("failing row reported success")
+	}
+	if err := m.Apply(context.Background(), Change{Address: "carol@example.test"}); err != nil {
+		t.Fatal(err)
+	}
+	// From here every retry and the repair rebuild fail, so nothing may clear
+	// the flag yet.
+	src.failAll.Store(true)
+	time.Sleep(900 * time.Millisecond)
+	if !m.Dirty() {
+		t.Fatal("dirty flag cleared while a compensation is still owed")
+	}
+	src.failAll.Store(false)
+	src.mu.Lock()
+	src.failAddr = nil
+	src.mu.Unlock()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && m.Dirty() {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if m.Dirty() {
+		t.Fatal("dirty flag never cleared after the retry succeeded")
 	}
 }

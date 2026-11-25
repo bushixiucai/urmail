@@ -41,7 +41,12 @@ func (m *Manager) Apply(ctx context.Context, changes ...Change) error {
 		m.enqueue(changes)
 		return err
 	}
-	m.markOK()
+	if len(m.pending) == 0 {
+		m.markOK()
+	} else {
+		// A successful write never masks a compensation another change still owes.
+		m.markDirty()
+	}
 	return nil
 }
 
@@ -195,7 +200,13 @@ func (m *Manager) retryLoop() {
 				remaining = append(remaining, item)
 				continue
 			}
+		}
+		// Dirty clears only when nothing is still owed: one successful item in a
+		// batch must not mask a later failing one.
+		if len(remaining) == 0 {
 			m.markOK()
+		} else {
+			m.markDirty()
 		}
 		m.pending = remaining
 		if len(m.pending) > 0 && m.escalateLocked() {

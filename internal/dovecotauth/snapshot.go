@@ -110,7 +110,9 @@ type Manager struct {
 
 // NewManager binds the snapshot path to its source.
 func NewManager(path string, src Source) *Manager {
-	return &Manager{path: path, src: src, retryDelay: 250 * time.Millisecond, maxRetry: 30 * time.Second, now: time.Now}
+	m := &Manager{path: path, src: src, retryDelay: 250 * time.Millisecond, maxRetry: 30 * time.Second, now: time.Now}
+	SetMetricsManager(m)
+	return m
 }
 
 // Path reports the snapshot file the renderer must point dovecot at.
