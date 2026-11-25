@@ -141,3 +141,25 @@ recordless 旁路等于跳过升级凭证落盘，未验证新栈即放行写者
 - **caddy host 网络 80/443 独占**：与现网 nginx（MIAB 遗留栈）切换时必须先
   `stop+disable` nginx（写进 S8/切换 runbook；端口冲突会导致 caddy 反复重启）。
 - prometheus/alertmanager 使用官方镜像 `prom/prometheus` / `prom/alertmanager`。
+
+## 首次启动：`.env` 与集群 bootstrap
+
+compose 形态不是“起容器就完事”：PostgreSQL 首次初始化依赖集群角色脚本，迁移 0001
+在角色缺失时会直接失败（`schema_migrations` 记 `1|dirty`）。
+
+1. **`.env`**：`cp .env.example .env` 后至少替换 `URMAIL_PG_PASSWORD`（`openssl rand -hex 24`），
+   并按部署调整 `URMAIL_DATA_ROOT` / `URMAIL_MYHOSTNAME` / `URMAIL_PRIMARY_DOMAIN`；
+   `.env` 权限 0600，不得入库。缺 `URMAIL_PG_PASSWORD` 时 compose 会以
+   `required variable URMAIL_PG_PASSWORD is missing a value` 拒绝插值，`upgrade.sh` 的 preflight
+   随之报 `pre-flight verdict unreadable` 并中止（fail-closed）。
+2. **bootstrap.sql**：`compose.yaml` 把它挂到 `/docker-entrypoint-initdb.d/01-bootstrap.sql`，
+   **仅在新数据目录的首次初始化时执行**。PostgreSQL 容器以 uid 70 运行，宿主文件必须可读：
+   检出 umask 为 077 时 `internal/db/bootstrap.sql` 会变成 0600，初始化会失败并以
+   `psql: … Permission denied` → `urMail cluster roles are missing` 告警。构建镜像时已用
+   `COPY --chmod=0644` 固定镜像内副本；**bind mount 的宿主文件仍须 `chmod 0644`**（或把仓库检出
+   umask 调至 022）。
+3. **健康检查**：`URMAIL_LISTEN_ADDR` 只接受回环地址，urmaild 不发布宿主端口。探活在容器内：
+   `docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/healthz`；
+   宿主 `127.0.0.1:8080` 属 caddy，不是 urmaild。
+4. bootstrap 是一次性的：角色已存在时重复执行是幂等的；若 `schema_migrations` 已变 `dirty`，
+   先诊断失败迁移，不要直接删表重来。

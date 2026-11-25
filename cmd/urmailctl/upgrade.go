@@ -987,6 +987,16 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 		return "", fmt.Errorf("fresh-backup pre-flight: newest complete backup generation %s is %s old (window %s); run a complete backup first, or pass --skip-preflight to record an explicit operator override",
 			health.ManifestName, age.Round(time.Minute), window)
 	}
+	// The run row is metadata; the generation must still exist on disk with the
+	// hashes its manifest names, and the spool filesystem must have room for the
+	// next generation. Both checks fail closed.
+	spool := backupSpoolDir()
+	if err := verifyBackupArtifacts(spool, health.ManifestName); err != nil {
+		return "", fmt.Errorf("fresh-backup pre-flight: %v; run a complete backup first, or pass --skip-preflight to record an explicit operator override", err)
+	}
+	if err := verifyFreeSpace(spool); err != nil {
+		return "", fmt.Errorf("fresh-backup pre-flight: %v", err)
+	}
 	fmt.Printf("Fresh-backup pre-flight: newest complete successful run %s, generation %s (age %s; offsite=%s).\n",
 		health.RunUID, health.ManifestName, age.Round(time.Minute), health.OffsiteState)
 	return "", nil
