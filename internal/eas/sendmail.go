@@ -24,6 +24,7 @@ import (
 	"golang.org/x/net/html/charset"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -130,7 +131,7 @@ func (s *Server) handleSendMail(c *gin.Context, sess Session, deviceID string, r
 		_, domain, _ := strings.Cut(sess.Address, "@")
 		outgoing.MessageID = "<eas-" + hex.EncodeToString(key[:]) + "@" + domain + ">"
 	}
-	epoch, err := db.Queries(s.Pool.Pool).PlatformRestoreSyncEpoch(c.Request.Context())
+	epoch, err := db.Queries(s.Pool.Pool).PlatformRestoreSyncEpoch(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform}))
 	if err != nil {
 		sendFailure(c, "111")
 		return
@@ -361,7 +362,7 @@ func (s *Server) recoverSentCopy(sess Session, secret string, id int64, receipt 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	epoch, err := db.Queries(s.Pool.Pool).PlatformRestoreSyncEpoch(ctx)
+	epoch, err := db.Queries(s.Pool.Pool).PlatformRestoreSyncEpoch(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}))
 	if err != nil || receipt.Epoch != epoch {
 		return
 	}

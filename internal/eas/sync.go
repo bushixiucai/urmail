@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -311,7 +312,7 @@ func (b *SyncBackend) keyCheck(ctx context.Context, req *SyncRequest, folderID, 
 		stateExists = true
 		state = st
 	case errors.Is(err, ErrNotFound):
-		epoch, epochErr := db.Queries(b.Pool.Pool).PlatformRestoreSyncEpoch(ctx)
+		epoch, epochErr := db.Queries(b.Pool.Pool).PlatformRestoreSyncEpoch(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}))
 		if epochErr != nil {
 			return state, nil, false, syncStatusServerError, epochErr
 		}
