@@ -39,7 +39,7 @@ func sqliteLedger(t *testing.T, path string) *backupauto.StateRecorder {
 	return &backupauto.StateRecorder{Pool: pool}
 }
 
-func seedSQLiteRun(t *testing.T, recorder *backupauto.StateRecorder, success bool, offsite string) {
+func seedSQLiteRun(t *testing.T, recorder *backupauto.StateRecorder, spool string, success bool, offsite string) {
 	t.Helper()
 	ctx := context.Background()
 	stamp := time.Now().UTC().Format("20060102T150405Z")
@@ -52,8 +52,13 @@ func seedSQLiteRun(t *testing.T, recorder *backupauto.StateRecorder, success boo
 			t.Fatal(err)
 		}
 	}
-	if err = recorder.FinishRun(ctx, uid, success, nil, 1024, time.Second, "urmail-"+stamp+".manifest.json", "", 0); err != nil {
+	manifestName := "urmail-" + stamp + ".manifest.json"
+	if err = recorder.FinishRun(ctx, uid, success, nil, 1024, time.Second, manifestName, "", 0); err != nil {
 		t.Fatal(err)
+	}
+	if success {
+		// The ledger row is metadata; the generation must exist on disk.
+		plantCompleteGeneration(t, spool, manifestName, backupauto.KindSqliteSnapshot)
 	}
 }
 
@@ -66,7 +71,9 @@ func TestPreflightFreshBackupSQLiteReadsLedger(t *testing.T) {
 	path := buildRestoreFixture(t, dir, "urmail.sqlite", 1)
 	setSqlitePreflightEnv(t, path)
 
-	seedSQLiteRun(t, sqliteLedger(t, path), true, backupauto.OffsiteStatePendingLocalOnly)
+	spool := t.TempDir()
+	t.Setenv("URMAIL_BACKUP_SPOOL", spool)
+	seedSQLiteRun(t, sqliteLedger(t, path), spool, true, backupauto.OffsiteStatePendingLocalOnly)
 	msg, err := preflightFreshBackup(ctx, time.Hour)
 	if err != nil || msg != "" {
 		t.Fatalf("successful pending_local_only row: msg=%q err=%v", msg, err)
@@ -74,7 +81,7 @@ func TestPreflightFreshBackupSQLiteReadsLedger(t *testing.T) {
 
 	failedPath := buildRestoreFixture(t, t.TempDir(), "urmail.sqlite", 1)
 	setSqlitePreflightEnv(t, failedPath)
-	seedSQLiteRun(t, sqliteLedger(t, failedPath), false, "")
+	seedSQLiteRun(t, sqliteLedger(t, failedPath), t.TempDir(), false, "")
 	if _, err = preflightFreshBackup(ctx, time.Hour); err == nil {
 		t.Fatal("failed newest run was accepted")
 	}

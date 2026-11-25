@@ -32,6 +32,7 @@ type fencePreflightFixture struct {
 	maintDir  string
 	dropInDir string
 	envFile   string
+	spool     string
 }
 
 func newFencePreflightFixture(t *testing.T) *fencePreflightFixture {
@@ -44,13 +45,16 @@ func newFencePreflightFixture(t *testing.T) *fencePreflightFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(platform.Close)
-	f := &fencePreflightFixture{platform: platform, maintDir: t.TempDir(), dropInDir: t.TempDir()}
+	f := &fencePreflightFixture{platform: platform, maintDir: t.TempDir(), dropInDir: t.TempDir(), spool: t.TempDir()}
 	f.envFile = filepath.Join(f.maintDir, "urmail.env")
 	if err = os.WriteFile(f.envFile, []byte("URMAIL_DATABASE_URL="+dsn+"\nURMAIL_DATABASE_URL_PLATFORM="+dsn+"\nURMAIL_QUOTE_HMAC_KEY=test-key\nURMAIL_POLICY_ENABLED=true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("URMAIL_ENV_FILE", f.envFile)
 	t.Setenv("URMAIL_MAINTENANCE_ROOT", f.maintDir)
+	// The pre-flight verifies the newest generation on disk, so the fixture
+	// owns a private spool instead of the fixed production directory.
+	t.Setenv("URMAIL_BACKUP_SPOOL", f.spool)
 	// Every writer unit reports inactive so the fence completes without
 	// exercising systemd, isolating the pre-flight decision under test.
 	reset := setBackupUnitActionForTest(func(_ context.Context, action, unit string) (bool, error) {
@@ -83,6 +87,46 @@ func (f *fencePreflightFixture) seedRunOffsite(t *testing.T, state, scope string
 		"INSERT INTO backup_runs(run_uid,state,scope,started_at,finished_at,error,manifest_name,offsite_state,offsite_uri) VALUES($1,$2,$3,$4,statement_timestamp(),$5,$6,$7,$8)",
 		fmt.Sprintf("pf-%d-%s", startedAgo.Milliseconds(), offsiteState), state, scope,
 		time.Now().UTC().Add(-startedAgo), errorText, manifestName, offsiteState, offsiteURI); err != nil {
+		t.Fatal(err)
+	}
+	if state == backupauto.StateSuccess && scope == backupauto.ScopeComplete {
+		plantCompleteGeneration(t, f.spool, manifestName, backupauto.KindPgDump)
+	}
+}
+
+// plantCompleteGeneration writes one complete generation (artifacts plus
+// manifest) so the pre-flight's fail-closed integrity check has real files;
+// the run row alone is metadata and is not accepted.
+func plantCompleteGeneration(t *testing.T, spool, manifestName, dbKind string) {
+	t.Helper()
+	stamp := strings.TrimSuffix(strings.TrimPrefix(manifestName, "urmail-"), ".manifest.json")
+	dbName := "urmail-" + stamp + ".dump"
+	if dbKind == backupauto.KindSqliteSnapshot {
+		dbName = "urmail-" + stamp + ".sqlite"
+	}
+	specs := []struct{ name, kind, data string }{
+		{dbName, dbKind, "database fixture bytes"},
+		{"urmail-config-" + stamp + ".tar.gz", backupauto.KindConfigTar, "config fixture bytes"},
+		{"urmail-mail-" + stamp + ".tar.gz", backupauto.KindMailTar, "mail fixture bytes"},
+	}
+	artifacts := make([]backupauto.Artifact, 0, len(specs))
+	for _, spec := range specs {
+		data := []byte(spec.data)
+		if err := os.WriteFile(filepath.Join(spool, spec.name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(data)
+		artifacts = append(artifacts, backupauto.Artifact{
+			Name: spec.name, Kind: spec.kind, Size: int64(len(data)),
+			SHA256: hex.EncodeToString(sum[:]), Mode: 0o600,
+		})
+	}
+	manifest := &backupauto.Manifest{Version: 1, Scope: backupauto.ScopeComplete, CreatedAt: time.Now().UTC(), Artifacts: artifacts}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(spool, manifestName), append(raw, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
