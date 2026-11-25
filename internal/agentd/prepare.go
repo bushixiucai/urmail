@@ -95,7 +95,7 @@ func prepareOffline(_ context.Context, cfg *config.Config, pool *db.Pool, raw js
 	if firstBoot {
 		// A first boot can only render onto a clean root. The manifest records
 		// every generated path, so its presence means this is an upgrade.
-		for _, path := range []string{filepath.Join(m.root, "manifest.json"), m.target(appliedManifestBackupPath)} {
+		for _, path := range []string{filepath.Join(m.root, "manifest.json"), m.target(m.appliedManifestBackupPath())} {
 			if _, err := os.Lstat(path); err == nil {
 				return ApplyStatus{}, fmt.Errorf("%w: an existing configuration generation blocks first-boot preparation", ErrRejected)
 			} else if !os.IsNotExist(err) {
@@ -103,7 +103,7 @@ func prepareOffline(_ context.Context, cfg *config.Config, pool *db.Pool, raw js
 			}
 		}
 	} else {
-		for _, path := range []string{filepath.Join(m.root, "manifest.json"), m.target(appliedManifestBackupPath)} {
+		for _, path := range []string{filepath.Join(m.root, "manifest.json"), m.target(m.appliedManifestBackupPath())} {
 			data, err := os.ReadFile(path) // #nosec G304 -- fixed root-owned agent manifest paths, never supplied in parameters.
 			if os.IsNotExist(err) {
 				continue

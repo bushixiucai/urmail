@@ -100,8 +100,12 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	if storageRoot == "" {
 		storageRoot = "/var/mail"
 	}
-	certFile := filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert")
-	keyFile := filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key")
+	stateRoot := "/var/lib/urmail-agent"
+	if strings.TrimSpace(cfg.AgentStateRoot) != "" {
+		stateRoot = filepath.Clean(strings.TrimSpace(cfg.AgentStateRoot))
+	}
+	certFile := filepath.Join(stateRoot, "certs", "mail", hostname+".cert")
+	keyFile := filepath.Join(stateRoot, "certs", "mail", hostname+".key")
 
 	// 1. Postfix Snapshot
 	pfDomains := make([]postfix.Domain, 0, len(domains))

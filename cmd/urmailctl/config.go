@@ -103,13 +103,19 @@ func runConfigRender(ctx context.Context, args []string) error {
 		}
 		mailCtx = *assembled
 	} else {
+		stateRoot := "/var/lib/urmail-agent"
+		if cfg != nil && strings.TrimSpace(cfg.AgentStateRoot) != "" {
+			stateRoot = filepath.Clean(strings.TrimSpace(cfg.AgentStateRoot))
+		}
+		certFile := filepath.Join(stateRoot, "certs", "mail", hostname+".cert")
+		keyFile := filepath.Join(stateRoot, "certs", "mail", hostname+".key")
 		mailCtx = mail.ConfigContext{
 			PostfixNode: postfix.NodeConfig{
 				Hostname:                 hostname,
 				PrimaryDomain:            cfg.PrimaryDomain,
 				StorageRoot:              storageRoot,
-				TLSCertFile:              filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert"),
-				TLSKeyFile:               filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key"),
+				TLSCertFile:              certFile,
+				TLSKeyFile:               keyFile,
 				PolicyEnabled:            cfg.PolicyEnabled,
 				V80Preserve:              cfg.PostfixV80Preserve,
 				PreserveExternalOpenDKIM: cfg.PreserveExternalOpenDKIM,
@@ -119,8 +125,8 @@ func runConfigRender(ctx context.Context, args []string) error {
 				Hostname:      hostname,
 				PrimaryDomain: cfg.PrimaryDomain,
 				StorageRoot:   storageRoot,
-				TLSCertFile:   filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert"),
-				TLSKeyFile:    filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key"),
+				TLSCertFile:   certFile,
+				TLSKeyFile:    keyFile,
 				DatabaseURL:   dovecotDB,
 			},
 			NSDNode: nsd.NodeConfig{

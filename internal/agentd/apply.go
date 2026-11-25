@@ -118,6 +118,15 @@ type ManifestFileRecord struct {
 	GID    int    `json:"gid"`
 }
 
+func (m *ApplyManager) appliedManifestBackupPath() string {
+	if m.cfg != nil && strings.TrimSpace(m.cfg.AgentStateRoot) != "" {
+		return filepath.Join(m.stateDir(), "applied_manifest.json")
+	}
+	return appliedManifestBackupPath
+}
+
+// appliedManifestBackupPath mirrors manifest.json into the host backup volume
+// when AgentStateRoot is at its default, or inside AgentStateRoot otherwise.
 const appliedManifestBackupPath = "/var/lib/urmail-backup/applied_manifest.json"
 
 type applyManifest struct {
@@ -230,7 +239,7 @@ func NewTestApplyManager(tempDir string, cfg *config.Config) (*ApplyManager, err
 			m.domains = testManifest.Domains
 			m.manifestFiles = testManifest.Files
 		}
-	} else if raw, err := os.ReadFile(m.target(appliedManifestBackupPath)); err == nil {
+	} else if raw, err := os.ReadFile(m.target(m.appliedManifestBackupPath())); err == nil { // #nosec G304 -- fixed backup manifest path inside StateRoot or backup root.
 		if err = json.Unmarshal(raw, &testManifest); err == nil {
 			m.status = testManifest.Status
 			m.paths = testManifest.Paths
@@ -284,7 +293,7 @@ func NewApplyManager(cfg *config.Config) (*ApplyManager, error) {
 		m.paths = manifest.Paths
 		m.domains = manifest.Domains
 		m.manifestFiles = manifest.Files
-	} else if raw, err := os.ReadFile(m.target(appliedManifestBackupPath)); err == nil {
+	} else if raw, err := os.ReadFile(m.target(m.appliedManifestBackupPath())); err == nil { // #nosec G304 -- fixed backup manifest path inside StateRoot or backup root.
 		if err = json.Unmarshal(raw, &manifest); err == nil {
 			m.status = manifest.Status
 			m.status.Ready = false
@@ -463,7 +472,8 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 	if _, err := os.Stat(m.target(dnsTSIGPath)); err == nil {
 		targets = append(targets, dnsTSIGPath)
 	}
-	targets = append(targets, appliedManifestBackupPath)
+	backupPath := m.appliedManifestBackupPath()
+	targets = append(targets, backupPath)
 	for _, path := range targets {
 		if _, ok := journal.Files[path]; ok {
 			continue
@@ -473,8 +483,8 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		if err != nil {
 			return "", "", err
 		}
-		if path == brandManagedNginxPath {
-			roots = []string{filepath.Dir(brandManagedNginxPath)}
+		if path == brandManagedNginxPath || path == backupPath {
+			roots = []string{filepath.Dir(path)}
 		}
 		if _, _, err := resolveAllowedPath(path, roots); err != nil {
 			return "", "", err
@@ -1390,7 +1400,7 @@ func (m *ApplyManager) saveCurrentManifest() error {
 }
 
 func (m *ApplyManager) writeBackupManifest(manifest applyManifest) error {
-	targetPath := m.target(appliedManifestBackupPath)
+	targetPath := m.target(m.appliedManifestBackupPath())
 	dir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create backup manifest directory: %w", err)

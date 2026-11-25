@@ -150,6 +150,9 @@ func TestFirstBootPrepareUsesConfiguredStateRootAndRenderedDir(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(stateDir, "manifest.json")); err != nil {
 		t.Fatalf("manifest missing in configured AgentStateRoot %s: %v", stateDir, err)
 	}
+	if _, err = os.Stat(filepath.Join(offlineTargetRoot, stateDir, "applied_manifest.json")); err != nil {
+		t.Fatalf("applied_manifest.json missing under configured AgentStateRoot %s: %v", stateDir, err)
+	}
 }
 
 func TestFirstBootPrepareFailsClosedOnUnwritableStateRoot(t *testing.T) {
