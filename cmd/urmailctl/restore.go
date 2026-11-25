@@ -175,14 +175,6 @@ func runRestore(ctx context.Context, args []string) error {
 	if masterKeyPath != "" {
 		activeCfg.MasterKeyPath = masterKeyPath
 	}
-	// Declarative S6 dependency: the single-engine restore (database + auth
-	// snapshot as one atomic generation) is delivered by
-	// dovecotauth.RequireFreshAfterRestore and the S6 restore_sqlite_executor.
-	// Until that lands, refuse rather than route a SQLite deployment through
-	// the PostgreSQL archive path.
-	if err := requirePostgresRestoreEngine(activeCfg); err != nil {
-		return err
-	}
 	for _, archive := range []string{configPath, mailPath} {
 		if archive != "" {
 			if err := validateRestoreArchiveWithManifest(archive, filepath.Base(archive), restoreManifest, activeCfg, legacySlotMap); err != nil {
@@ -238,7 +230,19 @@ func runRestore(ctx context.Context, args []string) error {
 	if err = stopRestoreWriters(ctx, stopSystemdRestoreWriter); err != nil {
 		return err
 	}
-	if !databaseRestored {
+	if activeCfg.IsSQLite() {
+		if !databaseRestored {
+			if err = restoreSQLiteDatabase(ctx, activeCfg, dumpPath); err != nil {
+				return err
+			}
+			if err = writeRestoreProof(config.RestoreQuarantineMarker, "database-restored.json", restoreInputProof{state.ID, fingerprint}); err != nil {
+				return err
+			}
+		} else if err = rebuildAuthSnapshotAfterRestore(ctx, activeCfg); err != nil {
+			// A resumed restore still owes the auth rebuild before release.
+			return err
+		}
+	} else if !databaseRestored {
 		err = domainRestore.BeforeOverwrite(ctx, func(ctx context.Context) error {
 			pool, openErr := db.OpenPlatform(ctx, databaseURL)
 			if openErr != nil {
@@ -265,22 +269,24 @@ func runRestore(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	if err := db.FinalizeRestore(ctx, databaseURL, state.ID); err != nil {
-		return err
-	}
-	migrator, err := db.NewMigrator(databaseURL)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = migrator.Close() }()
-	if err = migrator.Up(ctx); err != nil {
-		return err
-	}
-	if err = db.HoldRestoredSideEffects(ctx, databaseURL, state.ID); err != nil {
-		return err
-	}
-	if err = db.VerifyRuntimePrivileges(ctx, databaseURL); err != nil {
-		return err
+	if !activeCfg.IsSQLite() {
+		if err := db.FinalizeRestore(ctx, databaseURL, state.ID); err != nil {
+			return err
+		}
+		migrator, err := db.NewMigrator(databaseURL)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = migrator.Close() }()
+		if err = migrator.Up(ctx); err != nil {
+			return err
+		}
+		if err = db.HoldRestoredSideEffects(ctx, databaseURL, state.ID); err != nil {
+			return err
+		}
+		if err = db.VerifyRuntimePrivileges(ctx, databaseURL); err != nil {
+			return err
+		}
 	}
 
 	for _, archive := range []string{configPath, mailPath} {
@@ -305,22 +311,26 @@ func runRestore(ctx context.Context, args []string) error {
 	if err = completeRestoreQuarantine(config.RestoreQuarantineMarker, state.ID); err != nil {
 		return err
 	}
-	pool, err := db.OpenPlatform(ctx, databaseURL)
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
-	tx, err := pool.PlatformTx(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	var released bool
-	if err = tx.QueryRow(ctx, "SELECT urmail_release_restore_quarantine()").Scan(&released); err != nil || !released {
-		return fmt.Errorf("restore quarantine remains active")
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return err
+	// The quarantine release RPC is a PostgreSQL function; a single-engine
+	// restore releases through the completed marker instead.
+	if !activeCfg.IsSQLite() {
+		pool, err := db.OpenPlatform(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		defer pool.Close()
+		tx, err := pool.PlatformTx(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		var released bool
+		if err = tx.QueryRow(ctx, "SELECT urmail_release_restore_quarantine()").Scan(&released); err != nil || !released {
+			return fmt.Errorf("restore quarantine remains active")
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return err
+		}
 	}
 	fmt.Printf("restore complete (mail_contents=%t); QUARANTINED id=%s; writers remain stopped. Reconcile archive spool, marketing claims, queue, financial state and telemetry source before explicit release.\n", mailPath != "", state.ID)
 	return nil
