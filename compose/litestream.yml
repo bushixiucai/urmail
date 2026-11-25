@@ -1,9 +1,14 @@
-# litestream placeholder config — activates with the SQLite data layer
-# (Phase 1). Replicates the single platform DB to S3 (ARCH-PLAN §2.4).
+# litestream config — replicates the single platform SQLite DB to S3-compatible
+# storage (ARCH-PLAN §1.1 / §2.4). Credentials and endpoint are injected via
+# environment variables only (zero plaintext secrets in repo).
 dbs:
   - path: /srv/urmail/data/db/urmail.sqlite
     replicas:
       - type: s3
         bucket: ${LITESTREAM_S3_BUCKET}
-        path: urmail-db
+        path: ${LITESTREAM_S3_PATH}
         region: ${LITESTREAM_S3_REGION}
+        endpoint: ${LITESTREAM_S3_ENDPOINT}
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+        skip-verify: ${LITESTREAM_S3_SKIP_VERIFY}
