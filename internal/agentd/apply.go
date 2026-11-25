@@ -1002,6 +1002,22 @@ func (m *ApplyManager) compileSpamScript(ctx context.Context) error {
 	return nil
 }
 func (m *ApplyManager) check(ctx context.Context, p ApplyParams) error {
+	if m.cfg != nil && strings.TrimSpace(m.cfg.RenderedConfigDir) != "" {
+		root := m.configRoot()
+		checks := [][]string{
+			{"/usr/bin/doveconf", "-n", "-c", filepath.Join(root, "dovecot", "dovecot.conf")},
+			{"/usr/sbin/postfix", "-c", filepath.Join(root, "postfix"), "check"},
+		}
+		for _, c := range checks {
+			name := filepath.Base(c[0])
+			m.status.Step = "check:" + name
+			m.publish()
+			if err := m.run(ctx, c[0], c[1:]...); err != nil {
+				return fmt.Errorf("check %s: %w", name, err)
+			}
+		}
+		return nil
+	}
 	checks := [][]string{{"/usr/sbin/opendkim", "-n", "-x", opendkim.ConfPath}, {"/usr/bin/doveconf", "-n"}, {"/usr/sbin/postfix", "check"}, {"/usr/sbin/nginx", "-t"}, {"/usr/sbin/nsd-checkconf", "/etc/nsd/nsd.conf"}}
 	for _, c := range checks {
 		name := filepath.Base(c[0])

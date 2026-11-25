@@ -6,11 +6,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/db/isolation"
+	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/sqlitedb"
 	"github.com/bushixiucai/urmail/migrations_sqlite"
 )
@@ -195,4 +197,70 @@ func TestApplyWriteSkipsChownGroupWhenNonRoot(t *testing.T) {
 	if _, err := os.Stat(m.target(privKey)); err != nil {
 		t.Fatalf("mail.private missing after non-root write: %v", err)
 	}
+}
+
+func TestCheckComposeModeAndHostModeMatrix(t *testing.T) {
+	t.Run("compose_skips_host_checks_and_targets_rendered_root", func(t *testing.T) {
+		var ran []string
+		cfg := firstBootConfig()
+		cfg.RenderedConfigDir = "/srv/urmail/data/config"
+		m := &ApplyManager{
+			cfg: cfg,
+			run: func(_ context.Context, name string, args ...string) error {
+				ran = append(ran, name+" "+strings.Join(args, " "))
+				return nil
+			},
+		}
+		params := ApplyParams{}
+		params.DNS.Zones = []nsd.Zone{{Domain: "example.com"}}
+		if err := m.check(context.Background(), params); err != nil {
+			t.Fatalf("compose check failed: %v", err)
+		}
+		want := []string{
+			"/usr/bin/doveconf -n -c /srv/urmail/data/config/dovecot/dovecot.conf",
+			"/usr/sbin/postfix -c /srv/urmail/data/config/postfix check",
+		}
+		if strings.Join(ran, "\n") != strings.Join(want, "\n") {
+			t.Fatalf("compose check commands:\ngot:\n%s\nwant:\n%s", strings.Join(ran, "\n"), strings.Join(want, "\n"))
+		}
+	})
+
+	t.Run("compose_fails_closed_when_rendered_check_fails", func(t *testing.T) {
+		cfg := firstBootConfig()
+		cfg.RenderedConfigDir = "/srv/urmail/data/config"
+		m := &ApplyManager{
+			cfg: cfg,
+			run: func(_ context.Context, name string, args ...string) error {
+				if filepath.Base(name) == "doveconf" {
+					return errors.New("fatal: open(/srv/urmail/data/config/dovecot/dovecot.conf) failed: No such file or directory")
+				}
+				return nil
+			},
+		}
+		err := m.check(context.Background(), ApplyParams{})
+		if err == nil || !strings.Contains(err.Error(), "check doveconf") {
+			t.Fatalf("expected fail-closed doveconf error, got %v", err)
+		}
+	})
+
+	t.Run("host_mode_runs_all_host_checks", func(t *testing.T) {
+		var ran []string
+		m := &ApplyManager{
+			cfg: firstBootConfig(),
+			run: func(_ context.Context, name string, args ...string) error {
+				ran = append(ran, name+" "+strings.Join(args, " "))
+				return nil
+			},
+		}
+		params := ApplyParams{}
+		params.DNS.Zones = []nsd.Zone{{Domain: "example.com"}}
+		if err := m.check(context.Background(), params); err != nil {
+			t.Fatalf("host check failed: %v", err)
+		}
+		for _, expected := range []string{"opendkim", "doveconf -n", "postfix check", "nginx -t", "nsd-checkconf", "nsd-checkzone"} {
+			if !strings.Contains(strings.Join(ran, "\n"), expected) {
+				t.Fatalf("host check missing %q in:\n%s", expected, strings.Join(ran, "\n"))
+			}
+		}
+	})
 }
