@@ -657,8 +657,8 @@ type Querier interface {
 	PlatformInsertMarketingFlowStep(ctx context.Context, arg PlatformInsertMarketingFlowStepParams) error
 	PlatformInsertTenantDirectoryContact(ctx context.Context, arg PlatformInsertTenantDirectoryContactParams) (TenantDirectoryContacts, error)
 	PlatformLegacyImportTargetFacts(ctx context.Context, tenantID int64) (PlatformLegacyImportTargetFactsRow, error)
-	// Platform query for Postfix configuration generator.
-	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
+	// PlatformListAliases keeps the PostgreSQL statement for that engine and uses
+	// the JSON-array variant on the single engine.
 	PlatformListAliases(ctx context.Context) ([]PlatformListAliasesRow, error)
 	PlatformListAnnouncements(ctx context.Context) ([]Announcements, error)
 	PlatformListArchivePurgeCandidates(ctx context.Context) ([]PlatformListArchivePurgeCandidatesRow, error)

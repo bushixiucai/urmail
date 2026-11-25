@@ -99,3 +99,4 @@ PlatformResetBrandTheme platform
 PlatformUnbindBrandHost platform
 PlatformVerifyBrandHostProof platform
 PlatformCreateFirstDomain           tenant
+PlatformListAliases                 platform
