@@ -17,7 +17,7 @@ import (
 // caller instead of collapsing into a bare AGENT_OP_FAILED.
 func TestClientSurfacesAgentErrorMessage(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "agent.sock")
-	listener, err := net.Listen("unix", socket)
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", socket)
 	if err != nil {
 		t.Fatal(err)
 	}

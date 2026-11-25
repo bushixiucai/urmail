@@ -3,13 +3,13 @@ package loadbench
 import (
 	"context"
 	"fmt"
-	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
 

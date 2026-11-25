@@ -68,7 +68,7 @@ func offlinePreparationGuard(ctx context.Context, cfg *config.Config) error {
 	return ctx.Err()
 }
 
-func prepareOffline(ctx context.Context, cfg *config.Config, pool *db.Pool, raw json.RawMessage, ownsPool, firstBoot bool) (ApplyStatus, error) {
+func prepareOffline(_ context.Context, cfg *config.Config, pool *db.Pool, raw json.RawMessage, ownsPool, firstBoot bool) (ApplyStatus, error) {
 	// Never use NewApplyManager here: its recovery may restart protocol services.
 	m := &ApplyManager{cfg: cfg, root: offlineStateRoot, targetRoot: offlineTargetRoot, run: offlineCommand, fileWriter: writeFileAtomic, prepareOnly: true}
 	if err := os.MkdirAll(m.root, 0700); err != nil {

@@ -50,7 +50,7 @@ RUN apt-get update \
     && env https_proxy=$https_proxy http_proxy=$http_proxy \
        apt-get install -y --no-install-recommends \
          ca-certificates curl bash openssl sqlite3 \
-         postfix dovecot-core dovecot-imapd dovecot-lmtpd \
+         postfix dovecot-core dovecot-imapd dovecot-lmtpd dovecot-sieve \
     && rm -rf /var/lib/apt/lists/*
 
 # Reserved uid/gid for the Maildir owner mapping (plan §5 待拍板项): keep a
