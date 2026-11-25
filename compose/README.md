@@ -72,7 +72,9 @@ docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
 - `urmail-signer` / `urmail-spam`（`profiles: ["milter"]`）：**未就绪**。脱 profile 条件：由 **Backend** 在仓内实现并随 `Dockerfile` 产出 `urmail-milter` 二进制（含 `sign`/`spam` 子命令），且经 **DevOps + QA** 在隔离全栈通过真实 25/465/587 DKIM/spam 协议冒烟后，再提交移除 `profiles: ["milter"]`。
 - `urmail-agent`（`profiles: ["agent"]`）：**未就绪**。脱 profile 条件：由 **Backend** 修复 `internal/mail/render.go` 输出路径至 `/srv/urmail/data/config/{postfix,dovecot,caddy}`、补齐 `Caddyfile` 渲染与 SQLite `config prepare --first-boot` 兼容并提交，再由 **DevOps + QA** 实跑验证渲染重载闭环后，方可移除 `profiles: ["agent"]`。
 
-与 `compose.test.local.yaml` 差异：`compose.test.local.yaml` 仅用于本机非特权端口映射测试（`2025/2465/2587/8080/8443/1993/1143`、`litestream-local.yml` 与 `urmail-signer-test`），不包含生产 `host` 网络与 S3 异地参数。
+与 `compose.test.local.yaml` 差异：`compose.test.local.yaml` 仅作为 `compose.yaml` 的本地覆盖文件使用（**必须联合执行** `docker compose -f compose.yaml -f compose.test.local.yaml ...`，不可单独执行），用于非特权端口映射测试（`2025/2465/2587/8080/8443/1993/1143`、`litestream-local.yml` 与 `urmail-signer-test`），不包含生产 `host` 网络与 S3 异地参数。
+
+写入面说明：`urmaild` 与 `postfix`/`dovecot` 容器仅对 `config/` 子树（`/srv/urmail/data/config/{postfix,dovecot}`）保持 `rw` 挂载以支持容器内 `render` 模式写入与读取；`holds/`、静态占位卷及密钥/整数据根对 MTA/IMAP 容器仍保持隔离或 `:ro`。
 
 ## 构建代理（受限网络）
 

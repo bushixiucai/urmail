@@ -60,6 +60,8 @@ services:
     volumes:
       # 容器内挂载点为固定路径（与宿主 URMAIL_DATA_ROOT 无关，勿插值化）
       - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/config
+      # 渲染配置输出根（与 URMAIL_RENDERED_CONFIG_DIR=/srv/urmail/data/config 对齐）
+      - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/data/config
       - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
       - ${URMAIL_DATA_ROOT:-./data}/backup:/srv/urmail/data/backup
       # readiness-record 的 maintenance 根（独立子目录，不进 backup 卷枚举面）
@@ -145,13 +147,13 @@ services:
         required: false
     volumes:
       - ./compose/postfix:/srv/urmail/config/postfix:ro
-      - ${URMAIL_DATA_ROOT:-./data}/config/postfix:/srv/urmail/data/config/postfix:ro
+      - ${URMAIL_DATA_ROOT:-./data}/config/postfix:/srv/urmail/data/config/postfix
       - ${URMAIL_DATA_ROOT:-./data}/config/spool:/var/spool/postfix
       # hold 门（QA 终判③+复审 CONDITION）：只 ro 挂 holds/ 子目录，
       # 绝不把含 master.key/db 的整数据根暴露给 MTA 容器
       - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
     healthcheck:
-      test: ["CMD", "postfix", "-c", "/srv/urmail/config/postfix", "status"]
+      test: ["CMD", "postfix", "-c", "${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/config}/postfix", "status"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -168,13 +170,13 @@ services:
       URMAIL_RENDERED_CONFIG_DIR: ${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/data/config}
     volumes:
       - ./compose/dovecot:/srv/urmail/config/dovecot:ro
-      - ${URMAIL_DATA_ROOT:-./data}/config/dovecot:/srv/urmail/data/config/dovecot:ro
+      - ${URMAIL_DATA_ROOT:-./data}/config/dovecot:/srv/urmail/data/config/dovecot
       - ${URMAIL_DATA_ROOT:-./data}/mail:/srv/urmail/data/mail
       - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
     healthcheck:
       # doveadm process status talks to the running master; Dovecot 2.3 has
       # no `doveadm ping` subcommand, so the earlier check always exited 64.
-      test: ["CMD", "doveadm", "-c", "/srv/urmail/config/dovecot/dovecot.conf", "process", "status"]
+      test: ["CMD", "doveadm", "-c", "${URMAIL_RENDERED_CONFIG_DIR:-/srv/urmail/config}/dovecot/dovecot.conf", "process", "status"]
       interval: 30s
       timeout: 10s
       retries: 3
