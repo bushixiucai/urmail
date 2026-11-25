@@ -52,7 +52,7 @@ func completeArts(stamp string) []fixtureArtifact {
 func TestVerifyBackupArtifactsAcceptsIntactGeneration(t *testing.T) {
 	dir := t.TempDir()
 	name := writeGeneration(t, dir, "20260101T000000Z", completeArts("20260101T000000Z"))
-	if err := verifyBackupArtifacts(dir, name); err != nil {
+	if err := verifyBackupArtifacts(dir, name, false); err != nil {
 		t.Fatalf("intact generation rejected: %v", err)
 	}
 }
@@ -64,7 +64,7 @@ func TestVerifyBackupArtifactsRejectsTamperedArtifact(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "urmail-mail-"+stamp+".tar.gz"), []byte("tampered"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := verifyBackupArtifacts(dir, name)
+	err := verifyBackupArtifacts(dir, name, false)
 	if err == nil || !strings.Contains(err.Error(), "sha256 mismatch") {
 		t.Fatalf("tampered artifact err=%v, want sha256 mismatch", err)
 	}
@@ -75,7 +75,7 @@ func TestVerifyBackupArtifactsRejectsMissingMailArchive(t *testing.T) {
 	stamp := "20260101T000000Z"
 	arts := completeArts(stamp)[:2] // dump + config, all hashes valid
 	name := writeGeneration(t, dir, stamp, arts)
-	err := verifyBackupArtifacts(dir, name)
+	err := verifyBackupArtifacts(dir, name, false)
 	if err == nil || !strings.Contains(err.Error(), "mail_tar") {
 		t.Fatalf("manifest missing the mail archive err=%v, want a mail_tar completeness error", err)
 	}
@@ -98,15 +98,45 @@ func TestVerifyBackupArtifactsHandlesV3Manifests(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, name), valid, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyBackupArtifacts(dir, name); err != nil {
+	if err := verifyBackupArtifacts(dir, name, false); err != nil {
 		t.Fatalf("well-formed v3 generation rejected: %v", err)
 	}
 	malformed, _ := json.Marshal(map[string]any{"version": 3, "artifacts": arts})
 	if err := os.WriteFile(filepath.Join(dir, name), malformed, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyBackupArtifacts(dir, name); err == nil || !strings.Contains(err.Error(), "malformed v3") {
+	if err := verifyBackupArtifacts(dir, name, false); err == nil || !strings.Contains(err.Error(), "malformed v3") {
 		t.Fatalf("malformed v3 err=%v, want rejection", err)
+	}
+}
+
+func sqliteArts(stamp string) []fixtureArtifact {
+	return []fixtureArtifact{
+		{name: "urmail-" + stamp + ".sqlite", data: "snapshot", kind: backupauto.KindSqliteSnapshot},
+		{name: "urmail-config-" + stamp + ".tar.gz", data: "config", kind: backupauto.KindConfigTar},
+		{name: "urmail-mail-" + stamp + ".tar.gz", data: "mail", kind: backupauto.KindMailTar},
+	}
+}
+
+func TestVerifyBackupArtifactsAcceptsSQLiteGeneration(t *testing.T) {
+	dir := t.TempDir()
+	stamp := "20260101T000000Z"
+	name := writeGeneration(t, dir, stamp, sqliteArts(stamp))
+	if err := verifyBackupArtifacts(dir, name, true); err != nil {
+		t.Fatalf("sqlite generation rejected: %v", err)
+	}
+}
+
+func TestVerifyBackupArtifactsRejectsWrongEngineAncestor(t *testing.T) {
+	dir := t.TempDir()
+	stamp := "20260101T000000Z"
+	name := writeGeneration(t, dir, stamp, completeArts(stamp))
+	if err := verifyBackupArtifacts(dir, name, true); err == nil {
+		t.Fatal("a pg_dump generation was accepted for a SQLite deployment")
+	}
+	name2 := writeGeneration(t, dir, stamp, sqliteArts(stamp))
+	if err := verifyBackupArtifacts(dir, name2, false); err == nil {
+		t.Fatal("a sqlite generation was accepted for a PostgreSQL deployment")
 	}
 }
 

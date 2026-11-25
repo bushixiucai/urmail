@@ -259,9 +259,6 @@ func completeLocalArtifacts(stamp string, artifacts []LocalArtifact) error {
 // positive size and a well-formed sha256. The upgrade fence reuses it so a
 // manifest that lists only some of them can never authorize a cut-over.
 func VerifyCompleteArtifactSet(stamp string, artifacts []LocalArtifact) error {
-	if len(artifacts) != 3 {
-		return fmt.Errorf("complete backup requires database, configuration and mail artifacts (got %d)", len(artifacts))
-	}
 	seen := map[string]bool{}
 	dbArtifacts := 0
 	for _, artifact := range artifacts {

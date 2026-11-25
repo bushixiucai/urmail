@@ -30,7 +30,7 @@ func backupSpoolDir() string {
 // exists on disk with the hashes its manifest names. The backup_runs row alone
 // is metadata: a tampered or missing artifact must refuse the fence instead of
 // letting an upgrade run on a backup that cannot be restored.
-func verifyBackupArtifacts(spoolDir, manifestName string) error {
+func verifyBackupArtifacts(spoolDir, manifestName string, sqliteEngine bool) error {
 	name := strings.TrimSpace(manifestName)
 	if name == "" {
 		return errors.New("the newest backup run records no manifest name; artifact integrity cannot be verified")
@@ -77,6 +77,19 @@ func verifyBackupArtifacts(spoolDir, manifestName string) error {
 	}
 	if err := backupauto.VerifyCompleteArtifactSet(stamp, local); err != nil {
 		return err
+	}
+	wantKind := backupauto.KindPgDump
+	if sqliteEngine {
+		wantKind = backupauto.KindSqliteSnapshot
+	}
+	found := false
+	for _, artifact := range manifest.Artifacts {
+		if artifact.Kind == wantKind {
+			found = true
+		}
+	}
+	if !found {
+		return fmt.Errorf("backup manifest %s carries no %s database artifact for the configured engine", name, wantKind)
 	}
 	for _, artifact := range manifest.Artifacts {
 		if artifact.Name == "" || filepath.Base(artifact.Name) != artifact.Name {

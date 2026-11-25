@@ -939,7 +939,7 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 	cfg, err := config.Load()
 	if err != nil {
 		if strings.EqualFold(strings.TrimSpace(os.Getenv("URMAIL_DB_ENGINE")), "sqlite") {
-			return "", fmt.Errorf("fresh-backup pre-flight: single-engine configuration is invalid: %v; fix it or pass --skip-preflight to record an explicit operator override", err)
+			return "", fmt.Errorf("fresh-backup pre-flight: single-engine configuration is invalid: %w; fix it or pass --skip-preflight to record an explicit operator override", err)
 		}
 		return degraded("configuration error: %v", err)
 	}
@@ -950,7 +950,7 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 	pool, err := openBackupPlatformPool(ctx, cfg)
 	if err != nil {
 		if cfg.IsSQLite() {
-			return "", fmt.Errorf("fresh-backup pre-flight: cannot open the SQLite backup ledger: %v; fix the database path or pass --skip-preflight to record an explicit operator override", err)
+			return "", fmt.Errorf("fresh-backup pre-flight: cannot open the SQLite backup ledger: %w; fix the database path or pass --skip-preflight to record an explicit operator override", err)
 		}
 		return degraded("open: %v", err)
 	}
@@ -1001,7 +1001,7 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 	// hashes its manifest names, and the spool filesystem must have room for the
 	// next generation. Both checks fail closed.
 	spool := backupSpoolDir()
-	if err := verifyBackupArtifacts(spool, health.ManifestName); err != nil {
+	if err := verifyBackupArtifacts(spool, health.ManifestName, cfg.IsSQLite()); err != nil {
 		return "", fmt.Errorf("fresh-backup pre-flight: %w; run a complete backup first, or pass --skip-preflight to record an explicit operator override", err)
 	}
 	if err := verifyFreeSpace(spool); err != nil {
