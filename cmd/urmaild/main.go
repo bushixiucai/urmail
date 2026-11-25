@@ -442,6 +442,7 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 	dnsPlans := startDomainOnboarding(ctx, cfg, platformPool, secretBox, reconcilePipeline, logger)
 	startMailTelemetry(ctx, cfg, backgroundPool, logger)
 	startMailObservability(ctx, cfg, backgroundPool, logger)
+	startDovecotAuthSnapshot(ctx, cfg, platformPool, logger)
 	tokenManager, _ := tokenVerifier.(*domainMail.SuppressionManager)
 	marketingWorker, workerErr := marketing.NewWorker(marketing.Options{Pool: marketingPool, Secrets: secretBox, Tokens: tokenManager, Enabled: cfg.MarketingEnabled && cfg.BackgroundWorkersAllowed(), DevMode: cfg.DevMode, Quarantined: cfg.Quarantined,
 		Hostname: cfg.MyHostname, UnsubscribeURL: baseURL + "/api/v1/marketing/unsubscribe", Logger: logger})

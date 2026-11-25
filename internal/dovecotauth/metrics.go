@@ -13,6 +13,12 @@ var activeManager atomic.Pointer[Manager]
 // SetMetricsManager binds the manager whose Dirty/Staleness the gauges report.
 func SetMetricsManager(m *Manager) { activeManager.Store(m) }
 
+// MetricsManager returns the currently bound snapshot manager, if any.
+func MetricsManager() *Manager { return activeManager.Load() }
+
+// Built reports whether at least one snapshot build has completed.
+func (m *Manager) Built() bool { return m != nil && m.lastOK.Load() != 0 }
+
 var (
 	dirtyGauge = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Name: "urmail_dovecot_auth_snapshot_dirty",

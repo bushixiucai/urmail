@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/agent"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/dovecotauth"
 	"github.com/bushixiucai/urmail/internal/telemetry"
 )
 
@@ -46,4 +49,51 @@ func startMailObservability(ctx context.Context, cfg *config.Config, pool *db.Po
 	evaluator := &telemetry.Evaluator{Pool: pool, Stream: stream, Source: telemetry.RuntimeObserver{Client: agent.NewClient(cfg.AgentSocket)}}
 	evaluator.CertificateAddress = mailCertificateProbeAddress(cfg)
 	go evaluator.Start(ctx, logger)
+}
+
+type dovecotAuthSource struct{ pool *db.Pool }
+
+func (s dovecotAuthSource) Query(ctx context.Context, query string, args ...any) (dovecotauth.Rows, error) {
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return dovecotAuthRows{Rows: rows}, nil
+}
+
+type dovecotAuthRows struct{ pgx.Rows }
+
+func (r dovecotAuthRows) Close() error {
+	r.Rows.Close()
+	return nil
+}
+
+// startDovecotAuthSnapshot binds the read-only SQLite dovecot auth snapshot
+// manager, runs startup sampling reconciliation, and schedules the 24h fallback rebuild.
+func startDovecotAuthSnapshot(ctx context.Context, cfg *config.Config, pool *db.Pool, logger *zap.Logger) {
+	if !cfg.IsSQLite() || cfg.DovecotAuthDB == "" || pool == nil {
+		return
+	}
+	mgr := dovecotauth.NewManager(cfg.DovecotAuthDB, dovecotAuthSource{pool: pool})
+	dovecotauth.SetMetricsManager(mgr)
+	if err := mgr.Reconcile(ctx, 20); err != nil {
+		logger.Warn("dovecot auth snapshot reconciliation triggered repair", zap.Error(err))
+		if _, repairErr := mgr.Repair(ctx); repairErr != nil {
+			logger.Warn("dovecot auth snapshot initial repair failed", zap.Error(repairErr))
+		}
+	}
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := mgr.Rebuild(ctx); err != nil {
+					logger.Warn("dovecot auth snapshot 24h fallback rebuild failed", zap.Error(err))
+				}
+			}
+		}
+	}()
 }

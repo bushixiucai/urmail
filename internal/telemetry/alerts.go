@@ -47,7 +47,7 @@ func AlertSeverity(kind string) string {
 		return SeverityCritical
 	case "telemetry_queue_pressure", "telemetry_resource_pressure", "telemetry_collector_stale",
 		"telemetry_backup_stale", "archive_reconciliation", "archive_orphan_original",
-		"spam_milter_unavailable":
+		"spam_milter_unavailable", "telemetry_auth_snapshot_dirty", "telemetry_auth_snapshot_stale":
 		return SeverityWarning
 	case "telemetry_certificate_expiring":
 		return SeverityWarning
