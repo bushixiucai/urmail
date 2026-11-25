@@ -58,6 +58,11 @@ linters:
       - path: cmd/urmailctl/sqlite_cmd\.go
         linters: [gosec]
         text: "G703"
+      # G703: createSQLiteSnapshot refuses a non-clean absolute target before
+      # MkdirAll/Stat; VACUUM INTO binds the path as a parameter.
+      - path: cmd/urmailctl/backup_sqlite\.go
+        linters: [gosec]
+        text: "G703"
       # The type-map path is validated as a clean absolute path in LoadTypeMap
       # before the open; gosec's taint model does not track that guard.
       - path: internal/datamigrate/typemap\.go

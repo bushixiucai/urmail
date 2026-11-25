@@ -98,6 +98,7 @@ func TestRestoreSQLiteSnapshotRefusesWrongVersionAndCorruption(t *testing.T) {
 		t.Fatalf("valid snapshot after failed attempts: %v", err)
 	}
 }
+
 // TestEndToEndSQLiteBackupThenRestore exercises the product pair: snapshot the
 // live database, change it, restore the snapshot, and compare the rows.
 func TestEndToEndSQLiteBackupThenRestore(t *testing.T) {

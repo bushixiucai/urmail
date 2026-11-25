@@ -44,10 +44,10 @@ func TestCreateSQLiteSnapshotWritesConsistentCopy(t *testing.T) {
 	}
 	defer func() { _ = snap.Close() }()
 	var version, brands int
-	if err = snap.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != sqlitedb.ExpectedSchemaVersion {
+	if err = snap.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != sqlitedb.ExpectedSchemaVersion {
 		t.Fatalf("snapshot user_version=%d err=%v", version, err)
 	}
-	if err = snap.QueryRow(`SELECT count(*) FROM brands WHERE id=7`).Scan(&brands); err != nil || brands != 1 {
+	if err = snap.QueryRowContext(t.Context(), `SELECT count(*) FROM brands WHERE id=7`).Scan(&brands); err != nil || brands != 1 {
 		t.Fatalf("snapshot rows=%d err=%v", brands, err)
 	}
 	if err = createSQLiteSnapshot(ctx, source, target); err == nil {

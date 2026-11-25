@@ -113,10 +113,9 @@ func TestStateRecorderSQLiteMissingTable(t *testing.T) {
 	}
 }
 
-type sqliteRunner struct{ dir, stamp string }
+type sqliteRunner struct{ dir string }
 
 func (r sqliteRunner) RunBackup(_ context.Context, stamp string) ([]backupauto.LocalArtifact, string, bool, error) {
-	r.stamp = stamp
 	names := []struct {
 		file, kind string
 	}{

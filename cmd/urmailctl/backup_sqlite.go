@@ -26,6 +26,11 @@ var sqliteSnapshotVacuum = func(ctx context.Context, src *sql.DB, target string)
 // to assert integrity_check=ok and the expected user_version before the caller
 // records it as a backup artifact.
 func createSQLiteSnapshot(ctx context.Context, path, target string) error {
+	// Both paths are operator-configured absolute paths; a traversal-bearing or
+	// relative value is refused before any directory is created or read.
+	if !filepath.IsAbs(target) || filepath.Clean(target) != target {
+		return fmt.Errorf("SQLite snapshot target must be a clean absolute path")
+	}
 	if strings.TrimSpace(path) == "" {
 		return errors.New("SQLite backup requires URMAIL_SQLITE_PATH")
 	}
