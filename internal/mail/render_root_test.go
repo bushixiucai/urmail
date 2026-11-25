@@ -63,4 +63,14 @@ func TestRenderRootInjectsComposeLayout(t *testing.T) {
 	if !strings.Contains(caddy, "mail.example.test {") || !strings.Contains(caddy, "reverse_proxy 127.0.0.1:8080") {
 		t.Fatalf("caddy site block incomplete:\n%s", caddy)
 	}
+	for path := range files {
+		if strings.HasPrefix(path, "/etc/") {
+			t.Fatalf("injected render root emitted host /etc artifact: %s", path)
+		}
+		if !strings.HasPrefix(path, "/srv/urmail/data/config/postfix/") &&
+			!strings.HasPrefix(path, "/srv/urmail/data/config/dovecot/") &&
+			path != "/srv/urmail/data/config/caddy/Caddyfile" {
+			t.Fatalf("unexpected artifact under injected render root: %s", path)
+		}
+	}
 }

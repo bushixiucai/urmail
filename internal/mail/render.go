@@ -72,36 +72,49 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 		result[abs] = content
 	}
 
-	// 3. NSD
-	// NSD splits configuration into nsd.conf.d snippets (zones.conf)
-	// and zone database definition text files (/etc/nsd/zones/<domain>.txt).
-	nsdFiles, err := nsd.Generate(ctx.NSDNode, ctx.NSDSnap)
-	if err != nil {
-		return nil, fmt.Errorf("render nsd: %w", err)
-	}
-	for rel, content := range nsdFiles {
-		var abs string
-		if rel == nsd.FileZonesConf {
-			abs = filepath.Join("/etc/nsd/nsd.conf.d", rel)
-		} else {
-			abs = filepath.Join("/etc/nsd", rel)
+	// 3–5. Host-only services (NSD, Nginx, OpenDKIM) and compose Caddy.
+	// An injected renderRoot selects the compose topology: Caddy replaces Nginx,
+	// and NSD/OpenDKIM host trees under /etc are not rendered into the
+	// unprivileged container config volume.
+	if renderRoot == "" {
+		// 3. NSD
+		// NSD splits configuration into nsd.conf.d snippets (zones.conf)
+		// and zone database definition text files (/etc/nsd/zones/<domain>.txt).
+		nsdFiles, err := nsd.Generate(ctx.NSDNode, ctx.NSDSnap)
+		if err != nil {
+			return nil, fmt.Errorf("render nsd: %w", err)
 		}
-		result[abs] = content
-	}
+		for rel, content := range nsdFiles {
+			var abs string
+			if rel == nsd.FileZonesConf {
+				abs = filepath.Join("/etc/nsd/nsd.conf.d", rel)
+			} else {
+				abs = filepath.Join("/etc/nsd", rel)
+			}
+			result[abs] = content
+		}
 
-	// 4. Nginx
-	ngFiles, err := nginx.Generate(ctx.NginxNode, ctx.NginxSnap)
-	if err != nil {
-		return nil, fmt.Errorf("render nginx: %w", err)
-	}
-	for rel, content := range ngFiles {
-		abs := filepath.Join("/etc/nginx", rel)
-		result[abs] = content
-	}
+		// 4. Nginx
+		ngFiles, err := nginx.Generate(ctx.NginxNode, ctx.NginxSnap)
+		if err != nil {
+			return nil, fmt.Errorf("render nginx: %w", err)
+		}
+		for rel, content := range ngFiles {
+			abs := filepath.Join("/etc/nginx", rel)
+			result[abs] = content
+		}
 
-	// 4b. Caddy (compose topology): only inside an injected render root, so a
-	// host deployment keeps its /etc tree untouched.
-	if renderRoot != "" {
+		// 5. OpenDKIM: signing keys plus key/signing/trusted-host tables.
+		dkimFiles, err := opendkim.Generate(opendkim.NodeConfig{}, ctx.DKIM)
+		if err != nil {
+			return nil, fmt.Errorf("render opendkim: %w", err)
+		}
+		for path, content := range dkimFiles {
+			result[path] = content
+		}
+	} else {
+		// 4b. Caddy (compose topology): only inside an injected render root, so a
+		// host deployment keeps its /etc tree untouched.
 		caddyFiles, caddyErr := caddy.Generate(ctx.NginxSnap)
 		if caddyErr != nil {
 			return nil, fmt.Errorf("render caddy: %w", caddyErr)
@@ -109,15 +122,6 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 		for rel, content := range caddyFiles {
 			result[filepath.Join(renderRoot, "caddy", rel)] = content
 		}
-	}
-
-	// 5. OpenDKIM: signing keys plus key/signing/trusted-host tables.
-	dkimFiles, err := opendkim.Generate(opendkim.NodeConfig{}, ctx.DKIM)
-	if err != nil {
-		return nil, fmt.Errorf("render opendkim: %w", err)
-	}
-	for path, content := range dkimFiles {
-		result[path] = content
 	}
 
 	return result, nil
