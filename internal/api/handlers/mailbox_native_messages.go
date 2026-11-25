@@ -21,6 +21,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailauth"
 	"github.com/bushixiucai/urmail/internal/rendercache"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -747,7 +748,7 @@ func lookupPhishingFinding(ctx context.Context, pool *db.Pool, session webmail.S
 	if err != nil {
 		return nil
 	}
-	row, err := db.Queries(tx).PlatformGetMailboxPhishingFinding(ctx, store.PlatformGetMailboxPhishingFindingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Folder: folder, UidValidity: int64(uidValidity), Uid: int64(uid)})
+	row, err := db.Queries(tx).PlatformGetMailboxPhishingFinding(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetMailboxPhishingFindingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Folder: folder, UidValidity: int64(uidValidity), Uid: int64(uid)})
 	_ = tx.Rollback(ctx)
 	if err != nil {
 		return nil
