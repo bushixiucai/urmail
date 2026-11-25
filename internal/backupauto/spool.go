@@ -62,12 +62,14 @@ func ReadSpool(dir, stamp string) (*Manifest, []LocalArtifact, error) {
 	if !includedDB {
 		return nil, nil, fmt.Errorf("backup spool %s lacks the database artifact", dir)
 	}
-	if !includedMail {
-		return nil, nil, fmt.Errorf("backup spool %s lacks the mail archive", dir)
-	}
 	manifest, err := LoadManifest(filepath.Join(dir, ManifestName(stamp)))
 	if err != nil && !os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf("read spool manifest: %w", err)
+	}
+	// A metadata-only generation legitimately omits the mail archive; a complete
+	// generation must carry it, or the spool is not a restorable backup.
+	if !includedMail && (manifest == nil || manifest.Scope == ScopeComplete) {
+		return nil, nil, fmt.Errorf("backup spool %s lacks the mail archive", dir)
 	}
 	return manifest, artifacts, nil
 }
