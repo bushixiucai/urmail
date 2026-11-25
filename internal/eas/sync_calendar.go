@@ -40,7 +40,7 @@ func loadEvent(ctx context.Context, b *SyncBackend, req *SyncRequest, id int64) 
 		return storedEvent{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	row, err := db.Queries(tx).PlatformGetEvent(ctx, store.PlatformGetEventParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, ID: id})
+	row, err := db.Queries(tx).PlatformGetEvent(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetEventParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, ID: id})
 	if err != nil {
 		return storedEvent{}, err
 	}
