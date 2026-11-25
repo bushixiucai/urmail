@@ -21,7 +21,9 @@ func TestLegacySieveLocationsArePerMailboxUserDBOverrides(t *testing.T) {
 		"THEN '/home/user-data/mail/sieve/global_before' ELSE NULL END AS sieve_before2",
 		"THEN '/home/user-data/mail/sieve/global_after' ELSE NULL END AS sieve_after",
 		"THEN 'recipient' ELSE NULL END AS sieve_redirect_envelope_from",
-		"urmail_domain_mail_ready(m.tenant_id,m.domain_id)",
+		// §5.3: the readiness predicate is inlined as a single-table EXISTS
+		// subquery because the snapshot carries no SQL functions.
+		"EXISTS(SELECT 1 FROM domains d WHERE d.tenant_id = m.tenant_id AND d.domain_id = m.domain_id AND d.status = 'active' AND d.mail_ready = 1)",
 	} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("missing constrained userdb field %s", required)

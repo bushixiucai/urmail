@@ -58,6 +58,7 @@ type Config struct {
 	// (urmail_dovecot). Dovecot uses it for passdb/userdb queries across
 	// tenants; it has BYPASSRLS but only SELECT on mailboxes/domains.
 	DatabaseURLDovecot string
+	DovecotAuthDB      string // read-only SQLite auth snapshot dovecot authenticates against
 
 	// DBEngine selects the single database engine ("postgres" or "sqlite").
 	// Empty defaults to postgres unless SQLitePath is set.
@@ -291,6 +292,7 @@ func Load() (*Config, error) {
 		DatabaseURLPlatform:         values["URMAIL_DATABASE_URL_PLATFORM"],
 		DatabaseURLMigrate:          values["URMAIL_DATABASE_URL_MIGRATE"],
 		DatabaseURLDovecot:          values["URMAIL_DATABASE_URL_DOVECOT"],
+		DovecotAuthDB:               dovecotAuthDB(values["URMAIL_DOVECOT_AUTH_DB"]),
 		DBEngine:                    strings.ToLower(strings.TrimSpace(values["URMAIL_DB_ENGINE"])),
 		SQLitePath:                  strings.TrimSpace(values["URMAIL_SQLITE_PATH"]),
 		MyHostname:                  values["URMAIL_MYHOSTNAME"],
@@ -626,4 +628,12 @@ func mailIdentity(raw string) string {
 		return name
 	}
 	return "mail"
+}
+
+// dovecotAuthDB returns the read-only auth snapshot path (design §5).
+func dovecotAuthDB(raw string) string {
+	if path := strings.TrimSpace(raw); path != "" {
+		return path
+	}
+	return "/var/lib/urmail/dovecot-auth.db"
 }

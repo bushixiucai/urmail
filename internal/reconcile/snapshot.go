@@ -260,6 +260,7 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			DatabaseURL:   dovecotDB,
 			MailUID:       cfg.MailUser,
 			MailGID:       cfg.MailGroup,
+			AuthDBPath:    cfg.DovecotAuthDB,
 		},
 
 		NSDNode: nsd.NodeConfig{
