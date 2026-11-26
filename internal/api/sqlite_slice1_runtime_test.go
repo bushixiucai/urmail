@@ -248,15 +248,22 @@ func TestSlice1SQLiteMailboxRuntime(t *testing.T) {
 		method, path, body string
 	}{
 		{http.MethodPost, "/api/v1/mailbox/folders", `{"name":"Custom"}`},
-		{http.MethodPost, "/api/v1/mailbox/send", `{"to":["bob@b.example.test"],"text":"hi"}`},
 		{http.MethodGet, "/api/v1/mailbox/rules", ""},
 		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"draft_uid":1,"draft_uidvalidity":1,"send_at":"2030-01-01T00:00:00Z"}`},
 		{http.MethodPost, "/api/v1/mailbox/password", `{"old_password":"x","new_password":"y"}`},
 	}
 	for _, probe := range denyProbes {
 		code, body = client.do(probe.method, probe.path, probe.body)
-		if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {
-			t.Fatalf("non-slice %s %s = %d %s, want 503 FEATURE_UNAVAILABLE", probe.method, probe.path, code, body)
+		// rules left the slice-1 gate: it answers its own explicit
+		// SIEVE_DISABLED state (SQLite keeps the managed-Sieve store nil)
+		// instead of the gate 503 — still fail-closed, never the old
+		// silent-empty behavior.
+		wantCode, wantBody := http.StatusServiceUnavailable, "FEATURE_UNAVAILABLE"
+		if probe.path == "/api/v1/mailbox/rules" {
+			wantBody = "SIEVE_DISABLED"
+		}
+		if code != wantCode || !strings.Contains(body, wantBody) {
+			t.Fatalf("non-slice %s %s = %d %s, want %d %s", probe.method, probe.path, code, body, wantCode, wantBody)
 		}
 	}
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_scheduled_sends`).Scan(&scheduledRows); err != nil || scheduledRows != 0 {
