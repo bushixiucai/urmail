@@ -520,6 +520,15 @@ func New(opts Options) *gin.Engine {
 			// login/logout, settings, quota and identities are approved in
 			// the SQLite candidate; every other mailbox route answers 503
 			// FEATURE_UNAVAILABLE with no Retry-After and no fallback.
+			//
+			// The folder/message listing routes are intentionally inside the
+			// gate: their SQLite index tables carry no imported mail yet, so
+			// an ungated list answered an empty folder while Dovecot held
+			// thousands of real messages (post-cutover QA TC-13a "silent
+			// empty inbox"). A visible 503 is the honest slice-1 behavior
+			// until the IMAP-backed listing lands; send/drafts/rules/
+			// corporate-directory, single-message reads and the image proxy
+			// stay gated here as well.
 			mailboxAuthed.Use(func(c *gin.Context) {
 				method := c.Request.Method
 				switch c.FullPath() {
@@ -528,9 +537,7 @@ func New(opts Options) *gin.Engine {
 						c.Next()
 						return
 					}
-				case "/api/v1/mailbox/quota", "/api/v1/mailbox/identities",
-					"/api/v1/mailbox/folders", "/api/v1/mailbox/folders/:name/messages",
-					"/api/v1/mailbox/messages":
+				case "/api/v1/mailbox/quota", "/api/v1/mailbox/identities":
 					if method == http.MethodGet {
 						c.Next()
 						return
