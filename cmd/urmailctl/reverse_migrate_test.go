@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bushixiucai/urmail/internal/reversemigrate"
@@ -67,5 +68,68 @@ func TestCutoverReverseMigrateCLIDryRunAndFailClosed(t *testing.T) {
 	}, &out)
 	if err == nil {
 		t.Fatalf("expected fail-closed error when writers not stopped")
+	}
+}
+
+func TestCutoverReverseMigrateBaselinePKsJSONAndDualWriteDetection(t *testing.T) {
+	dir := t.TempDir()
+	baseFile := filepath.Join(dir, "baseline-pks.json")
+	if err := os.WriteFile(baseFile, []byte(`{"mailbox_aliases":["1","2"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := loadBaselinePKsJSON(baseFile)
+	if err != nil {
+		t.Fatalf("loadBaselinePKsJSON: %v", err)
+	}
+	if !loaded["mailbox_aliases"]["1"] || !loaded["mailbox_aliases"]["2"] {
+		t.Fatalf("unexpected loaded baseline PKs: %+v", loaded)
+	}
+
+	// With baseline loaded: a post-baseline PG row absent from SQLite triggers dual-write abort.
+	pgWithDualWrite := map[string]bool{"1": true, "2": true, "99": true}
+	sqlitePKs := map[string]bool{"1": true, "2": true}
+	if _, err := reversemigrate.ReconcileTableDelta("mailbox_aliases", loaded["mailbox_aliases"], pgWithDualWrite, sqlitePKs); err == nil || !strings.Contains(err.Error(), "dual-write") {
+		t.Fatalf("expected dual-write abort with baseline loaded, got %v", err)
+	}
+
+	// Without baseline (nil): dual-write check is explicitly skipped per design.
+	del, err := reversemigrate.ReconcileTableDelta("mailbox_aliases", nil, pgWithDualWrite, sqlitePKs)
+	if err != nil || len(del) != 1 || del[0] != "99" {
+		t.Fatalf("expected nil baseline to skip dual-write check and schedule delete [99], got del=%v err=%v", del, err)
+	}
+
+	// CLI flag --baseline-pks-json must load and accept valid baseline file in dry-run.
+	hold := filepath.Join(dir, "upgrade.hold")
+	if err := os.WriteFile(hold, []byte("gen-d1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runCutoverWithWriter(context.Background(), []string{
+		"reverse-migrate",
+		"--dry-run",
+		"--hold-file", hold,
+		"--listeners-stopped",
+		"--writers-stopped",
+		"--sqlite-wal-clean",
+		"--pg-writers-zero",
+		"--baseline-pks-json", baseFile,
+	}, &out); err != nil {
+		t.Fatalf("CLI with --baseline-pks-json failed: %v", err)
+	}
+
+	// Missing --baseline-pks-json path must fail closed.
+	out.Reset()
+	if err := runCutoverWithWriter(context.Background(), []string{
+		"reverse-migrate",
+		"--dry-run",
+		"--hold-file", hold,
+		"--listeners-stopped",
+		"--writers-stopped",
+		"--sqlite-wal-clean",
+		"--pg-writers-zero",
+		"--baseline-pks-json", filepath.Join(dir, "missing.json"),
+	}, &out); err == nil {
+		t.Fatalf("expected error on missing --baseline-pks-json")
 	}
 }

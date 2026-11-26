@@ -27,6 +27,7 @@ func runCutoverReverseMigrate(ctx context.Context, args []string, out io.Writer)
 
 	sqlitePath := flags.String("sqlite", "", "frozen source SQLite database path")
 	pgEnv := flags.String("target-pg-env", "URMAIL_REVERSE_TARGET_PG_URL", "environment variable holding target PostgreSQL URL")
+	baselinePKsFile := flags.String("baseline-pks-json", "", "JSON file of pre-cutover PG baseline PKs (map[table][]pk) for dual-write detection")
 	srcMaildir := flags.String("src-maildir", "", "frozen source Maildir root")
 	tgtMaildir := flags.String("tgt-maildir", "", "target Maildir root")
 	quarantineDir := flags.String("quarantine-dir", "", "quarantine directory for Maildir files deleted on source")
@@ -82,6 +83,13 @@ func runCutoverReverseMigrate(ctx context.Context, args []string, out io.Writer)
 		}
 		cfg.SrcQueueItems = items
 	}
+	if *baselinePKsFile != "" {
+		bPKs, err := loadBaselinePKsJSON(*baselinePKsFile)
+		if err != nil {
+			return fmt.Errorf("read baseline-pks-json: %w", err)
+		}
+		cfg.BaselinePKs = bPKs
+	}
 	if *tgtQueueFile != "" {
 		items, err := loadQueueItemsJSON(*tgtQueueFile)
 		if err != nil {
@@ -116,4 +124,28 @@ func loadQueueItemsJSON(path string) ([]reversemigrate.QueueItem, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+func loadBaselinePKsJSON(path string) (map[string]map[string]bool, error) {
+	raw, err := os.ReadFile(path) // #nosec G304 -- operator-supplied baseline PK JSON path
+	if err != nil {
+		return nil, err
+	}
+	var listMap map[string][]string
+	if err := json.Unmarshal(raw, &listMap); err == nil {
+		out := make(map[string]map[string]bool, len(listMap))
+		for tbl, pks := range listMap {
+			set := make(map[string]bool, len(pks))
+			for _, pk := range pks {
+				set[pk] = true
+			}
+			out[tbl] = set
+		}
+		return out, nil
+	}
+	var setMap map[string]map[string]bool
+	if err := json.Unmarshal(raw, &setMap); err != nil {
+		return nil, err
+	}
+	return setMap, nil
 }
