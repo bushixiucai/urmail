@@ -1,6 +1,7 @@
 package reversemigrate
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -8,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -15,7 +17,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/bushixiucai/urmail/internal/datamigrate"
+	"github.com/bushixiucai/urmail/internal/sqlitedb"
+	sqlmigrations "github.com/bushixiucai/urmail/migrations_sqlite"
 )
 
 func boolPtr(b bool) *bool { return &b }
@@ -306,5 +312,140 @@ func TestOrchestratorDryRunAndEndToEnd(t *testing.T) {
 	})
 	if err != nil || !rep.DryRun || !rep.NoSLACommitment || !rep.Reconciliation.Passed {
 		t.Fatalf("orchestrator dry-run failed: %+v err=%v", rep, err)
+	}
+}
+
+func TestOrderTablesForPGAndMetadataExclusion(t *testing.T) {
+	tm, err := datamigrate.ParseTypeMap(bytes.NewReader(sqlmigrations.TypeMapTSV), "migrations_sqlite/type-map.tsv")
+	if err != nil {
+		t.Fatalf("ParseTypeMap: %v", err)
+	}
+	ordered, err := OrderTablesForPG(tm.Tables(), nil)
+	if err != nil {
+		t.Fatalf("OrderTablesForPG: %v", err)
+	}
+	pos := make(map[string]int, len(ordered))
+	for i, tbl := range ordered {
+		if tbl == "schema_migrations" || tbl == "sqlite_sequence" || tbl == "urmail_s5_migrate_meta" {
+			t.Fatalf("metadata table %q must be excluded from reverse migration plan", tbl)
+		}
+		pos[tbl] = i
+	}
+	if pos["mailboxes"] >= pos["mailbox_aliases"] {
+		t.Fatalf("mailboxes (pos %d) must precede mailbox_aliases (pos %d)", pos["mailboxes"], pos["mailbox_aliases"])
+	}
+	if pos["settings"] >= pos["domains"] || pos["domains"] >= pos["mailboxes"] {
+		t.Fatalf("expected settings -> domains -> mailboxes order, got %d -> %d -> %d", pos["settings"], pos["domains"], pos["mailboxes"])
+	}
+}
+
+func TestPG16RealTriggerAliasOrderAndNoSchemaMigrationsDelete(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("URMAIL_TEST_DATABASE_URL"))
+	if dsn == "" {
+		t.Skip("URMAIL_TEST_DATABASE_URL not set; skipping PG16 trigger repro")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	// Create an isolated temporary schema with real PG trigger semantics matching 0069/0001.
+	schema := fmt.Sprintf("e7_rev_test_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	defer func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") }()
+
+	// Build a standalone SQLite DB matching the minimal tables.
+	sqPath := filepath.Join(t.TempDir(), "e7.sqlite")
+	sqDB, err := sqlitedb.Open(ctx, sqPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sqDB.Close() }()
+	if _, err := sqDB.ExecContext(ctx, `
+		CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, dirty INTEGER NOT NULL DEFAULT 0);
+		INSERT INTO schema_migrations(version, dirty) VALUES(7, 0);
+		CREATE TABLE mailboxes (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, address TEXT NOT NULL, status TEXT NOT NULL);
+		INSERT INTO mailboxes(id, tenant_id, address, status) VALUES(1, 1, 'tiger@example.test', 'active');
+		CREATE TABLE mailbox_aliases (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, address TEXT NOT NULL, sender_logins TEXT NOT NULL);
+		INSERT INTO mailbox_aliases(id, tenant_id, address, sender_logins) VALUES(14, 1, 'alias@example.test', '["tiger@example.test"]');
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.schema_migrations (version bigint PRIMARY KEY, dirty boolean NOT NULL DEFAULT false);
+		INSERT INTO %s.schema_migrations(version, dirty) VALUES(159, false);
+		CREATE TABLE %s.mailboxes (id bigint PRIMARY KEY, tenant_id bigint NOT NULL, address text NOT NULL, status text NOT NULL);
+		CREATE TABLE %s.mailbox_aliases (id bigint PRIMARY KEY, tenant_id bigint NOT NULL, address text NOT NULL, sender_logins jsonb NOT NULL);
+		CREATE OR REPLACE FUNCTION %s.alias_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM jsonb_array_elements_text(NEW.sender_logins) AS elem(val)
+				WHERE NOT EXISTS (SELECT 1 FROM %s.mailboxes m WHERE m.tenant_id = NEW.tenant_id AND m.address = elem.val AND m.status <> 'deleted')
+			) THEN
+				RAISE EXCEPTION 'ALIAS_SENDER_LOGIN_NOT_TENANT_MAILBOX' USING ERRCODE = '23514';
+			END IF;
+			RETURN NEW;
+		END $$;
+		CREATE TRIGGER alias_sender_logins_guard BEFORE INSERT OR UPDATE ON %s.mailbox_aliases FOR EACH ROW EXECUTE FUNCTION %s.alias_guard();
+	`, schema, schema, schema, schema, schema, schema, schema, schema)); err != nil {
+		t.Fatalf("seed pg schema: %v", err)
+	}
+
+	// Open a pool pinned to the isolated schema via search_path.
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	scopedPool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer scopedPool.Close()
+
+	// 1. Reproduce the failure when mailbox_aliases is inserted before mailboxes (SQLSTATE 23514).
+	if _, err := scopedPool.Exec(ctx, `INSERT INTO mailbox_aliases(id, tenant_id, address, sender_logins) VALUES(14, 1, 'alias@example.test', '["tiger@example.test"]'::jsonb)`); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("expected SQLSTATE 23514 when inserting mailbox_aliases before mailboxes, got %v", err)
+	}
+
+	// 2. Run MigrateDBSQLiteToPG: mailboxes precedes mailbox_aliases, succeeds, and schema_migrations=159 is untouched.
+	tm := datamigrate.TypeMap{
+		"schema_migrations": {
+			"version": {Table: "schema_migrations", Column: "version", PGType: "bigint", SQLiteType: "INTEGER", Encoding: datamigrate.EncodingPassthrough},
+		},
+		"mailboxes": {
+			"id":        {Table: "mailboxes", Column: "id", PGType: "bigint", SQLiteType: "INTEGER", Encoding: datamigrate.EncodingPassthrough},
+			"tenant_id": {Table: "mailboxes", Column: "tenant_id", PGType: "bigint", SQLiteType: "INTEGER", Encoding: datamigrate.EncodingPassthrough},
+			"address":   {Table: "mailboxes", Column: "address", PGType: "text", SQLiteType: "TEXT", Encoding: datamigrate.EncodingPassthrough},
+			"status":    {Table: "mailboxes", Column: "status", PGType: "text", SQLiteType: "TEXT", Encoding: datamigrate.EncodingPassthrough},
+		},
+		"mailbox_aliases": {
+			"id":            {Table: "mailbox_aliases", Column: "id", PGType: "bigint", SQLiteType: "INTEGER", Encoding: datamigrate.EncodingPassthrough},
+			"tenant_id":     {Table: "mailbox_aliases", Column: "tenant_id", PGType: "bigint", SQLiteType: "INTEGER", Encoding: datamigrate.EncodingPassthrough},
+			"address":       {Table: "mailbox_aliases", Column: "address", PGType: "text", SQLiteType: "TEXT", Encoding: datamigrate.EncodingPassthrough},
+			"sender_logins": {Table: "mailbox_aliases", Column: "sender_logins", PGType: "jsonb", SQLiteType: "TEXT", Encoding: datamigrate.EncodingJSONText},
+		},
+	}
+
+	rep, err := MigrateDBSQLiteToPG(ctx, sqDB, scopedPool, tm, nil, false)
+	if err != nil {
+		t.Fatalf("MigrateDBSQLiteToPG failed: %v", err)
+	}
+	if !rep.ZeroDiff || rep.RowsUpserted != 2 || rep.RowsDeleted != 0 {
+		t.Fatalf("unexpected MigrateDBSQLiteToPG report: %+v", rep)
+	}
+	for _, act := range rep.Actions {
+		if strings.Contains(act, "schema_migrations") {
+			t.Fatalf("merge-report actions must never reference schema_migrations: %q", act)
+		}
+	}
+	var pgSchemaVer int64
+	if err := scopedPool.QueryRow(ctx, `SELECT version FROM schema_migrations WHERE version = 159`).Scan(&pgSchemaVer); err != nil {
+		t.Fatalf("PG schema_migrations=159 must remain intact: %v", err)
 	}
 }

@@ -123,6 +123,115 @@ func CheckScheduledSendMonotonicity(sqliteStates, pgStates map[string]string) er
 	return nil
 }
 
+// excludedMetadataTables lists migration and internal bookkeeping tables that
+// must never be deleted or overwritten during reverse migration.
+var excludedMetadataTables = map[string]bool{
+	"schema_migrations":      true,
+	"sqlite_sequence":        true,
+	"urmail_s5_migrate_meta": true,
+	"gorp_migrations":        true,
+	"goose_db_version":       true,
+}
+
+// pgTriggerInsertDeps records cross-table dependencies enforced by PostgreSQL
+// BEFORE INSERT triggers across migrations/*.up.sql that are not expressed as
+// foreign keys (audited across all 79 PG triggers):
+//   - mailbox_aliases -> mailboxes: urmail_alias_sender_logins_guard
+//   - domains -> settings, tenants: urmail_resource_guard
+//   - mailboxes -> domains, settings, tenants: urmail_resource_guard / identity
+//   - retention_policies -> retention_previews: urmail_retention_confirmation_guard
+//   - mailbox_contact_group_members -> mailbox_contact_groups, mailbox_contacts
+//   - recall_requests -> archive_entries, mailboxes: urmail_recall_guard
+//   - ticket_messages -> tickets: urmail_require_open_ticket
+//   - compliance_grants -> tenants, users, tenant_members
+//   - retention_previews -> tenants, users, tenant_members
+//   - archive_approval_requests -> archive_investigations
+//   - ai_provider_configs -> tenants, settings
+var pgTriggerInsertDeps = map[string][]string{
+	"mailbox_aliases":               {"mailboxes"},
+	"domains":                       {"settings", "tenants"},
+	"mailboxes":                     {"domains", "settings", "tenants"},
+	"retention_policies":            {"retention_previews"},
+	"mailbox_contact_group_members": {"mailbox_contact_groups", "mailbox_contacts"},
+	"recall_requests":               {"archive_entries", "mailboxes"},
+	"ticket_messages":               {"tickets"},
+	"compliance_grants":             {"tenants", "users", "tenant_members"},
+	"retention_previews":            {"tenants", "users", "tenant_members"},
+	"archive_approval_requests":     {"archive_investigations"},
+	"ai_provider_configs":           {"tenants", "settings"},
+}
+
+// FilterBusinessTables removes migration/system metadata tables such as
+// schema_migrations from the reverse-migration plan.
+func FilterBusinessTables(tables []string) []string {
+	out := make([]string, 0, len(tables))
+	for _, t := range tables {
+		if excludedMetadataTables[t] {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// OrderTablesForPG topologically orders tables (parents first) combining
+// PostgreSQL foreign-key edges and pgTriggerInsertDeps.
+func OrderTablesForPG(tables []string, pgFKs map[string][]string) ([]string, error) {
+	sorted := FilterBusinessTables(tables)
+	sort.Strings(sorted)
+	byName := make(map[string]bool, len(sorted))
+	for _, t := range sorted {
+		byName[t] = true
+	}
+	deps := make(map[string]map[string]bool, len(sorted))
+	for _, t := range sorted {
+		deps[t] = map[string]bool{}
+		for _, fk := range pgFKs[t] {
+			if byName[fk] && fk != t {
+				deps[t][fk] = true
+			}
+		}
+		for _, td := range pgTriggerInsertDeps[t] {
+			if byName[td] && td != t {
+				deps[t][td] = true
+			}
+		}
+	}
+
+	var ordered []string
+	placed := make(map[string]bool, len(sorted))
+	for len(ordered) < len(sorted) {
+		progressed := false
+		for _, t := range sorted {
+			if placed[t] {
+				continue
+			}
+			ready := true
+			for dep := range deps[t] {
+				if !placed[dep] {
+					ready = false
+					break
+				}
+			}
+			if ready {
+				placed[t] = true
+				ordered = append(ordered, t)
+				progressed = true
+			}
+		}
+		if !progressed {
+			var stuck []string
+			for _, t := range sorted {
+				if !placed[t] {
+					stuck = append(stuck, t)
+				}
+			}
+			return nil, fmt.Errorf("cyclic PG dependency among tables: %s", strings.Join(stuck, ", "))
+		}
+	}
+	return ordered, nil
+}
+
 // MigrateDBSQLiteToPG performs type-map driven SQLite -> PG reverse table copy,
 // reverse-topological hard-delete sync, and sequence reset inside a single PG tx.
 func MigrateDBSQLiteToPG(ctx context.Context, sqliteDB *sql.DB, pg *pgxpool.Pool, tm datamigrate.TypeMap, baselinePKs map[string]map[string]bool, dryRun bool) (DBReport, error) {
@@ -140,8 +249,14 @@ func MigrateDBSQLiteToPG(ctx context.Context, sqliteDB *sql.DB, pg *pgxpool.Pool
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Query PG table PKs and column order from information_schema.
-	tables := tm.Tables()
+	pgFKs, err := readPGForeignKeys(ctx, tx)
+	if err != nil {
+		return rep, fmt.Errorf("introspect pg foreign keys: %w", err)
+	}
+	tables, err := OrderTablesForPG(tm.Tables(), pgFKs)
+	if err != nil {
+		return rep, err
+	}
 	tablePKs := make(map[string]string, len(tables))
 	tableCols := make(map[string][]string, len(tables))
 	tableDeletes := make(map[string][]string, len(tables))
@@ -244,6 +359,33 @@ func MigrateDBSQLiteToPG(ctx context.Context, sqliteDB *sql.DB, pg *pgxpool.Pool
 	return rep, nil
 }
 
+func readPGForeignKeys(ctx context.Context, tx pgx.Tx) (map[string][]string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT c.conrelid::regclass::text, c.confrelid::regclass::text
+		FROM pg_constraint c
+		JOIN pg_namespace n ON n.oid = c.connamespace
+		WHERE c.contype = 'f' AND n.nspname = current_schema()`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var child, parent string
+		if err := rows.Scan(&child, &parent); err != nil {
+			return nil, err
+		}
+		if idx := strings.LastIndex(child, "."); idx >= 0 {
+			child = child[idx+1:]
+		}
+		if idx := strings.LastIndex(parent, "."); idx >= 0 {
+			parent = parent[idx+1:]
+		}
+		out[child] = append(out[child], parent)
+	}
+	return out, rows.Err()
+}
+
 func readPGTableMetaAndPKs(ctx context.Context, tx pgx.Tx, tbl string) (string, []string, map[string]bool, error) {
 	var pkCol string
 	err := tx.QueryRow(ctx, `
@@ -259,7 +401,7 @@ func readPGTableMetaAndPKs(ctx context.Context, tx pgx.Tx, tbl string) (string, 
 	colRows, err := tx.Query(ctx, `
 		SELECT column_name
 		FROM information_schema.columns
-		WHERE table_schema = 'public' AND table_name = $1
+		WHERE table_schema = current_schema() AND table_name = $1
 		ORDER BY ordinal_position`, tbl)
 	if err != nil {
 		return "", nil, nil, err
@@ -293,7 +435,7 @@ func readPGTableMetaAndPKs(ctx context.Context, tx pgx.Tx, tbl string) (string, 
 }
 
 func readSQLitePKSet(ctx context.Context, db *sql.DB, tbl, pkCol string) (map[string]bool, error) {
-	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT CAST("%s" AS TEXT) FROM "%s"`, pkCol, tbl)) // #nosec G202 -- validated type-map identifiers
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT CAST("%s" AS TEXT) FROM "%s"`, pkCol, tbl)) // #nosec G202,G701 -- validated type-map identifiers
 	if err != nil {
 		return nil, fmt.Errorf("read sqlite pks %s: %w", tbl, err)
 	}
