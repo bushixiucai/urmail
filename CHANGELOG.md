@@ -19,6 +19,16 @@ Phase 1 SQLite 单引擎运行时基础能力、隔离契约与 CI 全链路收�
 ### CI 与构建
 - 运行时镜像（`Dockerfile`）补齐 `dovecot-sieve` 以支持 `compile:sieve`；全量 CI（run `45572290894`）17 个 job 全绿。
 
+## [0.6.27] - 日期待定
+
+会话视图体验收口：方向①②访谈四项决策落地。无数据库迁移。
+
+### 会话（Thread）
+
+- 系统发件人真链会话保留归组，子行默认收起（内联子行仅在显式点击会话徽标后展开）；内联展开的子行中，发件地址或显示名命中自动发件人标记（mailer-daemon/noreply/no-reply/donotreply/auto-responder/postmaster 等，与后端 `internal/webmail/threading.go` 同一清单）的退信行「回复」前缀以更小字号（11px）与弱化灰字渲染，普通子行样式不变。
+- 巨线程弱聚合措辞：服务端盖章 `weak_aggregation`（>20 封）的会话，列表会话徽标与会话栈主题条计数徽标由纯数字切换为「相关 N 封」弱化措辞（i18n `webmail_next.thread_related_count`，zh「相关 {{count}} 封」/ en "{{count}} related messages"）；弱聚合会话点击会话徽标不再内联展开子行，直接打开会话栈，子行保持默认收起，徽标/栈入口保留。
+- 列表内联展开维持已追认的条件版终态（成员全载内联展开、缺载进栈），正文渲染隐私纵深维持双层消毒 + same-origin 无脚本 iframe；两项均仅在代码内标注决策，无行为变更。
+
 ## [0.6.26] - 日期待定
 
 热修补丁：升级前新鲜备份 pre-flight 与手动备份落库。无数据库迁移。

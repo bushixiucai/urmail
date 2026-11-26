@@ -366,3 +366,19 @@ describe("focus nonce (repeat relay to the same key)", () => {
     expect(document.activeElement).toBe(header);
   });
 });
+
+describe("Q2 weak aggregation subject-bar badge (interview 2026-11-26)", () => {
+  it("switches the total badge to the related-count wording for weak threads", () => {
+    renderStack({
+      members: members.map((m) => ({ ...m, weak_aggregation: true })),
+    });
+    expect(screen.getByTestId("thread-total-badge").textContent).toBe(
+      "webmail_next.thread_related_count",
+    );
+  });
+
+  it("keeps the bare number for non-weak threads", () => {
+    renderStack();
+    expect(screen.getByTestId("thread-total-badge").textContent).toBe("3");
+  });
+});

@@ -697,3 +697,87 @@ describe("keyboard & mixed select-all (QA sequence ③④)", () => {
     expect(onSelectionCountChange).toHaveBeenLastCalledWith(2);
   });
 });
+
+describe("Q4 giant-thread exemption (interview 2026-11-26)", () => {
+  const weakRow = (uid: number, hour: number): MessageSummary => ({
+    uid,
+    subject: `weak thread ${uid}`,
+    from: [{ name: "Alice", email: "alice@example.com" }],
+    date: new Date(2026, 10, 6, 9, hour).toISOString(),
+    flags: [],
+    size: 1,
+    thread_id: 7,
+    thread_count: 3,
+    weak_aggregation: true,
+  });
+
+  it("routes a weak giant thread to the stack even when fully loaded", () => {
+    const onSelectMessage = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={[weakRow(301, 2), weakRow(302, 1), weakRow(303, 0)]}
+        activeUid={null}
+        onSelectMessage={onSelectMessage}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    // All 3 members are loaded → D-D alone would inline-expand; the weak
+    // stamp forces the reading stack and no child rows render.
+    fireEvent.click(screen.getByTestId("thread-toggle-7"));
+    expect(onSelectMessage).toHaveBeenCalledTimes(1);
+    expect(onSelectMessage).toHaveBeenCalledWith(301, undefined);
+    expect(screen.queryByTestId("mail-row-302")).toBeNull();
+  });
+
+  it("shows the weakened related-count wording on a weak thread pill", () => {
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={[weakRow(305, 0)]}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("webmail_next.thread_related_count")).toBeTruthy();
+  });
+
+  it("routes threads above the weak threshold to the stack even when fully loaded", () => {
+    const msgs = Array.from({ length: 21 }, (_, i) => ({
+      uid: 400 + i,
+      subject: `giant ${i}`,
+      from: [{ name: "Alice", email: "alice@example.com" }],
+      date: new Date(2026, 10, 6, 10, i).toISOString(),
+      flags: ["\\Seen"],
+      size: 1,
+      thread_id: 9,
+      thread_count: 21,
+    })) as MessageSummary[];
+    const onSelectMessage = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={msgs}
+        activeUid={null}
+        onSelectMessage={onSelectMessage}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    // 21/21 loaded → D-D alone would inline-expand; the >20 threshold
+    // (server WeakAggregationThreshold) forces the stack instead.
+    fireEvent.click(screen.getByTestId("thread-toggle-9"));
+    expect(onSelectMessage).toHaveBeenCalledTimes(1);
+    expect(onSelectMessage).toHaveBeenCalledWith(420, undefined);
+    expect(screen.queryByTestId("mail-row-401")).toBeNull();
+  });
+});

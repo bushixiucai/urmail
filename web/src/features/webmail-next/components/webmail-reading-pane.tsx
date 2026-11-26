@@ -248,6 +248,11 @@ function SanitizedHtmlFrame({
         // allow-same-origin (alone, never with allow-scripts) so the parent
         // can measure the srcdoc body; the sanitizer-injected CSP meta keeps
         // the document inert, preserving the XSS defense line.
+        // O1 privacy posture (interview 2026-11-26, SSR-RENDER-PLAN-V2 §3):
+        // dual sanitization (server render-time + client worker pass) plus
+        // this same-origin sandboxed iframe is the CONFIRMED terminal
+        // design — keep both layers and this sandbox mode unless a new
+        // decision supersedes them.
         sandbox="allow-same-origin"
         referrerPolicy="no-referrer"
         className="w-full rounded border-0 bg-transparent"

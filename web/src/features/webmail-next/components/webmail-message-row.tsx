@@ -14,6 +14,7 @@ import {
 import type { WebmailItem, DensityMode } from "../types";
 import { formatFullDate, formatListDate } from "../lib/format-list-date";
 import { decodeFolderName } from "../lib/folder-names";
+import { isSystemSender } from "../lib/system-sender";
 
 interface WebmailMessageRowProps {
   item: WebmailItem;
@@ -73,6 +74,13 @@ function WebmailMessageRowView({
   const { t, i18n } = useTranslation();
   const metrics = DENSITY[density] ?? DENSITY.comfortable;
   const isChild = Boolean(item.isThreadChild);
+  // Q1 (interview 2026-11-26): a bounce/system row inside a true-chain
+  // thread keeps its group but renders the「回复」prefix weakened —
+  // smaller type (11px vs 12px) and muted gray — so an automated sender
+  // never reads as a human reply. Marker list mirrors
+  // internal/webmail/threading.go systemSenderMarkers.
+  const isChildSystemSender =
+    isChild && isSystemSender(item.senderEmail, item.sender);
   // Spec §4: child first-line shrinks 13→12 except list_only which is already 12.
   const childLine1 =
     density === "list_only" ? metrics.line1 : "text-xs leading-4";
@@ -91,9 +99,19 @@ function WebmailMessageRowView({
     yesterday: t("webmail_next.date_yesterday"),
   });
   const dateTitle = formatFullDate(item.date, locale);
-  const threadTitle = t("webmail_next.thread_messages_count", {
+  // Q2 (contract §7-6, interview 2026-11-26): giant threads carry the
+  // server weak_aggregation stamp — the pill switches to the weakened
+  // 「相关 N 封」wording so a loosely related group never reads as a
+  // precise verified count.
+  const weakThreadLabel = t("webmail_next.thread_related_count", {
     count: item.threadCount ?? 0,
   });
+  const threadTitle =
+    (item.weakAggregation ?? false)
+      ? weakThreadLabel
+      : t("webmail_next.thread_messages_count", {
+          count: item.threadCount ?? 0,
+        });
 
   const senderColor = item.isUnread
     ? "font-[650] text-[var(--vellum-ink)]"
@@ -226,7 +244,13 @@ function WebmailMessageRowView({
       >
         <div className="flex items-center gap-1 min-w-0">
           {isChild && (
-            <span className="shrink-0 text-xs text-[var(--vellum-ink-secondary)] mr-1">
+            <span
+              className={`shrink-0 mr-1 ${
+                isChildSystemSender
+                  ? "text-[11px] text-[var(--vellum-ink-muted)]"
+                  : "text-xs text-[var(--vellum-ink-secondary)]"
+              }`}
+            >
               {t("webmail_next.reply")}
             </span>
           )}
@@ -248,7 +272,9 @@ function WebmailMessageRowView({
               className="h-4 px-1 rounded-full text-[11px] font-[650] bg-[var(--vellum-border)] text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-border-subtle)] flex items-center gap-0.5 shrink-0"
               title={threadTitle}
             >
-              <span>{item.threadCount}</span>
+              <span>
+                {item.weakAggregation ? weakThreadLabel : item.threadCount}
+              </span>
               {item.isThreadExpanded ? (
                 <ChevronDown className="w-2.5 h-2.5" />
               ) : (
@@ -356,6 +382,8 @@ export function webmailMessageRowPropsAreEqual(
     a.isThreadChild === b.isThreadChild &&
     a.isLastThreadChild === b.isLastThreadChild &&
     a.threadVerification === b.threadVerification &&
+    a.weakAggregation === b.weakAggregation &&
+    a.senderEmail === b.senderEmail &&
     a.folder === b.folder &&
     prev.isSelected === next.isSelected &&
     prev.isActive === next.isActive &&

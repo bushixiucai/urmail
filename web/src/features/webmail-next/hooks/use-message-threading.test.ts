@@ -64,3 +64,24 @@ describe("#119 degraded contract: thread_verification", () => {
     expect(items[0].threadCount).toBeUndefined();
   });
 });
+
+describe("weak_aggregation passthrough (Q2/Q4)", () => {
+  it("plumbs the server weak stamp to the representative row item only", () => {
+    const msg = (uid: number): MessageSummary => ({
+      uid,
+      subject: "giant thread",
+      from: [{ name: "A", email: "a@x" }],
+      date: new Date(2026, 10, 6, 10, uid % 60).toISOString(),
+      flags: [],
+      size: 1,
+      thread_id: 77,
+      thread_count: 43,
+      weak_aggregation: true,
+    });
+    const { result } = renderHook(() =>
+      useMessageThreading([msg(601), msg(602)]),
+    );
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0]!.weakAggregation).toBe(true);
+  });
+});

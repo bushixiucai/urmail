@@ -149,3 +149,66 @@ describe("#119 unverified hint", () => {
     expect(screen.queryByTestId("thread-unverified-900")).toBeNull();
   });
 });
+
+describe("Q1/Q2 thread decisions (interview 2026-11-26)", () => {
+  const noop = () => {};
+  const rowItem = (over: Partial<WebmailItem>): WebmailItem => ({
+    ...item,
+    ...over,
+  });
+  const renderRow = (over: Partial<WebmailItem>) =>
+    render(
+      <WebmailMessageRow
+        item={rowItem(over)}
+        density="comfortable"
+        isSelected={false}
+        isActive={false}
+        onSelect={noop}
+        onToggleCheck={noop}
+        onToggleStar={noop}
+        onToggleThread={noop}
+      />,
+    );
+
+  it("renders the weakened reply prefix on system-sender child rows", () => {
+    renderRow({
+      isThreadChild: true,
+      sender: "Mail Delivery System",
+      senderEmail: "mailer-daemon@box.urmail.cn",
+    });
+    const prefix = screen.getByText("webmail_next.reply");
+    expect(prefix.className).toContain("text-[11px]");
+    expect(prefix.className).toContain("var(--vellum-ink-muted)");
+    expect(prefix.className).not.toContain("var(--vellum-ink-secondary)");
+  });
+
+  it("keeps the regular reply prefix on human child rows", () => {
+    renderRow({
+      isThreadChild: true,
+      sender: "Bob",
+      senderEmail: "bob@example.com",
+    });
+    const prefix = screen.getByText("webmail_next.reply");
+    expect(prefix.className).toContain("text-xs");
+    expect(prefix.className).toContain("var(--vellum-ink-secondary)");
+    expect(prefix.className).not.toContain("text-[11px]");
+  });
+
+  it("switches the pill to the weakened related-count wording for weak threads", () => {
+    renderRow({ threadId: 12, threadCount: 43, weakAggregation: true });
+    const pill = screen.getByTestId("thread-toggle-12");
+    expect(pill.textContent).toContain("webmail_next.thread_related_count");
+    expect(pill.getAttribute("title")).toBe(
+      "webmail_next.thread_related_count",
+    );
+  });
+
+  it("keeps the bare count and normal title for non-weak threads", () => {
+    renderRow({ threadId: 12, threadCount: 3 });
+    const pill = screen.getByTestId("thread-toggle-12");
+    expect(pill.textContent).toContain("3");
+    expect(pill.getAttribute("title")).toBe(
+      "webmail_next.thread_messages_count",
+    );
+  });
+});

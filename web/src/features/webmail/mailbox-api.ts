@@ -58,6 +58,10 @@ export interface MessageSummary {
    * it must be rendered/handled as a single, independently-addressable
    * mail with a "conversation unverified" hint. */
   thread_verification?: "unverified";
+  /** Giant-thread marker (Tiger C1, server weak_aggregation stamp): the
+   * group aggregates only the newest window; the UI renders the weakened
+   * "related count" wording (contract §7-6) and never inline-expands. */
+  weak_aggregation?: boolean;
   /** Cross-folder search results are tagged with their source mailbox. */
   folder?: string;
   folder_enc?: string;

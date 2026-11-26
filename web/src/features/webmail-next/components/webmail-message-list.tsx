@@ -35,6 +35,7 @@ import type {
 } from "@/features/webmail/mailbox-api";
 import type { DensityMode, WebmailItem } from "../types";
 import { decodeFolderName } from "../lib/folder-names";
+import { THREAD_WEAK_AGGREGATION_THRESHOLD } from "../lib/thread-members-api";
 
 /** Cross-folder result rows from other boxes are excluded from selection
  * and folder-scoped quick actions so bulk ops can never touch a same-
@@ -493,10 +494,25 @@ export function WebmailMessageList({
       onToggleThread={(event) => {
         event.stopPropagation();
         if (!item.threadId) return;
+        // Q3 (interview 2026-11-26): this D-D conditional — fully loaded
+        // → inline expansion, missing members → reading stack — is the
+        // CONFIRMED terminal state; do not re-apply V0620 §7's original
+        // "remove inline entirely" draft.
         // D-D (C1): inline expansion only when every member of the thread
         // is already loaded in the list; otherwise the pill opens the
         // reading stack, which progressively loads the missing members.
         const loaded = loadedThreadCounts.get(item.threadId) ?? 0;
+        // Q4 giant-thread exemption (interview 2026-11-26): threads above
+        // the server weak threshold (weak_aggregation, >20 members) never
+        // inline-expand — children stay collapsed by default and the pill
+        // remains the reading-stack entry.
+        if (
+          item.weakAggregation ||
+          (item.threadCount ?? 0) > THREAD_WEAK_AGGREGATION_THRESHOLD
+        ) {
+          rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc);
+          return;
+        }
         if ((item.threadCount ?? 0) > loaded) {
           rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc);
           return;

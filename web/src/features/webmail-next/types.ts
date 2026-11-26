@@ -39,6 +39,10 @@ export interface WebmailItem {
   /** #119 degraded contract: set for rows whose candidate group the
    * server could not verify (thread_id/thread_count omitted for them). */
   threadVerification?: "unverified";
+  /** Giant-thread marker (server weak_aggregation stamp, >20 members):
+   * weakened "related count" pill wording (contract §7-6) and no inline
+   * expansion — the pill stays the reading-stack entry (Q4). */
+  weakAggregation?: boolean;
   /** Composite grouping key (folder_enc:thread_id) — stable toggle identity
    * for same-numeric-id threads across folders. */
   threadGroupKey?: string;

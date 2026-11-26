@@ -2711,6 +2711,7 @@
     "webmail_next.to_me": "to me",
     "webmail_next.to_recipients": "to {{recipients}}",
     "webmail_next.thread_messages_count": "{{count}} messages in thread",
+    "webmail_next.thread_related_count": "{{count}} related messages",
     "webmail_next.thread_next": "Next",
     "webmail_next.thread_prev": "Previous",
     "webmail_next.thread_stack_label": "Conversation, {{count}} messages",

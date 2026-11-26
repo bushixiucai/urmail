@@ -2711,6 +2711,7 @@
     "webmail_next.to_me": "发送给我",
     "webmail_next.to_recipients": "发送给 {{recipients}}",
     "webmail_next.thread_messages_count": "会话内 {{count}} 封邮件",
+    "webmail_next.thread_related_count": "相关 {{count}} 封",
     "webmail_next.thread_next": "下一封",
     "webmail_next.thread_prev": "上一封",
     "webmail_next.thread_stack_label": "会话，{{count}} 封",
