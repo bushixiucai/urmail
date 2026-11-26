@@ -3,6 +3,7 @@ package datamigrate
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -11,10 +12,11 @@ import (
 
 // ConvertValue encodes one PG value into its SQLite storage form per the
 // type-map encoding. PG drivers hand back: int64 for bigint/integer/smallint,
-// bool for boolean, string for text/uuid/inet/date/numeric, time.Time for
-// timestamptz, []byte for bytea, string for jsonb (pgx default) — jsonb may
-// also arrive as []byte, both accepted. Arrays arrive as string (pgx simple
-// protocol text format '{a,b}') or []byte.
+// bool for boolean, string for text/uuid/date/numeric, netip.Prefix (or
+// *netip.Prefix/string) for inet/cidr, time.Time for timestamptz, []byte for
+// bytea, string for jsonb (pgx default) — jsonb may also arrive as []byte, both
+// accepted. Arrays arrive as string (pgx simple protocol text format '{a,b}')
+// or []byte.
 func ConvertValue(cm ColumnMap, v any) (any, error) {
 	switch cm.Encoding {
 	case EncodingPassthrough:
@@ -25,6 +27,8 @@ func ConvertValue(cm ColumnMap, v any) (any, error) {
 			return ConvertUUID(v)
 		case "date":
 			return ConvertDate(v)
+		case "inet", "cidr":
+			return ConvertInet(v)
 		default:
 			return v, nil
 		}
@@ -52,6 +56,31 @@ func ConvertUUID(v any) (any, error) {
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("uuid: unsupported %T", v)
+	}
+}
+
+// ConvertInet normalizes a PG inet/cidr value to its canonical CIDR string
+// representation for SQLite TEXT storage. pgx/v5 scans inet/cidr into any as
+// netip.Prefix (or *netip.Prefix); bare strings are also accepted so callers
+// preserving CIDR notation (such as "127.0.0.1/32") pass through unchanged.
+func ConvertInet(v any) (any, error) {
+	switch p := v.(type) {
+	case netip.Prefix:
+		if !p.IsValid() {
+			return nil, nil
+		}
+		return p.String(), nil
+	case *netip.Prefix:
+		if p == nil || !p.IsValid() {
+			return nil, nil
+		}
+		return p.String(), nil
+	case string:
+		return p, nil
+	case nil:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("inet: unsupported %T", v)
 	}
 }
 
