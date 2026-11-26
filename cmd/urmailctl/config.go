@@ -87,17 +87,16 @@ func runConfigRender(ctx context.Context, args []string) error {
 	}
 
 	// Assemble the full context (node config + tenant snapshot) from the
-	// database when a platform connection is configured. Without a database
-	// the render falls back to an empty skeleton, which is only useful for
-	// plumbing checks.
+	// Assemble from the platform store of either engine. SQLite has no
+	// DatabaseURLPlatform, so the old check rendered an empty skeleton there.
 	var mailCtx mail.ConfigContext
-	if cfg.DatabaseURLPlatform != "" {
-		pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	if cfg.IsSQLite() || cfg.DatabaseURLPlatform != "" {
+		pool, closePool, err := openPlatformStorePool(ctx, cfg)
 		if err != nil {
 			return fmt.Errorf("open platform database: %w", err)
 		}
-		defer pool.Close()
-		assembled, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(pool.Pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
+		defer closePool()
+		assembled, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(pool), DB: pool}, cfg.PublicIPv4, cfg.Nameservers)
 		if err != nil {
 			return fmt.Errorf("assemble config context: %w", err)
 		}

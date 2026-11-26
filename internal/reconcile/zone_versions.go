@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/db/isolation"
@@ -28,7 +29,21 @@ func (s *VersionedStore) ReserveZoneSerial(ctx context.Context, domain, hash str
 	// The persistent zone version is a platform-domain row; bind that scope at
 	// this trusted entry instead of leaking a caller context without one.
 	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
-	serial, err := db.Queries(s.DB).ReserveDNSZoneVersion(ctx, store.ReserveDNSZoneVersionParams{Domain: domain, ContentHash: hash, Serial: (int64(seed) + 1) % 4294967296})
+	nextSerial := (int64(seed) + 1) % 4294967296
+	var (
+		serial int64
+		err    error
+	)
+	if pool, ok := s.DB.(*db.Pool); ok && pool.IsSQLite() {
+		const sqliteReserveDNSZoneVersion = `INSERT INTO dns_zone_versions(domain,content_hash,serial,updated_at) VALUES($1,$2,$3,$4)
+ON CONFLICT(domain) DO UPDATE SET
+ serial=CASE WHEN dns_zone_versions.content_hash=EXCLUDED.content_hash THEN dns_zone_versions.serial ELSE (dns_zone_versions.serial+1)%4294967296 END,
+ content_hash=EXCLUDED.content_hash,updated_at=EXCLUDED.updated_at
+RETURNING serial`
+		err = pool.QueryRow(ctx, sqliteReserveDNSZoneVersion, domain, hash, nextSerial, time.Now().UnixMicro()).Scan(&serial)
+	} else {
+		serial, err = db.Queries(s.DB).ReserveDNSZoneVersion(ctx, store.ReserveDNSZoneVersionParams{Domain: domain, ContentHash: hash, Serial: nextSerial})
+	}
 	if err != nil {
 		return 0, err
 	}

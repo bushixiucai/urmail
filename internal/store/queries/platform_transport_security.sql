@@ -1,13 +1,13 @@
 -- name: PlatformListTransportSecurity :many
 -- scope: platform
 
-SELECT t.*,d.fqdn FROM domain_transport_security t JOIN domains d ON d.id=t.domain_id AND d.tenant_id=t.tenant_id
+SELECT t.id, t.tenant_id, t.domain_id, t.mtasts_policy_id, t.mtasts_mode, t.tls_rpt_rua, t.created_at, t.updated_at, t.enabled, t.policy_mx, t.max_age, coalesce(t.published_at, 0) AS published_at, coalesce(t.testing_since, 0) AS testing_since, t.cache_safe_after, t.observation_digest, coalesce(t.observed_at, 0) AS observed_at, t.observation_status, t.observation_detail, t.version, d.fqdn FROM domain_transport_security t JOIN domains d ON d.id=t.domain_id AND d.tenant_id=t.tenant_id
 WHERE t.enabled AND d.status='active' AND d.verified_at IS NOT NULL ORDER BY t.tenant_id,t.domain_id;
 
 -- name: PlatformPublicTransportSecurity :one
 -- scope: platform
 
-SELECT t.*,d.fqdn FROM domain_transport_security t JOIN domains d ON d.id=t.domain_id AND d.tenant_id=t.tenant_id
+SELECT t.id, t.tenant_id, t.domain_id, t.mtasts_policy_id, t.mtasts_mode, t.tls_rpt_rua, t.created_at, t.updated_at, t.enabled, t.policy_mx, t.max_age, coalesce(t.published_at, 0) AS published_at, coalesce(t.testing_since, 0) AS testing_since, t.cache_safe_after, t.observation_digest, coalesce(t.observed_at, 0) AS observed_at, t.observation_status, t.observation_detail, t.version, d.fqdn FROM domain_transport_security t JOIN domains d ON d.id=t.domain_id AND d.tenant_id=t.tenant_id
 WHERE d.fqdn=?1 AND t.enabled AND d.status='active' AND d.verified_at IS NOT NULL;
 
 -- name: PlatformTransportCertificateAllowed :one

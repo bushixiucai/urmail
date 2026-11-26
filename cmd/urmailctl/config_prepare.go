@@ -86,19 +86,18 @@ func runConfigPrepare(ctx context.Context, args []string) error {
 		fmt.Println("First-boot configuration prepared. Start the services and run setup to create the first tenant.")
 		return nil
 	}
-	if cfg.DatabaseURLPlatform == "" {
-		return errors.New("config prepare requires the platform database")
-	}
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	// DEV-1: the upgrade path used to require a PostgreSQL platform URL even
+	// when the engine is SQLite. Both engines now share openPlatformStorePool.
+	pool, closePool, err := openPlatformStorePool(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
+	defer closePool()
 	raw, err := assembleApplyParams(ctx, cfg, pool)
 	if err != nil {
 		return err
 	}
-	status, err := agentd.PrepareOffline(ctx, cfg, raw)
+	status, err := agentd.PrepareOfflineWithPool(ctx, cfg, pool, raw)
 	if err != nil {
 		return err
 	}
@@ -146,7 +145,7 @@ func openPlatformStorePool(ctx context.Context, cfg *config.Config) (*db.Pool, f
 
 // assembleApplyParams builds the typed snapshot both entries render from.
 func assembleApplyParams(ctx context.Context, cfg *config.Config, pool *db.Pool) (json.RawMessage, error) {
-	snapshot, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
+	snapshot, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(pool), DB: pool}, cfg.PublicIPv4, cfg.Nameservers)
 	if err != nil {
 		return nil, err
 	}

@@ -32,6 +32,22 @@ func PrepareOffline(ctx context.Context, cfg *config.Config, raw json.RawMessage
 	return prepareOffline(ctx, cfg, pool, raw, true, false)
 }
 
+// PrepareOfflineWithPool runs the fenced upgrade preparation against an
+// already-opened platform pool so both PostgreSQL and SQLite engines share
+// the exact same configuration rendering contract.
+func PrepareOfflineWithPool(ctx context.Context, cfg *config.Config, pool *db.Pool, raw json.RawMessage) (ApplyStatus, error) {
+	if os.Geteuid() != 0 {
+		return ApplyStatus{}, errors.New("offline configuration preparation requires root")
+	}
+	if pool == nil {
+		return ApplyStatus{}, errors.New("offline configuration preparation requires a platform pool")
+	}
+	if err := offlinePreparationGuard(ctx, cfg); err != nil {
+		return ApplyStatus{}, err
+	}
+	return prepareOffline(ctx, cfg, pool, raw, false, false)
+}
+
 // PrepareOfflineFirstBoot renders a fresh installation from an empty root.
 //
 // It has the same offline contract as PrepareOffline, with two differences

@@ -3,9 +3,12 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
+	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
@@ -195,6 +198,22 @@ func sqlitePoolArgs(args []any) []any {
 			if v.IsValid() {
 				out[i] = v.String()
 			}
+		case []string:
+			// SQLite stores text[] columns as a JSON array. A raw Go slice
+			// would be written as a Go literal, which cannot scan back.
+			encoded, err := json.Marshal(v)
+			if err != nil {
+				encoded = []byte("[]")
+			}
+			out[i] = string(encoded)
+		case []int64:
+			// SQLite stores bigint[] columns (mailbox_import_items.baseline_uids)
+			// as a JSON array.
+			encoded, err := json.Marshal(v)
+			if err != nil {
+				encoded = []byte("[]")
+			}
+			out[i] = string(encoded)
 		default:
 			out[i] = a
 		}
@@ -243,6 +262,33 @@ func sqlitePoolScan(scanFn func(...any) error, dest ...any) error {
 				*target = pgtype.Bool{Bool: nb.Bool, Valid: nb.Valid}
 				return nil
 			})
+		case *[]string:
+			// modernc.org/sqlite has no PostgreSQL array codec. text[] columns
+			// (approved_endpoints, scopes, policy_mx, sender_logins) are TEXT
+			// holding a JSON array, or a leftover PostgreSQL '{a,b}' literal.
+			var ns sql.NullString
+			proxies[i] = &ns
+			fixups = append(fixups, func() error {
+				decoded, err := decodeSQLiteStringSlice(ns)
+				if err != nil {
+					return err
+				}
+				*target = decoded
+				return nil
+			})
+		case *[]int64:
+			// bigint[] columns (mailbox_import_items.baseline_uids) are TEXT
+			// holding a JSON array, or a leftover PostgreSQL '{1,2}' literal.
+			var ns sql.NullString
+			proxies[i] = &ns
+			fixups = append(fixups, func() error {
+				decoded, err := decodeSQLiteInt64Slice(ns)
+				if err != nil {
+					return err
+				}
+				*target = decoded
+				return nil
+			})
 		default:
 			proxies[i] = d
 		}
@@ -256,4 +302,117 @@ func sqlitePoolScan(scanFn func(...any) error, dest ...any) error {
 		}
 	}
 	return nil
+}
+
+// decodeSQLiteStringSlice reads one SQLite text[] cell into []string.
+// NULL and empty text are an empty slice. A JSON array is the native encoding.
+// A PostgreSQL text-array literal is accepted so a row imported before the JSON
+// rewrite still scans. Anything else fails closed.
+func decodeSQLiteStringSlice(ns sql.NullString) ([]string, error) {
+	if !ns.Valid || strings.TrimSpace(ns.String) == "" || strings.EqualFold(strings.TrimSpace(ns.String), "NULL") {
+		return []string{}, nil
+	}
+	raw := strings.TrimSpace(ns.String)
+	if strings.HasPrefix(raw, "[") {
+		var out []string
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			return nil, fmt.Errorf("sqlite text array: %w", err)
+		}
+		if out == nil {
+			return []string{}, nil
+		}
+		return out, nil
+	}
+	if strings.HasPrefix(raw, "{") && strings.HasSuffix(raw, "}") {
+		return splitPGTextArray(raw), nil
+	}
+	return nil, fmt.Errorf("sqlite text array: unsupported encoding %q", raw)
+}
+
+func splitPGTextArray(raw string) []string {
+	inner := raw[1 : len(raw)-1]
+	if strings.TrimSpace(inner) == "" {
+		return []string{}
+	}
+	var items []string
+	var cur strings.Builder
+	inQuotes := false
+	for i := 0; i < len(inner); i++ {
+		ch := inner[i]
+		if inQuotes {
+			cur.WriteByte(ch)
+			if ch == '"' && inner[i-1] != '\\' {
+				inQuotes = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inQuotes = true
+			cur.WriteByte(ch)
+		case ',':
+			items = append(items, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteByte(ch)
+		}
+	}
+	items = append(items, cur.String())
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if len(item) >= 2 && item[0] == '"' && item[len(item)-1] == '"' {
+			item = item[1 : len(item)-1]
+			item = strings.ReplaceAll(item, "\\\"", "\"")
+			item = strings.ReplaceAll(item, "\\\\", "\\")
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// decodeSQLiteInt64Slice reads one SQLite bigint[] cell into []int64.
+// NULL and empty text are an empty slice. JSON array is the native encoding;
+// a PostgreSQL '{1,2}' literal is also accepted. Anything else fails closed.
+func decodeSQLiteInt64Slice(ns sql.NullString) ([]int64, error) {
+	if !ns.Valid || strings.TrimSpace(ns.String) == "" || strings.EqualFold(strings.TrimSpace(ns.String), "NULL") {
+		return []int64{}, nil
+	}
+	raw := strings.TrimSpace(ns.String)
+	if strings.HasPrefix(raw, "[") {
+		var out []int64
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			// The importer writes every PostgreSQL array as JSON strings,
+			// including bigint[]. Decimal strings in that cell still scan.
+			var text []string
+			if jerr := json.Unmarshal([]byte(raw), &text); jerr != nil {
+				return nil, fmt.Errorf("sqlite bigint array: %w", err)
+			}
+			out = make([]int64, 0, len(text))
+			for _, item := range text {
+				v, perr := strconv.ParseInt(item, 10, 64)
+				if perr != nil {
+					return nil, fmt.Errorf("sqlite bigint array item %q: %w", item, perr)
+				}
+				out = append(out, v)
+			}
+		}
+		if out == nil {
+			return []int64{}, nil
+		}
+		return out, nil
+	}
+	if strings.HasPrefix(raw, "{") && strings.HasSuffix(raw, "}") {
+		parts := splitPGTextArray(raw)
+		out := make([]int64, 0, len(parts))
+		for _, p := range parts {
+			v, err := strconv.ParseInt(p, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("sqlite bigint array item %q: %w", p, err)
+			}
+			out = append(out, v)
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("sqlite bigint array: unsupported encoding %q", raw)
 }
