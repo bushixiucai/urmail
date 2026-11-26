@@ -43,7 +43,15 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 	}
 
 	// 1. Postfix
-	pfFiles, err := postfix.Generate(ctx.PostfixNode, ctx.PostfixSnap)
+	pfNode := ctx.PostfixNode
+	if renderRoot != "" {
+		// Same shape contract as the Dovecot IncludePrefix injection below:
+		// main.cf will be read from <renderRoot>/postfix as the Postfix
+		// config_dir, so the file-map references must name the rendered
+		// mount-surface paths, not the host /etc/postfix layout.
+		pfNode.ConfigDir = filepath.Join(renderRoot, "postfix")
+	}
+	pfFiles, err := postfix.Generate(pfNode, ctx.PostfixSnap)
 	if err != nil {
 		return nil, fmt.Errorf("render postfix: %w", err)
 	}

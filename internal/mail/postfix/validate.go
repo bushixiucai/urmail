@@ -35,6 +35,11 @@ func validateNodeConfig(node NodeConfig) error {
 	if err := validation.ValidateAbsolutePath(node.TLSKeyFile); err != nil {
 		return fmt.Errorf("%w: TLS key file: %w", ErrInvalidConfig, err)
 	}
+	if node.ConfigDir != "" {
+		if err := validation.ValidateAbsolutePath(node.ConfigDir); err != nil {
+			return fmt.Errorf("%w: postfix config dir: %w", ErrInvalidConfig, err)
+		}
+	}
 	if node.PolicyEnabled {
 		if strings.ContainsFunc(node.PolicySocket, func(r rune) bool {
 			switch {

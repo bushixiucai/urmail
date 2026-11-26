@@ -42,14 +42,6 @@ env:
 #   anything else (for example .github/**)       -> every job runs (fail-safe)
 #   push to main, tag pushes, manual runs        -> every job runs
 #
-# Trigger-surface rules (CI-OPT v2, pm-ci-optimize-1): the release-facing
-# suites run only on v* tag pushes and manual workflow_dispatch, never on
-# plain PR/main pushes (rollback = revert this one file):
-#   Package smoke, Development stack and browser, Linux installation x3
-# Everything else keeps the paths gate above, so a Go-touching PR/main push
-# still pays for Go, the four Integration shards, Native webmail, Compose
-# smoke, Frontend, Embedded, Shell and Security.
-#
 # Job semantics - no job is ever removed or weakened, it is only skipped when
 # the change cannot break it:
 #   Go             tidy, build, vet, sqlc drift, unit tests with coverage,
@@ -455,9 +447,7 @@ jobs:
   package-smoke:
     name: Package smoke
     needs: changes
-    # CI-OPT v2: deb packaging is release-facing; run it on v* tags (full
-    # suite) and manual runs, not on every PR/main push.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -533,9 +523,7 @@ jobs:
   browser:
     name: Development stack and browser
     needs: changes
-    # CI-OPT v2: the dev-stack browser end-to-end suite is release-facing;
-    # run it on v* tags (full suite) and manual runs only.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -590,9 +578,7 @@ jobs:
   install:
     name: Linux installation (${{ matrix.os }}, ${{ matrix.arch }})
     needs: changes
-    # CI-OPT v2: the installer contract matrix is release-facing; run it on
-    # v* tags (full suite) and manual runs only.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.frontend == 'true'
     strategy:
       fail-fast: false
       matrix:

@@ -164,6 +164,25 @@ func TestGoldenCases(t *testing.T) {
 				},
 			},
 		},
+		{
+			// Compose shape (URMAIL_RENDERED_CONFIG_DIR contract): the Postfix
+			// config_dir lives under the render root, so every file-map
+			// reference must point at the rendered mount surface.
+			name: "compose_rendered_config",
+			node: func() postfix.NodeConfig {
+				n := defaultNodeConfig()
+				n.ConfigDir = "/srv/urmail/config/postfix"
+				return n
+			}(),
+			snap: postfix.Snapshot{
+				Domains: []postfix.Domain{
+					{FQDN: "example.com", Status: "active"},
+				},
+				Mailboxes: []postfix.Mailbox{
+					{Address: "user@example.com", Status: "active"},
+				},
+			},
+		},
 	}
 
 	expectedFiles := []struct {
