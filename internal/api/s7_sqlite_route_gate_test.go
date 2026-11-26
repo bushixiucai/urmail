@@ -42,8 +42,9 @@ func TestSQLiteRouteGateRejectsUnsupportedPaths(t *testing.T) {
 	}
 	beforeR, beforeS, beforeSess := counts()
 	for _, probe := range []struct{ method, path, body string }{
-		// slice-3 (this change): send/drafts/rules left the deny list —
-		// see TestSlice3GateMatrix for their allow/deny assertions.
+		// slice-3 (this change): send and the whole drafts family (PUT/GET
+		// collection + DELETE /drafts/:uid, S3-1) plus rules left the deny
+		// list — their allow-side assertions live in TestSlice3GateMatrix.
 		{http.MethodGet, "/api/v1/mailbox/send-receipts", ""},
 		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"to":["x@example.test"],"text":"x"}`},
 	} {

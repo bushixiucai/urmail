@@ -48,16 +48,20 @@ func TestSlice3GateMatrix(t *testing.T) {
 		}
 	}
 
-	// Approved family: the gate must NOT answer — send against the
-	// unreachable fixture SMTP is a transport failure (non-gate 5xx), drafts
-	// against the unreachable IMAP likewise, and rules hits the handler's
-	// own rulesReady state. None of them may carry FEATURE_UNAVAILABLE.
+	// Approved family: the gate must NOT answer — against the fixture the
+	// SMTP/IMAP dials are unreachable by construction, so send/drafts fail
+	// with their handlers' transport errors (no fake MTA here), and rules
+	// hits its own rulesReady state. None of them may carry
+	// FEATURE_UNAVAILABLE.
 	for _, tc := range []struct {
 		method, path, payload string
 	}{
 		{http.MethodPost, "/api/v1/mailbox/send", `{"to":["bob@b.example.test"],"subject":"s3","text":"hi"}`},
 		{http.MethodPut, "/api/v1/mailbox/drafts", `{"to":["bob@b.example.test"],"subject":"d","text":"body"}`},
 		{http.MethodGet, "/api/v1/mailbox/drafts", ""},
+		// S3-1: the uid sub-route carries the family DELETE; it must leave
+		// the gate with its siblings (QA round 1 caught it still gated).
+		{http.MethodDelete, "/api/v1/mailbox/drafts/42?uid_validity=42", ""},
 		{http.MethodGet, "/api/v1/mailbox/rules", ""},
 		{http.MethodPut, "/api/v1/mailbox/rules", `{"version":"","rules":[]}`},
 	} {

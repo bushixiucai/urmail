@@ -551,7 +551,16 @@ func New(opts Options) *gin.Engine {
 						return
 					}
 				case "/api/v1/mailbox/drafts":
-					if method == http.MethodPut || method == http.MethodGet || method == http.MethodDelete {
+					// (no DELETE on the collection; deletion is per-uid below)
+					if method == http.MethodPut || method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/drafts/:uid":
+					// S3-1: the uid sub-route carries the family's DELETE —
+					// without this case the delete-approval method in the
+					// parent case was dead (the FullPaths differ).
+					if method == http.MethodDelete {
 						c.Next()
 						return
 					}
