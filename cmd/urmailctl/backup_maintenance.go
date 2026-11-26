@@ -83,6 +83,13 @@ func backupUnitState(ctx context.Context, unit string) (bool, error) {
 		if strings.Contains(text, "LoadState=not-found") {
 			return false, nil
 		}
+		// LoadState=masked is the deliberate retirement state of the six
+		// legacy backup writer units: a masked unit cannot start, which is
+		// exactly the not-active posture the fence requires — treat it like
+		// not-found instead of failing the fence with an unknown state.
+		if strings.Contains(text, "LoadState=masked") {
+			return false, nil
+		}
 		if !strings.Contains(text, "LoadState=loaded") {
 			return false, fmt.Errorf("backup writer %s has unknown load state", unit)
 		}
