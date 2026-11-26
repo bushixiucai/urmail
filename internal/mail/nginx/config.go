@@ -24,6 +24,15 @@ type DomainConfig struct {
 // Snapshot represents the set of domains to be configured.
 type Snapshot struct {
 	Domains []DomainConfig
+	// GrafanaHostname and AuthProxyTarget are consumed only by the compose
+	// Caddy renderer: GrafanaHostname names the primary site host that
+	// carries the /dashboard monitoring route (user decision 2026-11-27
+	// replaced the deprecated grafana.<domain> subdomain) and
+	// AuthProxyTarget is where that route's forward_auth dials urmaild
+	// (default 127.0.0.1:8080 on the host loopback chain). The host nginx
+	// renderer ignores them.
+	GrafanaHostname string
+	AuthProxyTarget string
 }
 
 // ACMEWebroot is root-owned and publicly traversable by nginx workers.

@@ -29,6 +29,7 @@ type fakeAuthStore struct {
 	byEmail     map[string]int64
 	sessions    map[string]store.Sessions
 	usedCodes   map[int64]map[string]bool
+	admins      map[int64]bool
 	nextID      int64
 	currentUser int64 // the user the fake auth middleware authenticates as
 }
@@ -100,8 +101,16 @@ func (f *fakeAuthStore) GetUserTenants(_ context.Context, _ int64) ([]store.GetU
 	return nil, nil
 }
 
-func (f *fakeAuthStore) CheckPlatformAdmin(_ context.Context, _ int64) (bool, error) {
-	return false, nil
+func (f *fakeAuthStore) CheckPlatformAdmin(_ context.Context, userID int64) (bool, error) {
+	return f.admins[userID], nil
+}
+
+func (f *fakeAuthStore) GetSessionByID(_ context.Context, id string) (store.Sessions, error) {
+	s, ok := f.sessions[id]
+	if !ok {
+		return store.Sessions{}, pgx.ErrNoRows
+	}
+	return s, nil
 }
 
 func (f *fakeAuthStore) CreateSession(_ context.Context, arg store.CreateSessionParams) (store.Sessions, error) {

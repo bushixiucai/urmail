@@ -1,0 +1,11 @@
+# GRAFANA-DESIGN §3: the seven urmail dashboards under compose/grafana/provisioning/dashboards-json/.
+apiVersion: 1
+providers:
+  - name: urmail
+    orgId: 1
+    folder: urmail
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/provisioning/dashboards-json

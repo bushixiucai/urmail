@@ -28,7 +28,42 @@ func Generate(snapshot nginx.Snapshot) (map[string]string, error) {
 		if domain.TLSCertFile != "" && domain.TLSKeyFile != "" {
 			fmt.Fprintf(&b, "  tls %s %s\n", domain.TLSCertFile, domain.TLSKeyFile)
 		}
+		// User decision 2026-11-27: the monitoring plane lives at
+		// https://<primary host>/dashboard on the SAME site, not a separate
+		// grafana. subdomain. The prefix is KEPT on the proxied request and
+		// GF_SERVER_SERVE_FROM_SUB_PATH=true makes Grafana serve and emit
+		// /dashboard-prefixed URLs — the pair is structural: stripping the
+		// prefix (handle_path) makes sub-path Grafana redirect to itself in
+		// a loop (QA pathfix PF-2), and handle_path additionally cannot take
+		// a named matcher (PF-1 parse failure). redir normalizes the bare
+		// /dashboard to /dashboard/ so it cannot fall through to the site
+		// proxy (PF-3). The route binds tighter than the site-wide fallback
+		// proxy below; forward_auth stays fail-closed.
+		if snapshot.GrafanaHostname != "" && strings.EqualFold(domain.FQDN, snapshot.GrafanaHostname) {
+			fmt.Fprintf(&b, "  redir /dashboard /dashboard/ 301\n")
+			fmt.Fprintf(&b, "  handle /dashboard/* {\n")
+			fmt.Fprintf(&b, "    forward_auth %s {\n", authProxyTarget(snapshot))
+			fmt.Fprintf(&b, "      uri      /api/v1/auth/check\n")
+			// copy_headers runs AFTER a 2xx check response and copies (with
+			// rename) the identity headers onto the Grafana upstream request,
+			// overwriting anything the client forged (QA PR150 P0-2).
+			fmt.Fprintf(&b, "      copy_headers X-URMAIL-Mailbox>X-WEBAUTH-USER X-WEBAUTH-ROLE\n")
+			fmt.Fprintf(&b, "    }\n")
+			fmt.Fprintf(&b, "    reverse_proxy 127.0.0.1:3000\n")
+			fmt.Fprintf(&b, "  }\n")
+		}
 		fmt.Fprintf(&b, "  reverse_proxy 127.0.0.1:8080\n}\n\n")
 	}
+	// The deprecated standalone grafana.<domain> site block (GRAFANA-DESIGN
+	// §5 as written) was removed by the 2026-11-27 entry-path decision.
 	return map[string]string{FileName: b.String()}, nil
+}
+
+// authProxyTarget resolves where forward_auth dials urmaild (the host
+// loopback chain unless URMAIL_AUTH_PROXY_TARGET overrides it).
+func authProxyTarget(snapshot nginx.Snapshot) string {
+	if snapshot.AuthProxyTarget != "" {
+		return snapshot.AuthProxyTarget
+	}
+	return "127.0.0.1:8080"
 }

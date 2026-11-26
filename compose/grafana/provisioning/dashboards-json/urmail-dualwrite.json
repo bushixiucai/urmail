@@ -1,0 +1,301 @@
+{
+ "uid": "urmail-dualwrite",
+ "title": "urmail · 双写探针",
+ "timezone": "Asia/Shanghai",
+ "tags": [
+  "urmail",
+  "phase4"
+ ],
+ "schemaVersion": 39,
+ "refresh": "30s",
+ "time": {
+  "from": "now-12h",
+  "to": "now"
+ },
+ "panels": [
+  {
+   "id": 4001,
+   "type": "stat",
+   "title": "urmail_operational_condition",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_operational_condition)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 4002,
+   "type": "stat",
+   "title": "urmail_database_reachable",
+   "gridPos": {
+    "x": 8,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_database_reachable)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 4003,
+   "type": "stat",
+   "title": "urmail_dovecot_auth_snapshot_dirty",
+   "gridPos": {
+    "x": 16,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_dovecot_auth_snapshot_dirty)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 4004,
+   "type": "row",
+   "title": "R1 rc 事件",
+   "gridPos": {
+    "x": 0,
+    "y": 3,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "id": 4005,
+   "type": "stat",
+   "title": "非预期 rc≠75（0 为绿）",
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 12,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 0.5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "1 - clamp_max(max(urmail_dual_write_probe_healthy),1)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 4006,
+   "type": "stat",
+   "title": "最近探针 rc",
+   "gridPos": {
+    "x": 12,
+    "y": 4,
+    "w": 12,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 75
+       },
+       {
+        "color": "green",
+        "value": 75.5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_dual_write_probe_rc)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 4007,
+   "type": "row",
+   "title": "R2 探针时序",
+   "gridPos": {
+    "x": 0,
+    "y": 9,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "id": 4008,
+   "type": "timeseries",
+   "title": "probe rc 序列",
+   "gridPos": {
+    "x": 0,
+    "y": 10,
+    "w": 24,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 75
+       },
+       {
+        "color": "green",
+        "value": 75.5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "urmail_dual_write_probe_rc"
+    }
+   ]
+  }
+ ]
+}

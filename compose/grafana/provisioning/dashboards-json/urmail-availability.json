@@ -1,0 +1,372 @@
+{
+ "uid": "urmail-availability",
+ "title": "urmail · 可用性 & healthz",
+ "timezone": "Asia/Shanghai",
+ "tags": [
+  "urmail",
+  "phase4"
+ ],
+ "schemaVersion": 39,
+ "refresh": "30s",
+ "time": {
+  "from": "now-12h",
+  "to": "now"
+ },
+ "panels": [
+  {
+   "id": 1001,
+   "type": "stat",
+   "title": "urmail_operational_condition",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_operational_condition)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 1002,
+   "type": "stat",
+   "title": "urmail_database_reachable",
+   "gridPos": {
+    "x": 8,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_database_reachable)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 1003,
+   "type": "stat",
+   "title": "urmail_dovecot_auth_snapshot_dirty",
+   "gridPos": {
+    "x": 16,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_dovecot_auth_snapshot_dirty)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 1004,
+   "type": "row",
+   "title": "R1 healthz",
+   "gridPos": {
+    "x": 0,
+    "y": 3,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "id": 1005,
+   "type": "stat",
+   "title": "healthz 5xx 率",
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 8,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 0.01
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(rate(urmail_http_requests_total{route=~\".*healthz.*\",status_class=\"5xx\"}[5m]))/clamp_min(sum(rate(urmail_http_requests_total{route=~\".*healthz.*\"}[5m])),0.001)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 1006,
+   "type": "timeseries",
+   "title": "healthz 时延 P95/P99",
+   "gridPos": {
+    "x": 8,
+    "y": 4,
+    "w": 16,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "histogram_quantile(0.95,sum(rate(urmail_http_request_duration_seconds_bucket{route=~\".*healthz.*\"}[5m])) by (le))"
+    },
+    {
+     "refId": "B",
+     "expr": "histogram_quantile(0.99,sum(rate(urmail_http_request_duration_seconds_bucket{route=~\".*healthz.*\"}[5m])) by (le))"
+    }
+   ]
+  },
+  {
+   "id": 1007,
+   "type": "row",
+   "title": "R2 全路由",
+   "gridPos": {
+    "x": 0,
+    "y": 9,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "id": 1008,
+   "type": "timeseries",
+   "title": "全路由 QPS TopN",
+   "gridPos": {
+    "x": 0,
+    "y": 10,
+    "w": 12,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "topk(10,sum(rate(urmail_http_requests_total[5m])) by (route))"
+    }
+   ]
+  },
+  {
+   "id": 1009,
+   "type": "timeseries",
+   "title": "全路由时延 P95",
+   "gridPos": {
+    "x": 12,
+    "y": 10,
+    "w": 12,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "histogram_quantile(0.95,sum(rate(urmail_http_request_duration_seconds_bucket[5m])) by (le,route))"
+    }
+   ]
+  },
+  {
+   "id": 1010,
+   "type": "row",
+   "title": "R3 审计失败",
+   "gridPos": {
+    "x": 0,
+    "y": 16,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "id": 1011,
+   "type": "timeseries",
+   "title": "审计写失败率",
+   "gridPos": {
+    "x": 0,
+    "y": 17,
+    "w": 24,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(rate(urmail_audit_write_failures_total[5m])) by (phase)"
+    }
+   ]
+  }
+ ]
+}

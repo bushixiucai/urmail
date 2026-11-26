@@ -1,0 +1,11 @@
+# GRAFANA-DESIGN §5 provisioning: alertmanager datasource for the Grafana alert UI.
+apiVersion: 1
+datasources:
+  - name: Alertmanager
+    uid: urmail-alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: false

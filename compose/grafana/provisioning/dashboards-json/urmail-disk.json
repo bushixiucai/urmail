@@ -1,0 +1,311 @@
+{
+ "uid": "urmail-disk",
+ "title": "urmail · 磁盘",
+ "timezone": "Asia/Shanghai",
+ "tags": [
+  "urmail",
+  "phase4"
+ ],
+ "schemaVersion": 39,
+ "refresh": "30s",
+ "time": {
+  "from": "now-12h",
+  "to": "now"
+ },
+ "panels": [
+  {
+   "id": 3001,
+   "type": "stat",
+   "title": "urmail_operational_condition",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_operational_condition)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 3002,
+   "type": "stat",
+   "title": "urmail_database_reachable",
+   "gridPos": {
+    "x": 8,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_database_reachable)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 3003,
+   "type": "stat",
+   "title": "urmail_dovecot_auth_snapshot_dirty",
+   "gridPos": {
+    "x": 16,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_dovecot_auth_snapshot_dirty)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 3004,
+   "type": "row",
+   "title": "R1 使用率",
+   "gridPos": {
+    "x": 0,
+    "y": 3,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "id": 3005,
+   "type": "stat",
+   "title": "数据根 fs 使用率",
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 12,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 0.9
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"}",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "id": 3006,
+   "type": "row",
+   "title": "R2 7d 预测",
+   "gridPos": {
+    "x": 0,
+    "y": 10,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "id": 3007,
+   "type": "timeseries",
+   "title": "7d avail 预测",
+   "gridPos": {
+    "x": 0,
+    "y": 11,
+    "w": 24,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "predict_linear(node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"}[1d], 7*86400)"
+    }
+   ]
+  },
+  {
+   "id": 3008,
+   "type": "row",
+   "title": "R3 inode 与域级占用",
+   "gridPos": {
+    "x": 0,
+    "y": 17,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "id": 3009,
+   "type": "timeseries",
+   "title": "inode 余量",
+   "gridPos": {
+    "x": 0,
+    "y": 18,
+    "w": 12,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "node_filesystem_files_free{fstype!~\"tmpfs|overlay\"}"
+    }
+   ]
+  },
+  {
+   "id": 3010,
+   "type": "timeseries",
+   "title": "urmail_mailbox_bytes{domain}（域级聚合）",
+   "gridPos": {
+    "x": 12,
+    "y": 18,
+    "w": 12,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(urmail_mailbox_bytes{domain!~\"\"}) by (domain)"
+    }
+   ]
+  }
+ ]
+}

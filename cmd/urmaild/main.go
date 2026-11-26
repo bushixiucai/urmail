@@ -518,6 +518,7 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 		Messages:              messages,
 		Version:               version,
 		MyHostname:            cfg.MyHostname,
+		PrimaryDomain:         cfg.PrimaryDomain,
 		Reconcile:             reconcilePipeline,
 		Audit:                 db.Querier(platformPool),
 		Secrets:               secretBox,

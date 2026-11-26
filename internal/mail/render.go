@@ -30,6 +30,12 @@ type ConfigContext struct {
 	// RenderRoot relocates the rendered tree (compose binds it under the data
 	// volume). Empty keeps the historical /etc targets.
 	RenderRoot string
+	// GrafanaHostname selects the monitoring site block in the compose
+	// Caddyfile (GRAFANA-DESIGN §5); empty renders no grafana site.
+	// AuthProxyTarget overrides where forward_auth dials urmaild; empty
+	// means the host loopback chain 127.0.0.1:8080.
+	GrafanaHostname string
+	AuthProxyTarget string
 }
 
 // RenderAll renders configuration files for Postfix, Dovecot, NSD, and Nginx.
@@ -123,7 +129,10 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 	} else {
 		// 4b. Caddy (compose topology): only inside an injected render root, so a
 		// host deployment keeps its /etc tree untouched.
-		caddyFiles, caddyErr := caddy.Generate(ctx.NginxSnap)
+		caddySnap := ctx.NginxSnap
+		caddySnap.GrafanaHostname = ctx.GrafanaHostname
+		caddySnap.AuthProxyTarget = ctx.AuthProxyTarget
+		caddyFiles, caddyErr := caddy.Generate(caddySnap)
 		if caddyErr != nil {
 			return nil, fmt.Errorf("render caddy: %w", caddyErr)
 		}

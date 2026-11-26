@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/timeutil"
@@ -56,6 +57,7 @@ type AuthStore interface {
 	GetUserByID(ctx context.Context, id int64) (store.GetUserByIDRow, error)
 	GetUserTenants(ctx context.Context, userID int64) ([]store.GetUserTenantsRow, error)
 	CheckPlatformAdmin(ctx context.Context, userID int64) (bool, error)
+	GetSessionByID(ctx context.Context, id string) (store.Sessions, error)
 	CreateSession(ctx context.Context, arg store.CreateSessionParams) (store.Sessions, error)
 	DeleteSession(ctx context.Context, id string) error
 	MarkSessionMFAVerified(ctx context.Context, id string) error
@@ -76,7 +78,18 @@ type AuthHandler struct {
 	Store       AuthStore
 	Secrets     SecretsBox
 	Credentials ApplicationCredentialStore
+	// PanelDomain is the primary domain the panel is served under. When it
+	// is set, a successful login additionally issues the parent-domain
+	// HttpOnly session cookie the Grafana AuthProxy chain consumes
+	// (GRAFANA-DESIGN §4 option 1); empty keeps the historical localStorage
+	// token-only behavior.
+	PanelDomain string
 }
+
+// authProxyCookie is the parent-domain HttpOnly session cookie issued on
+// login so the Caddy forward_auth chain can authenticate the browser against
+// /api/v1/auth/check without any JavaScript access to the credential.
+const authProxyCookie = "urmail_panel_session"
 
 // SecretsBox is the subset of secrets.Box used by the auth handler.
 type SecretsBox interface {
@@ -329,10 +342,73 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		resp.CurrentTenantID = &tenantID
 	}
 
+	// GRAFANA-DESIGN §4 option 1: issue the parent-domain HttpOnly session
+	// cookie for the Caddy forward_auth → /api/v1/auth/check chain. The
+	// JavaScript-readable bearer token in the response body stays unchanged;
+	// this cookie is HttpOnly, so the panel credential surface does not
+	// grow. SameSite=Lax keeps the cookie attached to same-site navigations
+	// (the Grafana entry) without cross-site exposure.
+	if h.PanelDomain != "" {
+		maxAge := int((session.ExpiresAt - timeutil.NowMicro()) / 1_000_000)
+		if maxAge < 0 {
+			maxAge = 0
+		}
+		secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie(authProxyCookie, token, maxAge, "/", "."+h.PanelDomain, secure, true)
+	}
+
 	c.JSON(http.StatusOK, resp)
 }
 
-// Logout revokes the authenticated session.
+// CheckAuthProxy validates the AuthProxy chain credential (GRAFANA-DESIGN
+// §4): the parent-domain HttpOnly cookie issued at login, or the standard
+// bearer token Caddy copies through. Only a live platform-admin session
+// earns a 200 with the mailbox and role headers Grafana's auth.proxy maps
+// to its Admin role; every other request is rejected fail-closed with 403,
+// so no Viewer role can ever exist on the monitoring plane.
+func (h *AuthHandler) CheckAuthProxy(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	token, err := c.Cookie(authProxyCookie)
+	if err != nil || token == "" {
+		if supplied := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "); supplied != "" && supplied != c.GetHeader("Authorization") {
+			token = supplied
+		}
+	}
+	if token == "" {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	// Every store call carries the platform scope: the production store is a
+	// ScopedQuerier whose method_scope contract rejects a bare request
+	// context (QA PR150 P0-1). Brand/origin boundary note (QA P2-3): the
+	// cookie is issued on the primary domain only, and GetSessionByID's SQL
+	// joins the active-user predicate — a disabled user or a foreign-brand
+	// session simply fails the lookup here.
+	authCtx := authScopeContext(c)
+	session, err := h.Store.GetSessionByID(authCtx, middleware.HashSessionToken(token))
+	if err != nil || session.ExpiresAt != 0 && session.ExpiresAt < timeutil.NowMicro() {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	admin, err := h.Store.CheckPlatformAdmin(authCtx, session.UserID)
+	if err != nil || !admin {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	user, err := h.Store.GetUserByID(authCtx, session.UserID)
+	if err != nil {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	c.Header("X-URMAIL-Mailbox", user.Email)
+	c.Header("X-WEBAUTH-ROLE", "Admin")
+	c.Status(http.StatusOK)
+}
+
+// Logout revokes the authenticated session and expires the AuthProxy
+// cookie, so the browser stops replaying a dead credential to the Caddy
+// forward_auth chain (QA PR150 P1-3).
 func (h *AuthHandler) Logout(c *gin.Context) {
 	val, exists := c.Get(middleware.ContextSession)
 	if exists {
@@ -342,6 +418,15 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 				return
 			}
 		}
+	}
+	if h.PanelDomain != "" {
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie(authProxyCookie, "", -1, "/", "."+h.PanelDomain, true, true)
+		// Tidy-up only (QA pathfix P3②): Grafana itself clears its session
+		// on /dashboard/logout; this just stops the browser carrying a dead
+		// grafana_session around. It does NOT revoke anything server-side —
+		// the AuthProxy check rejects every non-panel credential anyway.
+		c.SetCookie("grafana_session", "", -1, "/dashboard", "", true, true)
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
