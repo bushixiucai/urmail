@@ -143,21 +143,59 @@ ORDER BY tc.relname, con.conname, k.ord`)
 	return ordered, byName, nil
 }
 
-// topoSortFK orders tables so referenced tables come first ( Kahn's algorithm
-// over the outgoing FK edges).
+// triggerInsertDeps records cross-table dependencies enforced by SQLite
+// BEFORE INSERT triggers that query tables not linked by a foreign key.
+// Audited across all 103 SQLite triggers (83 in 0001_init.sql + 20 in
+// 0002..0007):
+//   - mailbox_aliases -> mailboxes: alias_sender_logins_membership_guard_insert
+//     (0001_init.sql:2233) checks EXISTS(SELECT 1 FROM mailboxes ...).
+//   - domains -> settings, tenants: domains_resource_guard_insert
+//     (0001_init.sql:2643) reads tenant/platform limits from settings.
+//   - mailboxes -> domains, settings, tenants: mailboxes_resource_guard_insert
+//     (0001_init.sql:2657) reads tenant/platform limits from settings.
+//   - retention_policies -> retention_previews: retention_confirmation_guard__insert
+//     (0001_init.sql:2717) checks confirmed preview in retention_previews.
+//   - mailbox_contact_group_members -> mailbox_contact_groups, mailbox_contacts
+//   - marketing_flow_steps -> marketing_flow_versions
+//   - recall_requests -> archive_entries, mailboxes
+//   - ticket_messages -> tickets
+//
+// Negative-exclusion checks (domains <-> brand_hosts namespace mutual exclusion;
+// tenants/domains/mailboxes -> restore_quarantine) and AFTER INSERT side-effect
+// triggers (mailbox_contacts/events -> mailbox_changes; application_credentials
+// -> audit_logs; mailboxes -> mailbox_storage_reservations) are intentionally
+// excluded here to avoid artificial cycles.
+var triggerInsertDeps = map[string][]string{
+	"mailbox_aliases":               {"mailboxes"},
+	"domains":                       {"settings", "tenants"},
+	"mailboxes":                     {"domains", "settings", "tenants"},
+	"retention_policies":            {"retention_previews"},
+	"mailbox_contact_group_members": {"mailbox_contact_groups", "mailbox_contacts"},
+	"marketing_flow_steps":          {"marketing_flow_versions"},
+	"recall_requests":               {"archive_entries", "mailboxes"},
+	"ticket_messages":               {"tickets"},
+}
+
+// topoSortFK orders tables so referenced tables (both FK parents and BEFORE
+// INSERT trigger-referenced tables) come first (Kahn's algorithm).
 func topoSortFK(plan []TableInfo) ([]TableInfo, error) {
 	byName := map[string]TableInfo{}
 	for _, ti := range plan {
 		byName[ti.Name] = ti
 	}
-	// indegree[t] = number of outgoing FK deps not yet satisfied; edges are
-	// t -> referenced table (t depends on the referenced table).
+	// indegree[t] = number of outgoing FK + trigger deps not yet satisfied;
+	// edges are t -> referenced table (t depends on the referenced table).
 	deps := map[string]map[string]bool{}
 	for _, ti := range plan {
 		deps[ti.Name] = map[string]bool{}
 		for _, fk := range ti.FKs {
 			if _, ok := byName[fk.RefTable]; ok && fk.RefTable != ti.Name {
 				deps[ti.Name][fk.RefTable] = true
+			}
+		}
+		for _, trigDep := range triggerInsertDeps[ti.Name] {
+			if _, ok := byName[trigDep]; ok && trigDep != ti.Name {
+				deps[ti.Name][trigDep] = true
 			}
 		}
 	}
