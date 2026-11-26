@@ -73,6 +73,7 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 
 	envFile := filepath.Join(dir, "urmaild.env")
 	envContent := "URMAIL_SQLITE_PATH=" + dbPath + "\n" +
+		"URMAIL_DB_ENGINE=sqlite\n" +
 		"URMAIL_POLICY_ENABLED=true\n" +
 		"URMAIL_WEBMAIL_NATIVE=true\n" +
 		"URMAIL_MASTER_KEY_PATH=" + masterKey + "\n" +
@@ -226,9 +227,19 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /api/v1/mailbox/send: %v", err)
 	}
+	bodyBytes, readErr := io.ReadAll(sendResp.Body)
+	if readErr != nil {
+		t.Fatalf("read send body: %v", readErr)
+	}
 	_ = sendResp.Body.Close()
-	if sendResp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("unapproved /api/v1/mailbox/send = %d, want 503 FEATURE_UNAVAILABLE", sendResp.StatusCode)
+	t.Logf("send response status=%d body=%s", sendResp.StatusCode, string(bodyBytes))
+	// slice-3 approves send, so the slice-1 switch no longer rejects it.
+	// This fixture runs without a PlatformPool, which degrades the whole
+	// mailboxAuthed group to WEBMAIL_DISABLED before the switch — a
+	// deployment-wiring state, not the FEATURE_UNAVAILABLE gate. Assert the
+	// error code so the two 503s cannot be confused.
+	if !strings.Contains(string(bodyBytes), "WEBMAIL_DISABLED") {
+		t.Fatalf("send = %d %s, want the fixture WEBMAIL_DISABLED degradation", sendResp.StatusCode, string(bodyBytes))
 	}
 
 	readyResp, err := func() (*http.Response, error) {

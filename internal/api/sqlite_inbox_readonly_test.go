@@ -67,7 +67,8 @@ func TestSQLiteGatedFolderListingsAnswerUnavailable(t *testing.T) {
 		{http.MethodPost, "/api/v1/mailbox/folders", `{"name":"Custom"}`},
 		{http.MethodPatch, "/api/v1/mailbox/folders/INBOX", `{"name":"Renamed","uid_validity":1}`},
 		{http.MethodDelete, "/api/v1/mailbox/folders/INBOX?uid_validity=1", ""},
-		{http.MethodPut, "/api/v1/mailbox/drafts", `{"to":["bob@b.example.test"],"subject":"hi","text":"body"}`},
+		// slice-3: drafts left the gate; their handler-level failures are
+		// asserted in TestSlice3GateMatrix.
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/delete", `{"uids":[1],"uid_validity":1}`},
 	} {
 		code, body = client.do(writeReq.method, writeReq.path, writeReq.payload)
