@@ -518,21 +518,19 @@ func New(opts Options) *gin.Engine {
 		mailboxAuthed := v1.Group("/mailbox")
 		mailboxAuthed.Use(middleware.RequireMailboxAuth(mailboxSessionLookup, webmailVault))
 		if sqliteMode {
-			// Slice-1 gate (V2 §5): run AFTER authentication (unauthenticated
-			// callers keep the original 401) and BEFORE any handler side
-			// effect — IMAP dial, SMTP submit, secret unseal, PG query. Only
-			// login/logout, settings, quota and identities are approved in
-			// the SQLite candidate; every other mailbox route answers 503
-			// FEATURE_UNAVAILABLE with no Retry-After and no fallback.
-			//
-			// The folder/message listing routes are intentionally inside the
-			// gate: their SQLite index tables carry no imported mail yet, so
-			// an ungated list answered an empty folder while Dovecot held
-			// thousands of real messages (post-cutover QA TC-13a "silent
-			// empty inbox"). A visible 503 is the honest slice-1 behavior
-			// until the IMAP-backed listing lands; send/drafts/rules/
-			// corporate-directory, single-message reads and the image proxy
-			// stay gated here as well.
+			// Slice-1 gate (V2 §5, authoritative allow-list): run AFTER
+			// authentication (unauthenticated callers keep the original 401)
+			// and BEFORE any handler side effect — IMAP dial, SMTP submit,
+			// secret unseal, PG query. Approved per slice:
+			//   slice-1: login/logout, settings, quota, identities;
+			//   slice-3 (this change): send (SMTP submitter), drafts (IMAP
+			//   Drafts), rules (mailboxes.sieve_script + agent activator).
+			// Everything else answers 503 FEATURE_UNAVAILABLE with no
+			// Retry-After and no fallback — folder/message listings, single
+			// message reads, the image proxy and corporate-directory stay
+			// gated until the IMAP-backed listing lands (post-cutover QA
+			// TC-13a: an ungated list answered an empty folder while
+			// Dovecot held thousands of real messages).
 			mailboxAuthed.Use(func(c *gin.Context) {
 				method := c.Request.Method
 				switch c.FullPath() {
@@ -548,6 +546,30 @@ func New(opts Options) *gin.Engine {
 					}
 				case "/api/v1/mailbox/session":
 					if method == http.MethodDelete {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/send":
+					if method == http.MethodPost {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/drafts":
+					// (no DELETE on the collection; deletion is per-uid below)
+					if method == http.MethodPut || method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/drafts/:uid":
+					// S3-1: the uid sub-route carries the family's DELETE —
+					// without this case the delete-approval method in the
+					// parent case was dead (the FullPaths differ).
+					if method == http.MethodDelete {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/rules":
+					if method == http.MethodGet || method == http.MethodPut {
 						c.Next()
 						return
 					}
