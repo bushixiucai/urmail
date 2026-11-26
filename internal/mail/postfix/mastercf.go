@@ -52,8 +52,16 @@ func submissionMilters(node NodeConfig) string {
 // design, and the legacy host stack keeps signing through its OpenDKIM on
 // 8891/8893. The v80 preserve shape keeps the fail-closed chain because its
 // milters are live host services.
+// isComposeShape reports the container topology: rendered config dir
+// injected and no preserved legacy stack. Compose-optional side services
+// (DKIM signer, from-bind milter, policy socket mount) may be absent there,
+// so per-service overrides that point at them are not emitted at all.
+func isComposeShape(node NodeConfig) bool {
+	return node.ConfigDir != "" && !node.V80Preserve
+}
+
 func submissionMilterOverrides(node NodeConfig) []string {
-	if node.ConfigDir != "" && !node.V80Preserve {
+	if isComposeShape(node) {
 		return nil
 	}
 	return []string{
@@ -82,8 +90,14 @@ func renderMasterCF(node NodeConfig) string {
 	for _, line := range submissionMilterOverrides(node) {
 		b.WriteString("  " + line + "\n")
 	}
-	if node.PolicyEnabled {
-		b.WriteString("  -o smtpd_data_restrictions=check_policy_service,unix:" + policySocket(node) + "\n")
+	// The -o value uses the space-separated restriction syntax
+	// (check_policy_service unix:<socket>): the comma form is parsed as one
+	// unknown restriction name and rejected every DATA (DevOps live hotfix).
+	// The compose shape omits the line entirely: the policy socket lives on
+	// the urmaild config volume the postfix container does not mount, and a
+	// fail-closed check against an unreachable socket would 451 every DATA.
+	if node.PolicyEnabled && !isComposeShape(node) {
+		b.WriteString("  -o smtpd_data_restrictions=check_policy_service unix:" + policySocket(node) + "\n")
 	}
 	b.WriteString("smtps     inet  n       -       n       -       -       smtpd\n")
 	b.WriteString("  -o syslog_name=postfix/smtps\n")
@@ -94,8 +108,9 @@ func renderMasterCF(node NodeConfig) string {
 	for _, line := range submissionMilterOverrides(node) {
 		b.WriteString("  " + line + "\n")
 	}
-	if node.PolicyEnabled {
-		b.WriteString("  -o smtpd_data_restrictions=check_policy_service,unix:" + policySocket(node) + "\n")
+	// Same space syntax and compose gating as the submission service above.
+	if node.PolicyEnabled && !isComposeShape(node) {
+		b.WriteString("  -o smtpd_data_restrictions=check_policy_service unix:" + policySocket(node) + "\n")
 	}
 	b.WriteString("pickup    unix  n       -       y       60      1       pickup\n")
 	b.WriteString("cleanup   unix  n       -       y       -       0       cleanup\n")

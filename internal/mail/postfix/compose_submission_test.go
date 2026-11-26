@@ -33,6 +33,13 @@ func TestComposeSubmissionHasNoDanglingMilterOverride(t *testing.T) {
 	if strings.Contains(master, "smtpd_milters=") || strings.Contains(master, "milter_default_action=") {
 		t.Fatalf("compose master.cf carries a milter override:\n%s", master)
 	}
+	// The policy check must not appear in the compose master.cf at all: the
+	// socket lives on a volume the postfix container does not mount, and the
+	// comma restriction form was invalid master.cf syntax (DevOps live
+	// hotfix). Host/v80 keep the check with the space-separated syntax.
+	if strings.Contains(master, "check_policy_service") {
+		t.Fatalf("compose master.cf carries a policy check:\n%s", master)
+	}
 	if !strings.Contains(master, "submission inet") || !strings.Contains(master, "smtps") {
 		t.Fatalf("compose master.cf lost the submission services:\n%s", master)
 	}
@@ -51,13 +58,38 @@ func TestComposeSubmissionHasNoDanglingMilterOverride(t *testing.T) {
 		t.Fatalf("v80 master.cf lost the submission/smtps fail-closed overrides:\n%s", out[postfix.FileMasterCF])
 	}
 
-	// Host shape (no config dir) keeps the historical override as well.
-	out, err = postfix.Generate(defaultNodeConfig(), sampleSnapshot())
+	// Host shape (no config dir) keeps the historical override as well;
+	// with the policy service enabled it also keeps both policy checks.
+	hostEnabled := defaultNodeConfig()
+	hostEnabled.PolicyEnabled = true
+	hostEnabled.PolicySocket = "private/policy"
+	out, err = postfix.Generate(hostEnabled, sampleSnapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Count(out[postfix.FileMasterCF], "-o milter_default_action=tempfail") != 2 {
 		t.Fatalf("host master.cf lost the submission/smtps overrides:\n%s", out[postfix.FileMasterCF])
+	}
+	for _, shape := range []struct{ name, master string }{
+		{"v80", func() string {
+			n := defaultNodeConfig()
+			n.V80Preserve = true
+			n.PolicyEnabled = true
+			n.PolicySocket = "private/policy"
+			out, err := postfix.Generate(n, sampleSnapshot())
+			if err != nil {
+				t.Fatal(err)
+			}
+			return out[postfix.FileMasterCF]
+		}()},
+		{"host", out[postfix.FileMasterCF]},
+	} {
+		if strings.Count(shape.master, "-o smtpd_data_restrictions=check_policy_service unix:") != 2 {
+			t.Fatalf("%s master.cf lost the two policy checks (space syntax):\n%s", shape.name, shape.master)
+		}
+		if strings.Contains(shape.master, "check_policy_service,") {
+			t.Fatalf("%s master.cf uses the invalid comma restriction form:\n%s", shape.name, shape.master)
+		}
 	}
 }
 

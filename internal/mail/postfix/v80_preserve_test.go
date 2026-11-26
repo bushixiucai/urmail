@@ -44,7 +44,9 @@ func TestV80PreserveGoldenAndPolicyOrder(t *testing.T) {
 			t.Fatal("reviewed SMTP restriction or mandatory SaaS gate missing")
 		}
 	}
-	if strings.Count(files[postfix.FileMasterCF], "-o smtpd_data_restrictions=check_policy_service,unix:private/policy") != 2 {
+	// Space-separated restriction syntax: the comma form is invalid inside
+	// a master.cf -o value and rejected every DATA (post-cutover QA).
+	if strings.Count(files[postfix.FileMasterCF], "-o smtpd_data_restrictions=check_policy_service unix:private/policy") != 2 {
 		t.Fatal("submission/smtps lost DATA policy")
 	}
 	// MAIL-03: the MX listener must never offer AUTH; only submission and
