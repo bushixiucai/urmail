@@ -84,13 +84,17 @@ func backupUnitState(ctx context.Context, unit string) (bool, error) {
 			return false, nil
 		}
 		// LoadState=masked is the deliberate retirement state of the six
-		// legacy backup writer units: a masked unit cannot start, which is
-		// exactly the not-active posture the fence requires — treat it like
-		// not-found instead of failing the fence with an unknown state.
-		if strings.Contains(text, "LoadState=masked") {
-			return false, nil
-		}
-		if !strings.Contains(text, "LoadState=loaded") {
+		// legacy backup writer units, but masking only blocks future starts
+		// — it does not stop a process that is still running (systemd
+		// semantics; QA blockers2 CB-2). A masked unit therefore skips the
+		// loaded-only requirement yet still goes through the same
+		// ActiveState evaluation below: masked+active blocks the fence,
+		// masked+inactive/failed is the expected retired posture, and
+		// masked+deactivating goes through the settle window like any other
+		// transitional state.
+		loaded := strings.Contains(text, "LoadState=loaded")
+		masked := strings.Contains(text, "LoadState=masked")
+		if !loaded && !masked {
 			return false, fmt.Errorf("backup writer %s has unknown load state", unit)
 		}
 		for _, state := range []string{"active", "activating", "reloading"} {

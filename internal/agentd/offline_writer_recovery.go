@@ -90,7 +90,13 @@ func verifyOfflineWritersForRecovery(ctx context.Context, maintenanceRoot, holdH
 		if err != nil {
 			return err
 		}
+		// Masked units join not-found ones: retirement blocks future
+		// starts, and a masked unit observed inactive or failed is the
+		// expected retired posture (QA blockers2 CB-4).
 		if o.Load == "not-found" && o.Active == "inactive" {
+			continue
+		}
+		if o.Load == "masked" && (o.Active == "inactive" || o.Active == "failed") {
 			continue
 		}
 		if o.Load != "loaded" {

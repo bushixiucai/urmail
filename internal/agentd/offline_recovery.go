@@ -165,7 +165,10 @@ func verifyEffectiveFenceDropIn(ctx context.Context, unit, holdPath string) erro
 		return fmt.Errorf("inspect effective fence for %s: %w", unit, err)
 	}
 	text := string(out)
-	if strings.Contains(text, "LoadState=not-found") {
+	// Masked fence units are retired the same way not-found ones are: the
+	// drop-in cannot be loaded because systemd no longer manages the unit
+	// (QA blockers2 CB-4).
+	if strings.Contains(text, "LoadState=not-found") || strings.Contains(text, "LoadState=masked") {
 		return nil
 	}
 	if !strings.Contains(text, "LoadState=loaded") || !strings.Contains(text, path) {

@@ -152,7 +152,7 @@ func renderDBConf(node NodeConfig) string {
 		b.WriteString("default_pass_scheme = SHA512-CRYPT\n\n")
 		readyJoin := dovecotauth.ReadyJoin
 		b.WriteString("password_query = SELECT m.address AS user, m.password_hash AS password FROM mailboxes m WHERE m.address = '%u' AND m.status = 'active' AND " + readyJoin + ";\n\n")
-		fmt.Fprintf(&b, "user_query = SELECT m.address AS user, '%s' AS uid, '%s' AS gid, '%s/mail/mailboxes/%%d/%%n' AS home, '*:bytes=' || CASE WHEN m.quota_bytes = -1 THEN '0' ELSE CAST(m.quota_bytes AS TEXT) END AS quota_rule, CASE WHEN EXISTS(SELECT 1 FROM tenants t WHERE t.tenant_id = m.tenant_id AND t.status = 'active') THEN '' ELSE 'expired' END AS acl_groups, %s FROM mailboxes m WHERE m.address = '%%u' AND ((m.status = 'active' AND %s) OR '%%s' = 'doveadm');\n\n", mailUID, mailGID, storageRoot, legacySieveUserFields(storageRoot), readyJoin)
+		fmt.Fprintf(&b, "user_query = SELECT m.address AS user, '%s' AS uid, '%s' AS gid, '%s/mail/mailboxes/%%d/%%n' AS home, '*:bytes=' || CASE WHEN m.quota_bytes = -1 THEN '0' ELSE CAST(m.quota_bytes AS TEXT) END AS quota_rule, CASE WHEN %s THEN '' ELSE 'expired' END AS acl_groups, %s FROM mailboxes m WHERE m.address = '%%u' AND ((m.status = 'active' AND %s) OR '%%s' = 'doveadm');\n\n", mailUID, mailGID, storageRoot, dovecotauth.TenantActivePredicate, legacySieveUserFields(storageRoot), readyJoin)
 		b.WriteString("iterate_query = SELECT m.address AS user FROM mailboxes m WHERE m.status = 'active' AND " + readyJoin + ";\n")
 		return b.String()
 	}

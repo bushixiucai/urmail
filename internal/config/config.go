@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/bushixiucai/urmail/internal/dovecotauth"
 )
 
 // EnvFile is the default location of the on-disk configuration.
@@ -693,5 +695,9 @@ func dovecotAuthDB(raw string) string {
 	if path := strings.TrimSpace(raw); path != "" {
 		return path
 	}
-	return "/var/lib/urmail/dovecot-auth.db"
+	// Follow the dovecotauth package default: the snapshot lives in its own
+	// standalone parent directory since cutover-blockers Blocker 2, and a
+	// second hardcoded copy of that path here is exactly the drift that
+	// QA blockers2 CB-1 flags.
+	return dovecotauth.DefaultPath
 }
