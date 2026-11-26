@@ -259,10 +259,11 @@ func MigrateDBSQLiteToPG(ctx context.Context, sqliteDB *sql.DB, pg *pgxpool.Pool
 	}
 	tablePKs := make(map[string]string, len(tables))
 	tableCols := make(map[string][]string, len(tables))
+	tableAlwaysIdentity := make(map[string]bool, len(tables))
 	tableDeletes := make(map[string][]string, len(tables))
 
 	for _, tbl := range tables {
-		pkCol, cols, pgSet, err := readPGTableMetaAndPKs(ctx, tx, tbl)
+		pkCol, cols, hasAlwaysIdentity, pgSet, err := readPGTableMetaAndPKs(ctx, tx, tbl)
 		if err != nil {
 			return rep, err
 		}
@@ -271,6 +272,7 @@ func MigrateDBSQLiteToPG(ctx context.Context, sqliteDB *sql.DB, pg *pgxpool.Pool
 		}
 		tablePKs[tbl] = pkCol
 		tableCols[tbl] = cols
+		tableAlwaysIdentity[tbl] = hasAlwaysIdentity
 
 		sqliteSet, err := readSQLitePKSet(ctx, sqliteDB, tbl, pkCol)
 		if err != nil {
@@ -298,6 +300,14 @@ func MigrateDBSQLiteToPG(ctx context.Context, sqliteDB *sql.DB, pg *pgxpool.Pool
 		return rep, nil
 	}
 
+	// Suspend non-internal PG triggers inside this transaction so bulk reverse copy
+	// (e.g., mailbox_password_version_guard, alias_sender_logins_guard, audit triggers)
+	// can replay SQLite state cleanly, then restore with byte-for-byte parity before commit.
+	savedPGTrigs, err := suspendPGTriggers(ctx, tx)
+	if err != nil {
+		return rep, err
+	}
+
 	// 1. Delete hard-deleted rows in reverse table order.
 	for i := len(tables) - 1; i >= 0; i-- {
 		tbl := tables[i]
@@ -321,7 +331,7 @@ func MigrateDBSQLiteToPG(ctx context.Context, sqliteDB *sql.DB, pg *pgxpool.Pool
 			continue
 		}
 		cols := tableCols[tbl]
-		upserted, err := upsertTableFromSQLite(ctx, sqliteDB, tx, tbl, pkCol, cols, tm[tbl])
+		upserted, err := upsertTableFromSQLite(ctx, sqliteDB, tx, tbl, pkCol, cols, tableAlwaysIdentity[tbl], tm[tbl])
 		if err != nil {
 			return rep, fmt.Errorf("upsert %s: %w", tbl, err)
 		}
@@ -335,6 +345,10 @@ func MigrateDBSQLiteToPG(ctx context.Context, sqliteDB *sql.DB, pg *pgxpool.Pool
 			}
 			rep.SequencesReset++
 		}
+	}
+
+	if err := restoreAndVerifyPGTriggers(ctx, tx, savedPGTrigs); err != nil {
+		return rep, err
 	}
 
 	// 3. Check scheduled send state monotonicity before commit.
@@ -386,7 +400,7 @@ func readPGForeignKeys(ctx context.Context, tx pgx.Tx) (map[string][]string, err
 	return out, rows.Err()
 }
 
-func readPGTableMetaAndPKs(ctx context.Context, tx pgx.Tx, tbl string) (string, []string, map[string]bool, error) {
+func readPGTableMetaAndPKs(ctx context.Context, tx pgx.Tx, tbl string) (string, []string, bool, map[string]bool, error) {
 	var pkCol string
 	err := tx.QueryRow(ctx, `
 		SELECT a.attname
@@ -395,23 +409,28 @@ func readPGTableMetaAndPKs(ctx context.Context, tx pgx.Tx, tbl string) (string, 
 		WHERE i.indrelid = to_regclass($1) AND i.indisprimary
 		LIMIT 1`, tbl).Scan(&pkCol)
 	if err != nil || pkCol == "" {
-		return "", nil, nil, nil
+		return "", nil, false, nil, nil
 	}
 
 	colRows, err := tx.Query(ctx, `
-		SELECT column_name
+		SELECT column_name, (is_identity = 'YES' AND identity_generation = 'ALWAYS')
 		FROM information_schema.columns
 		WHERE table_schema = current_schema() AND table_name = $1
 		ORDER BY ordinal_position`, tbl)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, false, nil, err
 	}
 	var cols []string
+	hasAlwaysIdentity := false
 	for colRows.Next() {
 		var c string
-		if err := colRows.Scan(&c); err != nil {
+		var isAlways bool
+		if err := colRows.Scan(&c, &isAlways); err != nil {
 			colRows.Close()
-			return "", nil, nil, err
+			return "", nil, false, nil, err
+		}
+		if isAlways {
+			hasAlwaysIdentity = true
 		}
 		cols = append(cols, c)
 	}
@@ -419,19 +438,19 @@ func readPGTableMetaAndPKs(ctx context.Context, tx pgx.Tx, tbl string) (string, 
 
 	pkRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT "%s"::text FROM "%s"`, pkCol, tbl))
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, false, nil, err
 	}
 	pkSet := map[string]bool{}
 	for pkRows.Next() {
 		var k string
 		if err := pkRows.Scan(&k); err != nil {
 			pkRows.Close()
-			return "", nil, nil, err
+			return "", nil, false, nil, err
 		}
 		pkSet[k] = true
 	}
 	pkRows.Close()
-	return pkCol, cols, pkSet, nil
+	return pkCol, cols, hasAlwaysIdentity, pkSet, nil
 }
 
 func readSQLitePKSet(ctx context.Context, db *sql.DB, tbl, pkCol string) (map[string]bool, error) {
@@ -451,7 +470,7 @@ func readSQLitePKSet(ctx context.Context, db *sql.DB, tbl, pkCol string) (map[st
 	return out, rows.Err()
 }
 
-func upsertTableFromSQLite(ctx context.Context, sqliteDB *sql.DB, tx pgx.Tx, tbl, pkCol string, cols []string, cm map[string]datamigrate.ColumnMap) (int, error) {
+func upsertTableFromSQLite(ctx context.Context, sqliteDB *sql.DB, tx pgx.Tx, tbl, pkCol string, cols []string, alwaysIdentity bool, cm map[string]datamigrate.ColumnMap) (int, error) {
 	var mappedCols []string
 	for _, c := range cols {
 		if _, ok := cm[c]; ok {
@@ -471,8 +490,14 @@ func upsertTableFromSQLite(ctx context.Context, sqliteDB *sql.DB, tx pgx.Tx, tbl
 			updates = append(updates, fmt.Sprintf(`"%s" = EXCLUDED."%s"`, c, c))
 		}
 	}
-	upsertSQL := fmt.Sprintf(`INSERT INTO "%s" (%s) VALUES (%s) ON CONFLICT ("%s") DO `,
-		tbl, strings.Join(quoted, ", "), strings.Join(placeholders, ", "), pkCol)
+	// Tables with GENERATED ALWAYS AS IDENTITY columns (e.g. mailbox_scheduled_sends.id)
+	// reject explicit ID inserts with SQLSTATE 428C9 unless OVERRIDING SYSTEM VALUE is set.
+	overridingClause := ""
+	if alwaysIdentity {
+		overridingClause = " OVERRIDING SYSTEM VALUE"
+	}
+	upsertSQL := fmt.Sprintf(`INSERT INTO "%s" (%s)%s VALUES (%s) ON CONFLICT ("%s") DO `,
+		tbl, strings.Join(quoted, ", "), overridingClause, strings.Join(placeholders, ", "), pkCol)
 	if len(updates) > 0 {
 		upsertSQL += "UPDATE SET " + strings.Join(updates, ", ")
 	} else {
@@ -526,6 +551,120 @@ func readScheduledStatesSQLite(ctx context.Context, db *sql.DB) (map[string]stri
 		out[id] = st
 	}
 	return out, rows.Err()
+}
+
+type pgTriggerDef struct {
+	name    string
+	table   string
+	ddl     string
+	enabled string
+}
+
+func snapshotPGTriggers(ctx context.Context, tx pgx.Tx) ([]pgTriggerDef, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT t.tgname, c.relname, pg_get_triggerdef(t.oid, true), t.tgenabled::text
+		FROM pg_trigger t
+		JOIN pg_class c ON c.oid = t.tgrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = current_schema() AND NOT t.tgisinternal
+		ORDER BY c.relname, t.tgname`)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot pg triggers: %w", err)
+	}
+	defer rows.Close()
+	var trigs []pgTriggerDef
+	for rows.Next() {
+		var tr pgTriggerDef
+		if err := rows.Scan(&tr.name, &tr.table, &tr.ddl, &tr.enabled); err != nil {
+			return nil, fmt.Errorf("scan pg trigger: %w", err)
+		}
+		trigs = append(trigs, tr)
+	}
+	return trigs, rows.Err()
+}
+
+func suspendPGTriggers(ctx context.Context, tx pgx.Tx) ([]pgTriggerDef, error) {
+	trigs, err := snapshotPGTriggers(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	for _, tr := range trigs {
+		dropSQL := fmt.Sprintf(`DROP TRIGGER IF EXISTS %s ON %s`, pgx.Identifier{tr.name}.Sanitize(), pgx.Identifier{tr.table}.Sanitize()) // #nosec G202,G701 -- identifiers sanitized via pgx.Identifier
+		if _, err := tx.Exec(ctx, dropSQL); err != nil {
+			return nil, fmt.Errorf("suspend pg trigger %s on %s: %w", tr.name, tr.table, err)
+		}
+	}
+	return trigs, nil
+}
+
+func restoreAndVerifyPGTriggers(ctx context.Context, tx pgx.Tx, saved []pgTriggerDef) error {
+	if len(saved) == 0 {
+		return nil
+	}
+	hasTrig := make(map[string]bool, len(saved))
+	for _, tr := range saved {
+		if _, err := tx.Exec(ctx, tr.ddl); err != nil {
+			return fmt.Errorf("restore pg trigger %s on %s: %w", tr.name, tr.table, err)
+		}
+		hasTrig[tr.name] = true
+	}
+
+	after, err := snapshotPGTriggers(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("verify restored pg triggers: %w", err)
+	}
+	if len(after) != len(saved) {
+		return fmt.Errorf("pg trigger count mismatch after restore: got %d, want %d", len(after), len(saved))
+	}
+	for i := range saved {
+		if after[i].name != saved[i].name || after[i].table != saved[i].table || after[i].ddl != saved[i].ddl {
+			return fmt.Errorf("pg trigger definition mismatch after restore for %s on %s", saved[i].name, saved[i].table)
+		}
+		if after[i].enabled != "O" && after[i].enabled != "A" {
+			return fmt.Errorf("pg trigger %s on %s not enabled after restore (tgenabled=%s)", after[i].name, after[i].table, after[i].enabled)
+		}
+	}
+
+	if hasTrig["mailbox_password_version_guard"] {
+		var probeID int64
+		if err := tx.QueryRow(ctx, `SELECT id FROM mailboxes LIMIT 1`).Scan(&probeID); err == nil {
+			if err := probePGTriggerRejects(ctx, tx, "mailbox_password_version_guard",
+				`UPDATE mailboxes SET password_version = password_version + 1 WHERE id = $1`, probeID); err != nil {
+				return err
+			}
+		}
+	}
+	if hasTrig["alias_sender_logins_guard"] {
+		var probeID int64
+		var colType string
+		if err := tx.QueryRow(ctx, `SELECT id, pg_typeof(sender_logins)::text FROM mailbox_aliases LIMIT 1`).Scan(&probeID, &colType); err == nil {
+			probeSQL := `UPDATE mailbox_aliases SET sender_logins = ARRAY['__e7_probe_invalid__']::text[] WHERE id = $1`
+			if colType == "jsonb" {
+				probeSQL = `UPDATE mailbox_aliases SET sender_logins = '["__e7_probe_invalid__"]'::jsonb WHERE id = $1`
+			}
+			if err := probePGTriggerRejects(ctx, tx, "alias_sender_logins_guard", probeSQL, probeID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func probePGTriggerRejects(ctx context.Context, tx pgx.Tx, trigName, query string, arg any) error {
+	if _, err := tx.Exec(ctx, `SAVEPOINT e7_pg_trigger_probe`); err != nil {
+		return fmt.Errorf("create trigger probe savepoint: %w", err)
+	}
+	_, probeErr := tx.Exec(ctx, query, arg)
+	if _, rbErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT e7_pg_trigger_probe`); rbErr != nil {
+		return fmt.Errorf("rollback trigger probe savepoint: %w", rbErr)
+	}
+	if _, relErr := tx.Exec(ctx, `RELEASE SAVEPOINT e7_pg_trigger_probe`); relErr != nil {
+		return fmt.Errorf("release trigger probe savepoint: %w", relErr)
+	}
+	if probeErr == nil {
+		return fmt.Errorf("post-restore trigger liveness probe failed: %s did not fire", trigName)
+	}
+	return nil
 }
 
 func readScheduledStatesPG(ctx context.Context, tx pgx.Tx) (map[string]string, error) {
