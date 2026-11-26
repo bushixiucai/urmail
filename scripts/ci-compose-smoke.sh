@@ -120,6 +120,15 @@ docker compose -p "$PROJECT_NAME" -f compose.yaml -f compose.test.local.yaml exe
     done
 '
 
+echo "[smoke] 3b/4 Caddy-adapting the rendered Caddyfile (QA pathfix PF-1 gate)..."
+# A rendered Caddyfile that Caddy itself cannot parse must never pass CI:
+# the pathfix review caught exactly that class (an unparsable
+# handle_path line inside an all-green run).
+RENDERED_CADDY="$(docker compose -p "$PROJECT_NAME" -f compose.yaml -f compose.test.local.yaml exec -T urmaild cat /srv/urmail/config/rendered/caddy/Caddyfile)"
+docker run --rm -i caddy:2 sh -c 'cat > /tmp/Caddyfile && sed -i "/^  tls /d" /tmp/Caddyfile && caddy validate --config /tmp/Caddyfile' <<< "$RENDERED_CADDY"
+echo "  OK: rendered Caddyfile passes caddy validate (tls lines stripped for the sandbox)"
+
+
 echo "[smoke] 4/4 Verifying container exit-code set..."
 ps_json="$(docker compose -p "$PROJECT_NAME" -f compose.yaml -f compose.test.local.yaml ps -a --format json)"
 python3 - "$ps_json" <<'PY'
