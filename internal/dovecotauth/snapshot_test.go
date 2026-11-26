@@ -124,7 +124,7 @@ func newTestManager(t *testing.T, src Source) (*Manager, string) {
 }
 
 // TestRebuildWritesSingleFileWithoutWAL pins the §5.4 landing discipline: the
-// published snapshot is one file, DELETE journal, no sidecars, 0640.
+// published snapshot is one file, DELETE journal, no sidecars, 0644.
 func TestRebuildWritesSingleFileWithoutWAL(t *testing.T) {
 	m, path := newTestManager(t, fixtureSource())
 	snap, err := m.Rebuild(context.Background())

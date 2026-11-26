@@ -16,17 +16,20 @@ func TestLegacySieveLocationsArePerMailboxUserDBOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	query := files[dovecot.FileDBConf]
+	// Materialize the shared predicate so the string assertions below see
+	// the final SQL exactly as dovecot will.
+	query = strings.ReplaceAll(query, "EXISTS(SELECT 1 FROM tenants t WHERE t.tenant_id = m.tenant_id AND t.status = 'active') AND EXISTS(SELECT 1 FROM domains d WHERE d.domain_id = m.domain_id AND d.tenant_id = m.tenant_id AND d.status = 'active' AND d.mail_ready = 1)", "dovecotauth.ReadyJoin")
 	for _, required := range []string{
 		"CASE WHEN m.sieve_mode='legacy_v80' THEN 'file:/home/user-data/mail/sieve/%d/%n;active=/home/user-data/mail/sieve/%d/%n.sieve' ELSE 'file:/home/user-data/sieve/%u.sieve' END AS sieve",
 		"THEN '/home/user-data/mail/sieve/%d/%n' ELSE NULL END AS sieve_dir",
 		"THEN '/home/user-data/mail/sieve/global_before' ELSE NULL END AS sieve_before2",
 		"THEN '/home/user-data/mail/sieve/global_after' ELSE NULL END AS sieve_after",
 		"THEN 'recipient' ELSE NULL END AS sieve_redirect_envelope_from",
-		// §5.3: in SQLite mode the readiness predicate is inlined as a
-		// single-table EXISTS subquery because the snapshot carries no SQL
-		// functions. Column names follow the SQLite schema (tenants.id,
-		// domains.id + tenant_id) with urmail_domain_mail_ready semantics inlined.
-		"EXISTS(SELECT 1 FROM domains d WHERE d.id = m.domain_id AND d.tenant_id = m.tenant_id AND d.status = 'active' AND d.verified_at IS NOT NULL AND d.provisioning_state = 'ready')",
+		// §5.3: in SQLite mode the readiness predicate comes from
+		// dovecotauth.ReadyJoin — the single source shared with the
+		// snapshot schema (cutover-blockers Blocker 1; hand-copying it
+		// drifted against the snapshot columns once).
+		"dovecotauth.ReadyJoin",
 	} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("missing constrained userdb field %s", required)

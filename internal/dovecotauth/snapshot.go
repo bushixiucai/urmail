@@ -17,18 +17,50 @@ import (
 	_ "modernc.org/sqlite" // registers the sqlite driver used by the snapshot file
 )
 
-// DefaultPath is the snapshot dovecot's db.conf points at.
-const DefaultPath = "/var/lib/urmail/dovecot-auth.db"
+// DefaultPath is the snapshot dovecot's db.conf points at. It lives in its
+// OWN parent directory (cutover-blockers Blocker 2): nesting it inside the
+// urmaild archive volume made the atomic os.Rename publish fail with EBUSY
+// (cross-mountpoint) and tore the inode out from under dovecot's open
+// handle. The deployment mounts the same standalone parent directory into
+// both urmaild (rw, publisher) and dovecot (ro, consumer); the compose
+// override lives with DevOps.
+const DefaultPath = "/srv/urmail/data/dovecot-auth/dovecot-auth.db"
 
-// DirectoryMode keeps the snapshot directory readable by the mail identity but
-// not writable by it: dovecot opens the file in read-only mode.
-const DirectoryMode os.FileMode = 0o750
+// DirectoryMode keeps the snapshot directory traversable and the file
+// readable by the dovecot auth worker without granting write access: the
+// containerized dovecot uid has no membership in the writer group, so the
+// world-read bit on the directory is the contract that makes the standalone
+// mount work (cutover-blockers Blocker 2). Write access stays
+// publisher-only.
+const DirectoryMode os.FileMode = 0o755
 
-// FileMode matches the db.conf ownership discipline (root-owned, group-read).
-const FileMode os.FileMode = 0o640
+// FileMode matches the same readability contract as DirectoryMode: the
+// containerized dovecot auth worker reads the snapshot directly, so the
+// file is world-readable (still not writable — only the publisher writes).
+const FileMode os.FileMode = 0o644
 
 // SchemaVersion is stored in PRAGMA user_version of the snapshot.
 const SchemaVersion = 1
+
+// The two predicates below are the SINGLE SOURCE of the column contract
+// between this snapshot schema and the dovecot SQL dovecot renders
+// (internal/mail/dovecot consumes them verbatim). They were duplicated by
+// hand once and drifted — the rendered queries referenced columns the
+// snapshot never had, and every IMAP authentication failed on load
+// (cutover-blockers Blocker 1). Any schema change here MUST go through
+// these constants, and TestAuthSnapshotServesRenderedQueries executes the
+// rendered SQL against a real snapshot build to keep the two honest.
+const (
+	// TenantActivePredicate matches a tenant row that is currently active,
+	// joined from a mailbox row (alias m).
+	TenantActivePredicate = "EXISTS(SELECT 1 FROM tenants t WHERE t.tenant_id = m.tenant_id AND t.status = 'active')"
+	// DomainReadyPredicate matches the mailbox's domain in its mail-ready
+	// state (snapshot column mail_ready collapses the PostgreSQL
+	// urmail_domain_mail_ready function semantics for the read-only copy).
+	DomainReadyPredicate = "EXISTS(SELECT 1 FROM domains d WHERE d.domain_id = m.domain_id AND d.tenant_id = m.tenant_id AND d.status = 'active' AND d.mail_ready = 1)"
+	// ReadyJoin composes both predicates for the rendered queries.
+	ReadyJoin = TenantActivePredicate + " AND " + DomainReadyPredicate
+)
 
 // schemaSQL is the dovecot-facing surface: one row per mailbox plus the two
 // status tables the rendered queries consult with EXISTS subqueries.
