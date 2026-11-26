@@ -2919,7 +2919,7 @@
     "settings.identities.signature_editor": "Email Signature",
     "settings.identities.mode_visual": "Visual / Plain",
     "settings.identities.mode_html": "HTML Code",
-    "settings.identities.signature_placeholder": "Best regards,\nTiger Wang\nEmail: tiger@urmail.cn",
+    "settings.identities.signature_placeholder": "Best regards,\nAlex Example\nEmail: alex@example.com",
     "settings.identities.live_preview": "Live Email Signature Preview",
     "settings.identities.email_content_placeholder": "Simulated email body content...",
     "settings.identities.no_signature": "No signature configured for this identity.",

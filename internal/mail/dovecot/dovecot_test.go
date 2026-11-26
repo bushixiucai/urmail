@@ -16,11 +16,11 @@ var update = flag.Bool("update", false, "update golden files")
 
 func defaultNodeConfig() dovecot.NodeConfig {
 	return dovecot.NodeConfig{
-		Hostname:      "box.urmail.cn",
+		Hostname:      "mail.example.test",
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
-		TLSCertFile:   "/var/mail/ssl/box.urmail.cn.cert",
-		TLSKeyFile:    "/var/mail/ssl/box.urmail.cn.key",
+		TLSCertFile:   "/var/mail/ssl/mail.example.test.cert",
+		TLSKeyFile:    "/var/mail/ssl/mail.example.test.key",
 		DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot password=secret sslmode=disable",
 		MailUID:       "mail",
 		MailGID:       "mail",

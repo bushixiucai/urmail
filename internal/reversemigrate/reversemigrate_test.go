@@ -369,9 +369,9 @@ func TestPG16RealTriggerAliasOrderAndNoSchemaMigrationsDelete(t *testing.T) {
 		CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, dirty INTEGER NOT NULL DEFAULT 0);
 		INSERT INTO schema_migrations(version, dirty) VALUES(7, 0);
 		CREATE TABLE mailboxes (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, address TEXT NOT NULL, status TEXT NOT NULL);
-		INSERT INTO mailboxes(id, tenant_id, address, status) VALUES(1, 1, 'tiger@example.test', 'active');
+		INSERT INTO mailboxes(id, tenant_id, address, status) VALUES(1, 1, 'user-a@example.test', 'active');
 		CREATE TABLE mailbox_aliases (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, address TEXT NOT NULL, sender_logins TEXT NOT NULL);
-		INSERT INTO mailbox_aliases(id, tenant_id, address, sender_logins) VALUES(14, 1, 'alias@example.test', '["tiger@example.test"]');
+		INSERT INTO mailbox_aliases(id, tenant_id, address, sender_logins) VALUES(14, 1, 'alias@example.test', '["user-a@example.test"]');
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestPG16RealTriggerAliasOrderAndNoSchemaMigrationsDelete(t *testing.T) {
 	defer scopedPool.Close()
 
 	// 1. Reproduce the failure when mailbox_aliases is inserted before mailboxes (SQLSTATE 23514).
-	if _, err := scopedPool.Exec(ctx, `INSERT INTO mailbox_aliases(id, tenant_id, address, sender_logins) VALUES(14, 1, 'alias@example.test', '["tiger@example.test"]'::jsonb)`); err == nil || !strings.Contains(err.Error(), "23514") {
+	if _, err := scopedPool.Exec(ctx, `INSERT INTO mailbox_aliases(id, tenant_id, address, sender_logins) VALUES(14, 1, 'alias@example.test', '["user-a@example.test"]'::jsonb)`); err == nil || !strings.Contains(err.Error(), "23514") {
 		t.Fatalf("expected SQLSTATE 23514 when inserting mailbox_aliases before mailboxes, got %v", err)
 	}
 
@@ -583,7 +583,7 @@ func TestPG16GeneratedAlwaysIdentityAndTriggerRestore(t *testing.T) {
 			password_revoke_pending INTEGER NOT NULL
 		);
 		INSERT INTO mailboxes(id, tenant_id, address, status, password_hash, password_version, password_revoke_pending)
-		VALUES(1, 1, 'tiger@example.test', 'active', 'hash1', 2, 1);
+		VALUES(1, 1, 'user-a@example.test', 'active', 'hash1', 2, 1);
 
 		CREATE TABLE mailbox_scheduled_sends (
 			id INTEGER PRIMARY KEY,
@@ -598,7 +598,7 @@ func TestPG16GeneratedAlwaysIdentityAndTriggerRestore(t *testing.T) {
 			address TEXT NOT NULL,
 			sender_logins TEXT NOT NULL
 		);
-		INSERT INTO mailbox_aliases(id, tenant_id, address, sender_logins) VALUES(14, 1, 'alias@example.test', '["tiger@example.test"]');
+		INSERT INTO mailbox_aliases(id, tenant_id, address, sender_logins) VALUES(14, 1, 'alias@example.test', '["user-a@example.test"]');
 	`); err != nil {
 		t.Fatal(err)
 	}

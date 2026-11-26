@@ -4,7 +4,7 @@ import { isSystemSender } from "./system-sender";
 describe("isSystemSender (Q1 mirror of threading.go systemSenderMarkers)", () => {
   it("flags bounce daemon and postmaster addresses", () => {
     expect(
-      isSystemSender("mailer-daemon@box.urmail.cn", "Mail Delivery System"),
+      isSystemSender("mailer-daemon@mail.example.test", "Mail Delivery System"),
     ).toBe(true);
     expect(isSystemSender("postmaster@example.com", "Postmaster")).toBe(true);
   });

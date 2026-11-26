@@ -14,5 +14,5 @@ $TTL 86400
 @ IN NS ns2.urmail.cn.
 
 ; Custom and Additional Records
-@ IN MX 10 box.urmail.cn.
+@ IN MX 10 mail.example.test.
 mail._domainkey IN TXT "v=DKIM1; k=rsa; p=MIGf..."

@@ -14,22 +14,22 @@ import (
 func TestRenderAll(t *testing.T) {
 	ctx := mail.ConfigContext{
 		PostfixNode: postfix.NodeConfig{
-			Hostname:      "box.urmail.cn",
+			Hostname:      "mail.example.test",
 			PrimaryDomain: "urmail.cn",
 			StorageRoot:   "/var/mail",
-			TLSCertFile:   "/var/mail/ssl/box.urmail.cn.cert",
-			TLSKeyFile:    "/var/mail/ssl/box.urmail.cn.key",
+			TLSCertFile:   "/var/mail/ssl/mail.example.test.cert",
+			TLSKeyFile:    "/var/mail/ssl/mail.example.test.key",
 		},
 		DovecotNode: dovecot.NodeConfig{
-			Hostname:      "box.urmail.cn",
+			Hostname:      "mail.example.test",
 			PrimaryDomain: "urmail.cn",
 			StorageRoot:   "/var/mail",
-			TLSCertFile:   "/var/mail/ssl/box.urmail.cn.cert",
-			TLSKeyFile:    "/var/mail/ssl/box.urmail.cn.key",
+			TLSCertFile:   "/var/mail/ssl/mail.example.test.cert",
+			TLSKeyFile:    "/var/mail/ssl/mail.example.test.key",
 			DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",
 		},
 		NSDNode: nsd.NodeConfig{
-			Hostname:      "box.urmail.cn",
+			Hostname:      "mail.example.test",
 			PrimaryDomain: "urmail.cn",
 			PublicIPv4:    "1.2.3.4",
 			Nameservers:   []string{"ns1.urmail.cn"},

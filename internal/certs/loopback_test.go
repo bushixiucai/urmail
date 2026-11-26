@@ -46,12 +46,12 @@ func TestLoopbackTLSConfigScopesExemption(t *testing.T) {
 }
 
 func TestLoopbackTLSConfigServerNameOverride(t *testing.T) {
-	policy := LoopbackCertificatePolicy{ServerName: "box.urmail.cn", SkipVerification: true}
+	policy := LoopbackCertificatePolicy{ServerName: "mail.example.test", SkipVerification: true}
 	cfg, err := LoopbackTLSConfig("127.0.0.1:993", policy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ServerName != "box.urmail.cn" {
+	if cfg.ServerName != "mail.example.test" {
 		t.Errorf("ServerName = %q, want the configured mail hostname", cfg.ServerName)
 	}
 	// The override also applies on the non-loopback path and must never enable
@@ -60,7 +60,7 @@ func TestLoopbackTLSConfigServerNameOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ServerName != "box.urmail.cn" {
+	if cfg.ServerName != "mail.example.test" {
 		t.Errorf("ServerName = %q, want the configured identity", cfg.ServerName)
 	}
 	if cfg.InsecureSkipVerify {

@@ -174,7 +174,7 @@ describe("Q1/Q2 thread decisions (interview 2026-11-26)", () => {
     renderRow({
       isThreadChild: true,
       sender: "Mail Delivery System",
-      senderEmail: "mailer-daemon@box.urmail.cn",
+      senderEmail: "mailer-daemon@mail.example.test",
     });
     const prefix = screen.getByText("webmail_next.reply");
     expect(prefix.className).toContain("text-[11px]");

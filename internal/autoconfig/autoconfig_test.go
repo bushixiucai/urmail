@@ -18,7 +18,7 @@ var update = flag.Bool("update", false, "rewrite golden files")
 
 func testConfig() Config {
 	return Config{
-		PrimaryMailHost: "box.urmail.cn",
+		PrimaryMailHost: "mail.example.test",
 		DomainHosts: map[string]string{
 			"example.com": "mail.example.com",
 		},
@@ -78,7 +78,7 @@ func TestMozillaAutoconfigXMLEscaping(t *testing.T) {
 func TestMozillaAutoconfigXMLUnknownDomainFallback(t *testing.T) {
 	got := MozillaAutoconfigXML(testConfig(), "someone@unconfigured.example.org")
 	mustParseXML(t, got)
-	if !strings.Contains(got, "<hostname>box.urmail.cn</hostname>") {
+	if !strings.Contains(got, "<hostname>mail.example.test</hostname>") {
 		t.Fatalf("unknown domain must fall back to primary mail host:\n%s", got)
 	}
 	if !strings.Contains(got, "id=\"unconfigured.example.org\"") {
@@ -87,7 +87,7 @@ func TestMozillaAutoconfigXMLUnknownDomainFallback(t *testing.T) {
 	for _, email := range []string{"", "@", "no-at-sign", "@bad domain", "user@<script>"} {
 		out := MozillaAutoconfigXML(testConfig(), email)
 		mustParseXML(t, out)
-		if !strings.Contains(out, "box.urmail.cn") {
+		if !strings.Contains(out, "mail.example.test") {
 			t.Fatalf("fallback host missing for %q", email)
 		}
 	}

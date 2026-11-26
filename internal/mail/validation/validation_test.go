@@ -13,7 +13,7 @@ func TestIsValidHostname(t *testing.T) {
 	}{
 		{"example.com", true},
 		{"sub.example.com", true},
-		{"box.urmail.cn", true},
+		{"mail.example.test", true},
 		{"", false},
 		{"-bad.com", false},
 		{"bad-.com", false},
@@ -71,7 +71,7 @@ func TestIPHelpers(t *testing.T) {
 }
 
 func TestMailboxLocalPartRetainsUnderscore(t *testing.T) {
-	for _, local := range []string{"tiger_lee", "first_last+tag", "_service"} {
+	for _, local := range []string{"alex_lee", "first_last+tag", "_service"} {
 		if !validation.LocalPartRegex.MatchString(local) {
 			t.Fatalf("ordinary underscore mailbox rejected: %q", local)
 		}

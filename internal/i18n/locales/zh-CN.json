@@ -2919,7 +2919,7 @@
     "settings.identities.signature_editor": "邮件签名内容",
     "settings.identities.mode_visual": "可视化 / 纯文本",
     "settings.identities.mode_html": "HTML 源码",
-    "settings.identities.signature_placeholder": "此致，\n敬礼\n发件人：王先生\n邮箱：tiger@urmail.cn",
+    "settings.identities.signature_placeholder": "此致，\n敬礼\n发件人：示例用户\n邮箱：alex@example.com",
     "settings.identities.live_preview": "签名实时渲染预览",
     "settings.identities.email_content_placeholder": "（此处模拟正文内容结束）",
     "settings.identities.no_signature": "当前身份尚未配置签名内容。",

@@ -28,10 +28,10 @@ describe("WebmailRecipientChips", () => {
       contacts: [
         {
           id: 10,
-          display_name: "Tiger Wang",
+          display_name: "Alex Example",
           department: "Engineering",
           job_title: "Frontend Lead",
-          emails: [{ address: "tiger@urmail.cn", primary: true }],
+          emails: [{ address: "alex@example.test", primary: true }],
           phones: [],
         },
       ],
@@ -49,14 +49,14 @@ describe("WebmailRecipientChips", () => {
       expect(
         screen.getByTestId("corporate-autocomplete-dropdown"),
       ).toBeTruthy();
-      expect(screen.getByText("Tiger Wang")).toBeTruthy();
-      expect(screen.getByText("tiger@urmail.cn")).toBeTruthy();
+      expect(screen.getByText("Alex Example")).toBeTruthy();
+      expect(screen.getByText("alex@example.test")).toBeTruthy();
     });
 
     const suggestionItem = screen.getByTestId("corporate-suggestion-0");
     fireEvent.click(suggestionItem);
 
-    expect(onChange).toHaveBeenCalledWith(["tiger@urmail.cn"]);
+    expect(onChange).toHaveBeenCalledWith(["alex@example.test"]);
   });
 
   it("selects corporate contact with keyboard navigation ArrowDown and Enter", async () => {
@@ -66,7 +66,7 @@ describe("WebmailRecipientChips", () => {
           id: 20,
           display_name: "Alice Developer",
           department: "QA",
-          emails: [{ address: "alice@urmail.cn", primary: true }],
+          emails: [{ address: "alice@example.test", primary: true }],
           phones: [],
         },
       ],
@@ -90,6 +90,6 @@ describe("WebmailRecipientChips", () => {
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(onChange).toHaveBeenCalledWith(["alice@urmail.cn"]);
+    expect(onChange).toHaveBeenCalledWith(["alice@example.test"]);
   });
 });

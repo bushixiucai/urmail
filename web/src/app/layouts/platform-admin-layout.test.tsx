@@ -21,7 +21,7 @@ vi.mock("@/app/auth-context", () => ({
   useAuth: () => ({
     user: {
       id: 1,
-      email: "superadmin@urmail.cn",
+      email: "superadmin@example.test",
       display_name: "Super Admin",
       locale: "zh-CN",
     },

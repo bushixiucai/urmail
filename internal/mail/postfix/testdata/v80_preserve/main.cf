@@ -2,7 +2,7 @@
 compatibility_level = 3.6
 
 # Network & Host identity
-myhostname = box.urmail.cn
+myhostname = mail.example.test
 mydomain = urmail.cn
 myorigin = $mydomain
 mydestination =
@@ -80,7 +80,7 @@ smtpd_tls_auth_only = yes
 smtpd_tls_mandatory_protocols = >=TLSv1.2
 smtpd_tls_protocols = >=TLSv1.2
 smtpd_tls_exclude_ciphers = aNULL, RC4, 3DES
-smtpd_tls_cert_file = /var/mail/ssl/box.urmail.cn.cert
-smtpd_tls_key_file = /var/mail/ssl/box.urmail.cn.key
+smtpd_tls_cert_file = /var/mail/ssl/mail.example.test.cert
+smtpd_tls_key_file = /var/mail/ssl/mail.example.test.key
 smtp_tls_security_level = may
 smtp_tls_loglevel = 1

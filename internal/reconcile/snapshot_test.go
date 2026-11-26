@@ -63,7 +63,7 @@ func (m *mockQuerier) PlatformListDKIMDomains(_ context.Context) ([]store.Platfo
 func TestAssembleConfigContextAndRender(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.Config{
-		MyHostname:    "box.urmail.cn",
+		MyHostname:    "mail.example.test",
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
 		DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",
@@ -122,7 +122,7 @@ func TestZoneSerialFormat(t *testing.T) {
 func TestAssembleSkipsDelegatedZones(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.Config{
-		MyHostname:    "box.urmail.cn",
+		MyHostname:    "mail.example.test",
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
 	}
@@ -155,7 +155,7 @@ func TestAssembleSkipsDelegatedZones(t *testing.T) {
 }
 
 func TestSpamDeliveryPolicyChangesRenderedGeneration(t *testing.T) {
-	cfg := &config.Config{MyHostname: "box.urmail.cn", PrimaryDomain: "urmail.cn", StorageRoot: "/var/mail", DatabaseURL: "host=127.0.0.1 user=urmail_dovecot", ListenAddr: "127.0.0.1:8080"}
+	cfg := &config.Config{MyHostname: "mail.example.test", PrimaryDomain: "urmail.cn", StorageRoot: "/var/mail", DatabaseURL: "host=127.0.0.1 user=urmail_dovecot", ListenAddr: "127.0.0.1:8080"}
 	q := &mockQuerier{}
 	before, err := reconcile.AssembleConfigContext(t.Context(), cfg, q, "192.0.2.1", nil)
 	if err != nil {

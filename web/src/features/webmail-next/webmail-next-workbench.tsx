@@ -1685,7 +1685,7 @@ export function WebmailNextWorkbench({
     // in-folder root as thread_id, stack-only members anchor on their uid.
     originUid: selectedRow?.thread_id ?? selectedRow?.uid ?? null,
     anchorUid: selectedRow?.uid ?? null,
-    /* DEF-4 (Tiger decision 2): entry gates on thread_id presence for
+    /* DEF-4 (产品决策 2): entry gates on thread_id presence for
        LIST rows (unverified rows omit it and must never fetch members).
        A stack-only member (not present in the loaded list) anchors the
        query via its own folder+uid — any known member is a valid origin

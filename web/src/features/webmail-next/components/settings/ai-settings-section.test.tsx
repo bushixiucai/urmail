@@ -34,7 +34,7 @@ describe("AiSettingsSection", () => {
   });
 
   const baseSettings: mailboxApi.MailboxSettingsView = {
-    display_name: "Tiger Wang",
+    display_name: "Alex Example",
     signature_text: "Best regards",
     signature_html: "<p>Best regards</p>",
     preferences: {
@@ -49,7 +49,7 @@ describe("AiSettingsSection", () => {
     },
     version: 3,
     updated_at: "2026-11-08T00:00:00Z",
-    address: "tiger@urmail.cn",
+    address: "alex@example.test",
   };
 
   const mockBudget: mailboxApi.AIBudgetStatus = {

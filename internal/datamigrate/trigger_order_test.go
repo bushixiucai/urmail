@@ -171,7 +171,7 @@ func TestSuspendAndRestoreAllTriggersExactByteParityAndProbe(t *testing.T) {
 		 INSERT INTO tenants(id, brand_id, name, slug, status) VALUES(1, 1, 't1', 't1', 'active');
 		 INSERT INTO domains(id, tenant_id, fqdn, verification_token, status, verified_at, provisioning_state) VALUES(1, 1, 'example.test', 'tok', 'active', 1, 'ready');
 		 INSERT INTO mailboxes(id, tenant_id, domain_id, local_part, address, password_hash, quota_bytes, password_version, password_revoke_pending)
-		 VALUES(7, 1, 1, 'tiger', 'tiger@example.test', 'hash', -1, 2, 0);`); err != nil {
+		 VALUES(7, 1, 1, 'user-a', 'user-a@example.test', 'hash', -1, 2, 0);`); err != nil {
 		t.Fatalf("insert historical mailbox while triggers suspended: %v", err)
 	}
 

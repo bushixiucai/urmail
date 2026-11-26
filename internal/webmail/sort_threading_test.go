@@ -106,7 +106,7 @@ func TestPaginationStableUnderNewMail(t *testing.T) {
 
 func TestBuildThreadsByReferences(t *testing.T) {
 	// An orphan reply whose parent is unknown no longer merges by pure
-	// same-sender overlap (Tiger decision v0.6.20 C1); a References pointer
+	// same-sender overlap (产品决策 v0.6.20 C1); a References pointer
 	// to the root still merges it — References chains are strong grouping.
 	msgs := []MessageSummary{
 		{UID: 1, MessageID: "<a@x>", Subject: "Hi", From: []Address{{Email: "alice@x"}}},
