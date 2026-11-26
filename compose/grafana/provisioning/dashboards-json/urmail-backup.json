@@ -1,0 +1,318 @@
+{
+ "uid": "urmail-backup",
+ "title": "urmail · 备份链",
+ "timezone": "Asia/Shanghai",
+ "tags": [
+  "urmail",
+  "phase4"
+ ],
+ "schemaVersion": 39,
+ "refresh": "30s",
+ "time": {
+  "from": "now-12h",
+  "to": "now"
+ },
+ "panels": [
+  {
+   "type": "stat",
+   "title": "urmail_operational_condition",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_operational_condition)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "urmail_database_reachable",
+   "gridPos": {
+    "x": 8,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_database_reachable)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "urmail_dovecot_auth_snapshot_dirty",
+   "gridPos": {
+    "x": 16,
+    "y": 0,
+    "w": 8,
+    "h": 3
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_dovecot_auth_snapshot_dirty)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "R1 连续性",
+   "gridPos": {
+    "x": 0,
+    "y": 3,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "type": "stat",
+   "title": "last_id",
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 8,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_backup_last_id)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "id gap（>0 红）",
+   "gridPos": {
+    "x": 8,
+    "y": 4,
+    "w": 8,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(urmail_backup_id_gap)",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "备份距时 (h)",
+   "gridPos": {
+    "x": 16,
+    "y": 4,
+    "w": 8,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "h",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 24
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "(time()-max(urmail_backup_last_success_timestamp_seconds))/3600",
+     "instant": true
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "R2 距时",
+   "gridPos": {
+    "x": 0,
+    "y": 9,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "local/offsite 距时 (h)",
+   "gridPos": {
+    "x": 0,
+    "y": 10,
+    "w": 24,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "h",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "(time()-max(urmail_backup_last_success_timestamp_seconds))/3600"
+    },
+    {
+     "refId": "B",
+     "expr": "(time()-max(urmail_backup_offsite_last_success_timestamp_seconds))/3600"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "R3 offsite 时间线",
+   "gridPos": {
+    "x": 0,
+    "y": 16,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "offsite 成功步进",
+   "gridPos": {
+    "x": 0,
+    "y": 17,
+    "w": 24,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "changes(urmail_backup_offsite_last_success_timestamp_seconds[6h])"
+    }
+   ]
+  }
+ ]
+}

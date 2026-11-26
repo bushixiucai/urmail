@@ -30,5 +30,21 @@ func Generate(snapshot nginx.Snapshot) (map[string]string, error) {
 		}
 		fmt.Fprintf(&b, "  reverse_proxy 127.0.0.1:8080\n}\n\n")
 	}
+	// GRAFANA-DESIGN §5: the monitoring plane's single public entry. The
+	// forward_auth check is fail-closed on the urmaild side (only a live
+	// platform-admin session earns a 2xx), and Grafana trusts the injected
+	// X-WEBAUTH-* headers only from 127.0.0.1.
+	if snapshot.GrafanaHostname != "" {
+		target := snapshot.AuthProxyTarget
+		if target == "" {
+			target = "127.0.0.1:8080"
+		}
+		fmt.Fprintf(&b, "%s {\n", snapshot.GrafanaHostname)
+		fmt.Fprintf(&b, "  forward_auth %s {\n", target)
+		fmt.Fprintf(&b, "    uri      /api/v1/auth/check\n")
+		fmt.Fprintf(&b, "    copy_headers Cookie Authorization\n")
+		fmt.Fprintf(&b, "  }\n")
+		fmt.Fprintf(&b, "  reverse_proxy 127.0.0.1:3000\n}\n\n")
+	}
 	return map[string]string{FileName: b.String()}, nil
 }

@@ -34,10 +34,20 @@ type Config struct {
 	WorkersHeld          bool
 	ACMEServer           string
 	ACMERootCA           string
-	// ListenAddr is the address the HTTP server binds to. It must stay on
-	// loopback: nginx terminates TLS and is the only thing that should be
-	// reachable from the network.
+	// ListenAddr is the address the HTTP server binds to. The default stays
+	// on loopback: nginx (or Caddy on the compose topology) terminates TLS
+	// and is the only thing that should be reachable from the public
+	// network. A compose deployment may explicitly bind a private-network or
+	// wildcard address so the in-network Prometheus can scrape
+	// /internal/metrics (GRAFANA-DESIGN §2.1 option A); the bearer-token
+	// gate on that endpoint is unaffected by the bind address.
 	ListenAddr string
+	// GrafanaHostname is the public host of the Grafana monitoring entry
+	// (URMAIL_GRAFANA_HOSTNAME, e.g. grafana.<primary domain>). When set,
+	// the compose Caddy renderer emits the grafana site block with its
+	// forward_auth session check (GRAFANA-DESIGN §5). Empty keeps the
+	// historical Caddyfile without a monitoring site.
+	GrafanaHostname string
 
 	// DatabaseURL is the connection string for the tenant-scoped role
 	// (urmail_app). Queries issued over this connection are subject to
@@ -290,6 +300,7 @@ func Load() (*Config, error) {
 		ACMEServer:                  values["URMAIL_ACME_SERVER"],
 		ACMERootCA:                  values["URMAIL_ACME_ROOT_CA"],
 		ListenAddr:                  values["URMAIL_LISTEN_ADDR"],
+		GrafanaHostname:             strings.TrimSpace(values["URMAIL_GRAFANA_HOSTNAME"]),
 		DatabaseURL:                 values["URMAIL_DATABASE_URL"],
 		DatabaseURLPlatform:         values["URMAIL_DATABASE_URL_PLATFORM"],
 		DatabaseURLMigrate:          values["URMAIL_DATABASE_URL_MIGRATE"],
@@ -412,6 +423,14 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// isAllowedListenHost accepts loopback, RFC1918/ULA private-network and
+// wildcard bind addresses. Public unicast addresses are rejected: the HTTP
+// face terminates behind nginx/Caddy, and binding it straight onto a public
+// IP would bypass that front door.
+func isAllowedListenHost(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified()
+}
+
 // validate rejects a configuration that cannot work.
 //
 // The database URLs are required but deliberately not defaulted: silently
@@ -439,8 +458,20 @@ func (c *Config) validate() error {
 	}
 	host, port, err := net.SplitHostPort(c.ListenAddr)
 	listenerPort, portErr := strconv.Atoi(port)
-	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() || portErr != nil || listenerPort < 1 || listenerPort > 65535 {
-		return errors.New("HTTP requires an explicit loopback IP and a port between 1 and 65535")
+	if err != nil || net.ParseIP(host) == nil || portErr != nil || listenerPort < 1 || listenerPort > 65535 {
+		return errors.New("HTTP requires an explicit IP and a port between 1 and 65535")
+	}
+	// Development keeps the strict loopback discipline (the dev stack is a
+	// local workstation). Production accepts loopback, the private compose
+	// bridge and wildcard binds so the in-network Prometheus can scrape
+	// /internal/metrics (GRAFANA-DESIGN §2.1 option A); public unicast stays
+	// rejected because nginx/Caddy is the only public door.
+	if c.DevMode {
+		if !net.ParseIP(host).IsLoopback() {
+			return errors.New("development HTTP requires an explicit loopback IP")
+		}
+	} else if !isAllowedListenHost(net.ParseIP(host)) {
+		return errors.New("HTTP requires an explicit loopback, private-network or wildcard IP (public addresses must terminate behind nginx/Caddy)")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.DBEngine)) {
 	case "", "postgres", "sqlite":

@@ -277,7 +277,8 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		},
 		NSDSnap: nsd.Snapshot{Zones: nsdZones},
 
-		RenderRoot: cfg.RenderedConfigDir,
+		RenderRoot:      cfg.RenderedConfigDir,
+		GrafanaHostname: cfg.GrafanaHostname,
 		NginxNode: nginx.NodeConfig{
 			PrimaryDomain: cfg.PrimaryDomain,
 			StorageRoot:   storageRoot,

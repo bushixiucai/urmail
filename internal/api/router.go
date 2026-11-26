@@ -61,6 +61,9 @@ type Options struct {
 	Version string
 	// MyHostname is the public MX host advertised in domain DNS guidance.
 	MyHostname string
+	// PrimaryDomain is the mail primary domain; it drives the parent-domain
+	// AuthProxy cookie domain (GRAFANA-DESIGN §4) and the Grafana site host.
+	PrimaryDomain string
 	// Reconcile is the configuration reconcile trigger.
 	Reconcile handlers.ReconcileTrigger
 	// Recall processes persisted local mailbox recalls through the root agent.
@@ -261,6 +264,7 @@ func New(opts Options) *gin.Engine {
 
 	authHandler := handlers.NewAuthHandler(authStore)
 	authHandler.Secrets = opts.Secrets
+	authHandler.PanelDomain = opts.PrimaryDomain
 	var platformQueries *store.Queries
 	if opts.PlatformPool != nil {
 		platformQueries = db.Queries(opts.PlatformPool)
@@ -665,6 +669,10 @@ func New(opts Options) *gin.Engine {
 		authGroup.Use(sqliteNativeGate)
 		{
 			authGroup.POST("/login", middleware.RateLimitWindow(20, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP(), true }), authHandler.Login)
+			// Grafana AuthProxy chain (GRAFANA-DESIGN §4): Caddy forward_auth
+			// calls this with the browser's parent-domain cookie. Fail-closed
+			// for any non-platform-admin credential; no session is created.
+			authGroup.GET("/check", authHandler.CheckAuthProxy)
 			// Second MFA login leg: authenticated by the short-lived
 			// one-time mfa_token, not a session.
 			authGroup.POST("/mfa/verify", authHandler.MFAVerify)

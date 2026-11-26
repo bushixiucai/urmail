@@ -24,6 +24,13 @@ type DomainConfig struct {
 // Snapshot represents the set of domains to be configured.
 type Snapshot struct {
 	Domains []DomainConfig
+	// GrafanaHostname and AuthProxyTarget are consumed only by the compose
+	// Caddy renderer (GRAFANA-DESIGN §5): the grafana.<primary domain> site
+	// block with its forward_auth session check, and where that check dials
+	// urmaild (default 127.0.0.1:8080 on the host loopback chain). The host
+	// nginx renderer ignores them.
+	GrafanaHostname string
+	AuthProxyTarget string
 }
 
 // ACMEWebroot is root-owned and publicly traversable by nginx workers.
