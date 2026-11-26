@@ -23,7 +23,7 @@ func runCutover(ctx context.Context, args []string) error {
 
 func runCutoverWithWriter(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: urmailctl cutover <disk-budget | canary | release | rollback | break-glass>")
+		return fmt.Errorf("usage: urmailctl cutover <disk-budget | canary | release | rollback | break-glass | reverse-migrate>")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -38,6 +38,8 @@ func runCutoverWithWriter(ctx context.Context, args []string, out io.Writer) err
 		return runCutoverRollback(rest, out)
 	case "break-glass":
 		return runCutoverBreakGlass(ctx, rest, out)
+	case "reverse-migrate":
+		return runCutoverReverseMigrate(ctx, rest, out)
 	default:
 		return fmt.Errorf("unknown cutover subcommand %q", sub)
 	}
