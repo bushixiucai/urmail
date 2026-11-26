@@ -37,8 +37,33 @@ func submissionMilters(node NodeConfig) string {
 
 // submissionMilterOverrides renders the shared per-service milter overrides
 // for submission/smtps: the full milter chain and fail-closed behavior (an
-// unavailable From-authorization milter must not wave spoofable mail through).
+// unavailable From-authorization milter must not wave spoofable mail
+// through).
+//
+// Compose shape (config dir injected, no preserved legacy stack) emits NO
+// override: the urmail-signer (12301) and from-bind (12302) milters are
+// optional compose profiles that may legitimately be absent, and a
+// tempfail override pointing at them turned every 587/465 submission into
+// 454/451 (post-cutover QA TC-06/08/09). Without the override the services
+// inherit main.cf's chain, whose milter_default_action=accept degrades to
+// unsigned delivery instead of refusing mail. DKIM path note (TC-07): in
+// the compose shape signing happens only when the urmail-signer profile is
+// enabled (inet:127.0.0.1:12301); until then outbound mail is unsigned by
+// design, and the legacy host stack keeps signing through its OpenDKIM on
+// 8891/8893. The v80 preserve shape keeps the fail-closed chain because its
+// milters are live host services.
+// isComposeShape reports the container topology: rendered config dir
+// injected and no preserved legacy stack. Compose-optional side services
+// (DKIM signer, from-bind milter, policy socket mount) may be absent there,
+// so per-service overrides that point at them are not emitted at all.
+func isComposeShape(node NodeConfig) bool {
+	return node.ConfigDir != "" && !node.V80Preserve
+}
+
 func submissionMilterOverrides(node NodeConfig) []string {
+	if isComposeShape(node) {
+		return nil
+	}
 	return []string{
 		"-o smtpd_milters=" + submissionMilters(node),
 		"-o milter_default_action=tempfail",
@@ -65,9 +90,13 @@ func renderMasterCF(node NodeConfig) string {
 	for _, line := range submissionMilterOverrides(node) {
 		b.WriteString("  " + line + "\n")
 	}
-	if node.PolicyEnabled {
-		b.WriteString("  -o smtpd_data_restrictions=check_policy_service,unix:" + policySocket(node) + "\n")
-	}
+	// smtpd_data_restrictions deliberately has NO per-service override here:
+	// a master.cf -o value cannot contain spaces, so neither the comma form
+	// (parsed as one unknown restriction name; DevOps live hotfix removed
+	// it) nor the space form (breaks the master.cf parser itself — postfix
+	// refuses to start, CI Linux-installation jobs) is renderable. Every
+	// smtpd service inherits the main.cf global check, whose
+	// milter/policy posture is already proven by the inbound 25 path.
 	b.WriteString("smtps     inet  n       -       n       -       -       smtpd\n")
 	b.WriteString("  -o syslog_name=postfix/smtps\n")
 	b.WriteString("  -o smtpd_tls_wrappermode=yes\n")
@@ -76,9 +105,6 @@ func renderMasterCF(node NodeConfig) string {
 	b.WriteString("  -o milter_macro_daemon_name=ORIGINATING\n")
 	for _, line := range submissionMilterOverrides(node) {
 		b.WriteString("  " + line + "\n")
-	}
-	if node.PolicyEnabled {
-		b.WriteString("  -o smtpd_data_restrictions=check_policy_service,unix:" + policySocket(node) + "\n")
 	}
 	b.WriteString("pickup    unix  n       -       y       60      1       pickup\n")
 	b.WriteString("cleanup   unix  n       -       y       -       0       cleanup\n")
