@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -214,6 +215,12 @@ func sqlitePoolArgs(args []any) []any {
 				encoded = []byte("[]")
 			}
 			out[i] = string(encoded)
+		case time.Time:
+			// SQLite epoch columns are INTEGER microseconds (UnixMicro), the
+			// unit the writers already persist and the schema defaults
+			// (strftime('%s')*1000000) use. The modernc driver would otherwise
+			// store a driver-chosen text format the scan path cannot decode.
+			out[i] = v.UTC().UnixMicro()
 		default:
 			out[i] = a
 		}
@@ -287,6 +294,22 @@ func sqlitePoolScan(scanFn func(...any) error, dest ...any) error {
 					return err
 				}
 				*target = decoded
+				return nil
+			})
+		case *time.Time:
+			// Epoch columns are INTEGER microseconds (backup_runs.started_at /
+			// finished_at and every created_at/updated_at default). The
+			// modernc driver returns raw int64, which database/sql cannot scan
+			// into *time.Time — the QA backup-auto hard-gate failure. NULL
+			// scans as the zero time so callers can test IsZero.
+			var ni sql.NullInt64
+			proxies[i] = &ni
+			fixups = append(fixups, func() error {
+				if !ni.Valid {
+					*target = time.Time{}
+					return nil
+				}
+				*target = time.UnixMicro(ni.Int64).UTC()
 				return nil
 			})
 		default:

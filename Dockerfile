@@ -51,7 +51,7 @@ RUN apt-get update \
        apt-get install -y --no-install-recommends \
          ca-certificates curl bash openssl sqlite3 \
          postfix dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sieve \
-         dovecot-managesieved \
+         dovecot-managesieved dovecot-sqlite dovecot-pgsql \
     && rm -rf /var/lib/apt/lists/*
 
 # Reserved uid/gid for the Maildir owner mapping (plan §5 待拍板项): keep a

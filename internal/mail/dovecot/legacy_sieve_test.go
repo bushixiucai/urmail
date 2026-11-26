@@ -24,8 +24,9 @@ func TestLegacySieveLocationsArePerMailboxUserDBOverrides(t *testing.T) {
 		"THEN 'recipient' ELSE NULL END AS sieve_redirect_envelope_from",
 		// §5.3: in SQLite mode the readiness predicate is inlined as a
 		// single-table EXISTS subquery because the snapshot carries no SQL
-		// functions.
-		"EXISTS(SELECT 1 FROM domains d WHERE d.tenant_id = m.tenant_id AND d.domain_id = m.domain_id AND d.status = 'active' AND d.mail_ready = 1)",
+		// functions. Column names follow the SQLite schema (tenants.id,
+		// domains.id + tenant_id) with urmail_domain_mail_ready semantics inlined.
+		"EXISTS(SELECT 1 FROM domains d WHERE d.id = m.domain_id AND d.tenant_id = m.tenant_id AND d.status = 'active' AND d.verified_at IS NOT NULL AND d.provisioning_state = 'ready')",
 	} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("missing constrained userdb field %s", required)
