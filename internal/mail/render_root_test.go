@@ -93,14 +93,17 @@ func TestRenderRootInjectsComposeLayout(t *testing.T) {
 	// entry-path decision), with the fail-closed forward_auth chain.
 	caddyOut := files["/srv/urmail/data/config/caddy/Caddyfile"]
 	for _, want := range []string{
-		"  @dashboard path /dashboard /dashboard/*",
-		"  handle_path @dashboard /dashboard/* {",
+		"  redir /dashboard /dashboard/ 301",
+		"  handle /dashboard/* {",
 		"    copy_headers X-URMAIL-Mailbox>X-WEBAUTH-USER X-WEBAUTH-ROLE",
 		"    reverse_proxy 127.0.0.1:3000",
 	} {
 		if !strings.Contains(caddyOut, want) {
 			t.Fatalf("compose Caddyfile missing dashboard route %q:\n%s", want, caddyOut)
 		}
+	}
+	if strings.Contains(caddyOut, "handle_path") {
+		t.Fatalf("compose Caddyfile must not render handle_path:\n%s", caddyOut)
 	}
 	conf := files["/srv/urmail/data/config/dovecot/dovecot.conf"]
 	root := "/srv/urmail/data/config/dovecot"

@@ -14,7 +14,7 @@
  },
  "panels": [
   {
-   "id": 1,
+   "id": 2001,
    "type": "stat",
    "title": "urmail_operational_condition",
    "gridPos": {
@@ -56,7 +56,7 @@
    ]
   },
   {
-   "id": 2,
+   "id": 2002,
    "type": "stat",
    "title": "urmail_database_reachable",
    "gridPos": {
@@ -98,7 +98,7 @@
    ]
   },
   {
-   "id": 3,
+   "id": 2003,
    "type": "stat",
    "title": "urmail_dovecot_auth_snapshot_dirty",
    "gridPos": {
@@ -140,7 +140,7 @@
    ]
   },
   {
-   "id": 43,
+   "id": 2004,
    "type": "row",
    "title": "R1 连续性",
    "gridPos": {
@@ -151,7 +151,7 @@
    }
   },
   {
-   "id": 44,
+   "id": 2005,
    "type": "stat",
    "title": "last_id",
    "gridPos": {
@@ -189,7 +189,7 @@
    ]
   },
   {
-   "id": 45,
+   "id": 2006,
    "type": "stat",
    "title": "id gap（>0 红）",
    "gridPos": {
@@ -231,7 +231,7 @@
    ]
   },
   {
-   "id": 46,
+   "id": 2007,
    "type": "stat",
    "title": "备份距时 (h)",
    "gridPos": {
@@ -277,7 +277,7 @@
    ]
   },
   {
-   "id": 47,
+   "id": 2008,
    "type": "row",
    "title": "R2 距时",
    "gridPos": {
@@ -288,7 +288,7 @@
    }
   },
   {
-   "id": 48,
+   "id": 2009,
    "type": "timeseries",
    "title": "local/offsite 距时 (h)",
    "gridPos": {
@@ -340,7 +340,7 @@
    ]
   },
   {
-   "id": 49,
+   "id": 2010,
    "type": "row",
    "title": "R3 offsite 时间线",
    "gridPos": {
@@ -351,7 +351,7 @@
    }
   },
   {
-   "id": 50,
+   "id": 2011,
    "type": "timeseries",
    "title": "offsite 成功步进",
    "gridPos": {

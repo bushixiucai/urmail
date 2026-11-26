@@ -27,8 +27,8 @@ func TestDashboardRouteEmbeddedInPrimarySite(t *testing.T) {
 	out := files[FileName]
 	for _, want := range []string{
 		"box.example.test {",
-		"  @dashboard path /dashboard /dashboard/*",
-		"  handle_path @dashboard /dashboard/* {",
+		"  redir /dashboard /dashboard/ 301",
+		"  handle /dashboard/* {",
 		"    forward_auth 127.0.0.1:8080 {",
 		"      uri      /api/v1/auth/check",
 		"      copy_headers X-URMAIL-Mailbox>X-WEBAUTH-USER X-WEBAUTH-ROLE",
@@ -42,6 +42,13 @@ func TestDashboardRouteEmbeddedInPrimarySite(t *testing.T) {
 	}
 	if strings.Count(out, "forward_auth") != 1 {
 		t.Fatalf("unexpected extra forward_auth blocks:\n%s", out)
+	}
+	// PF-1/PF-2 regression: the prefix-keeping handle (never handle_path,
+	// which cannot take a named matcher and structurally loops with
+	// serve-from-sub-path) plus the 301 normalizer must be the only
+	// dashboard plumbing.
+	if strings.Contains(out, "handle_path") {
+		t.Fatalf("handle_path must not render:\n%s", out)
 	}
 	// No standalone grafana site block exists.
 	if strings.Contains(out, "grafana.") {

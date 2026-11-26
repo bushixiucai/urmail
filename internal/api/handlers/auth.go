@@ -422,6 +422,11 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	if h.PanelDomain != "" {
 		c.SetSameSite(http.SameSiteLaxMode)
 		c.SetCookie(authProxyCookie, "", -1, "/", "."+h.PanelDomain, true, true)
+		// Tidy-up only (QA pathfix P3②): Grafana itself clears its session
+		// on /dashboard/logout; this just stops the browser carrying a dead
+		// grafana_session around. It does NOT revoke anything server-side —
+		// the AuthProxy check rejects every non-panel credential anyway.
+		c.SetCookie("grafana_session", "", -1, "/dashboard", "", true, true)
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

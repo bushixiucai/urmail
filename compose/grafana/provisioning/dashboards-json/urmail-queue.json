@@ -14,7 +14,7 @@
  },
  "panels": [
   {
-   "id": 1,
+   "id": 6001,
    "type": "stat",
    "title": "urmail_operational_condition",
    "gridPos": {
@@ -56,7 +56,7 @@
    ]
   },
   {
-   "id": 2,
+   "id": 6002,
    "type": "stat",
    "title": "urmail_database_reachable",
    "gridPos": {
@@ -98,7 +98,7 @@
    ]
   },
   {
-   "id": 3,
+   "id": 6003,
    "type": "stat",
    "title": "urmail_dovecot_auth_snapshot_dirty",
    "gridPos": {
@@ -140,7 +140,7 @@
    ]
   },
   {
-   "id": 25,
+   "id": 6004,
    "type": "row",
    "title": "R1 深度",
    "gridPos": {
@@ -151,7 +151,7 @@
    }
   },
   {
-   "id": 26,
+   "id": 6005,
    "type": "timeseries",
    "title": "队列深度（E8：>10 封 15min warning）",
    "gridPos": {
@@ -195,7 +195,7 @@
    ]
   },
   {
-   "id": 27,
+   "id": 6006,
    "type": "row",
    "title": "R2 60min 单调性",
    "gridPos": {
@@ -206,7 +206,7 @@
    }
   },
   {
-   "id": 28,
+   "id": 6007,
    "type": "timeseries",
    "title": "60min 变化量",
    "gridPos": {
@@ -250,7 +250,7 @@
    ]
   },
   {
-   "id": 29,
+   "id": 6008,
    "type": "row",
    "title": "R3 deferred",
    "gridPos": {
@@ -261,7 +261,7 @@
    }
   },
   {
-   "id": 30,
+   "id": 6009,
    "type": "table",
    "title": "探针 deferred 明细",
    "gridPos": {
