@@ -121,7 +121,10 @@ func TestSQLiteGatedListingsIgnoreSeededRows(t *testing.T) {
 	// Seeded rows change nothing at the HTTP layer: the gate answers 503 for
 	// every listing regardless of data, so no partial view of unmigrated
 	// mail is ever exposed (QA TC-13a).
-	for _, tc := range []struct{ c *slice1Client; path string }{
+	for _, tc := range []struct {
+		c    *slice1Client
+		path string
+	}{
 		{alice, "/api/v1/mailbox/folders"},
 		{alice, "/api/v1/mailbox/messages?q=Welcome"},
 		{alice, "/api/v1/mailbox/folders/INBOX/messages"},
