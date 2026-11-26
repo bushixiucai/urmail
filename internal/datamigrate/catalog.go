@@ -156,22 +156,22 @@ ORDER BY tc.relname, con.conname, k.ord`)
 //   - retention_policies -> retention_previews: retention_confirmation_guard__insert
 //     (0001_init.sql:2717) checks confirmed preview in retention_previews.
 //   - mailbox_contact_group_members -> mailbox_contact_groups, mailbox_contacts
-//   - marketing_flow_steps -> marketing_flow_versions
 //   - recall_requests -> archive_entries, mailboxes
 //   - ticket_messages -> tickets
 //
 // Negative-exclusion checks (domains <-> brand_hosts namespace mutual exclusion;
-// tenants/domains/mailboxes -> restore_quarantine) and AFTER INSERT side-effect
+// tenants/domains/mailboxes -> restore_quarantine; marketing_flow_steps ->
+// marketing_flow_versions published-version guard) and AFTER INSERT side-effect
 // triggers (mailbox_contacts/events -> mailbox_changes; application_credentials
 // -> audit_logs; mailboxes -> mailbox_storage_reservations) are intentionally
-// excluded here to avoid artificial cycles.
+// excluded here to avoid artificial cycles or seeding published versions before
+// draft steps.
 var triggerInsertDeps = map[string][]string{
 	"mailbox_aliases":               {"mailboxes"},
 	"domains":                       {"settings", "tenants"},
 	"mailboxes":                     {"domains", "settings", "tenants"},
 	"retention_policies":            {"retention_previews"},
 	"mailbox_contact_group_members": {"mailbox_contact_groups", "mailbox_contacts"},
-	"marketing_flow_steps":          {"marketing_flow_versions"},
 	"recall_requests":               {"archive_entries", "mailboxes"},
 	"ticket_messages":               {"tickets"},
 }

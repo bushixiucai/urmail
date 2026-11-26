@@ -49,11 +49,12 @@ func TestTriggerInsertDependenciesAreTopologicallyOrdered(t *testing.T) {
 	// Mutual-exclusion / negative-guard checks do not require the referenced
 	// table to be populated beforehand.
 	negativeExclusionTriggers := map[string]bool{
-		"domains_host_namespace_guard__insert": true,
-		"brand_hosts_namespace_guard__insert":  true,
-		"tenant_restore_quarantine_guard":      true,
-		"domain_restore_quarantine_guard":      true,
-		"mailbox_restore_quarantine_guard":     true,
+		"domains_host_namespace_guard__insert":  true,
+		"brand_hosts_namespace_guard__insert":   true,
+		"tenant_restore_quarantine_guard":       true,
+		"domain_restore_quarantine_guard":       true,
+		"mailbox_restore_quarantine_guard":      true,
+		"guard_published_marketing_step_insert": true,
 	}
 
 	plan := make([]TableInfo, 0, len(tm))
