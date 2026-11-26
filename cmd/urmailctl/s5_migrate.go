@@ -53,6 +53,7 @@ type sqliteImportReport struct {
 	TablesCompared    int      `json:"tables_compared"`
 	RowsCompared      int      `json:"rows_compared"`
 	RowHashZeroDiff   bool     `json:"row_hash_zero_diff"`
+	RowHashDiffs      []string `json:"row_hash_diffs,omitempty"`
 	SchemaDiffCount   int      `json:"schema_diff_count"`
 	IndexDiffCount    int      `json:"index_diff_count"`
 	RecallDiffCount   int      `json:"recall_diff_count"`
@@ -225,6 +226,7 @@ func runSQLiteImport(ctx context.Context, args []string, defaultVerifyOnly bool,
 		TablesCompared:    hashes.TablesCompared,
 		RowsCompared:      hashes.RowsCompared,
 		RowHashZeroDiff:   hashes.RowHashZeroDiff,
+		RowHashDiffs:      hashes.SchemaDiff,
 		SchemaDiffCount:   len(schemaDiff),
 		IndexDiffCount:    len(indexDiff),
 		RecallDiffCount:   len(recallDiffs),

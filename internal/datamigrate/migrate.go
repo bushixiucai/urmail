@@ -180,6 +180,16 @@ func Migrate(ctx context.Context, src Source, t *Target, tm TypeMap, cfg Config)
 	defer func() { _ = tx.Rollback() }()
 	t = inner
 
+	// Suspend all SQLite triggers inside this staging import transaction so
+	// historical rows (e.g. mailboxes with password_version > 0 or non-zero
+	// bytes_used, or tables with AFTER INSERT audit/change side effects) land
+	// verbatim; exact byte-for-byte restoration and liveness probing run before
+	// commit.
+	savedTriggers, err := suspendAllTriggers(ctx, t)
+	if err != nil {
+		return stats, fmt.Errorf("suspend triggers: %w", err)
+	}
+
 	plan, byName, err := IntrospectSource(ctx, src)
 	if err != nil {
 		return stats, err
@@ -302,6 +312,10 @@ func Migrate(ctx context.Context, src Source, t *Target, tm TypeMap, cfg Config)
 		return stats, fmt.Errorf("reset sequences: %w", err)
 	}
 	stats.SequencesRese = reset
+
+	if err := restoreAndVerifyAllTriggers(ctx, t, savedTriggers); err != nil {
+		return stats, fmt.Errorf("restore triggers: %w", err)
+	}
 
 	if _, err := t.DB.ExecContext(ctx,
 		"INSERT INTO "+MetaTable+"(state) VALUES(?) ON CONFLICT(state) DO UPDATE SET finished_at=finished_at", MetaStateDone); err != nil {
@@ -482,6 +496,144 @@ func ReconcileImport(ctx context.Context, t *Target) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+type triggerDef struct {
+	name    string
+	sqlText string
+}
+
+func snapshotTriggers(ctx context.Context, t *Target) ([]triggerDef, error) {
+	rows, err := t.DB.QueryContext(ctx,
+		"SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name<>'recall_requests' AND sql IS NOT NULL ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	var trigs []triggerDef
+	for rows.Next() {
+		var tr triggerDef
+		if err := rows.Scan(&tr.name, &tr.sqlText); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		trigs = append(trigs, tr)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	_ = rows.Close()
+	return trigs, nil
+}
+
+func suspendAllTriggers(ctx context.Context, t *Target) ([]triggerDef, error) {
+	trigs, err := snapshotTriggers(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	for _, tr := range trigs {
+		if _, err := t.DB.ExecContext(ctx, `DROP TRIGGER "`+tr.name+`"`); err != nil {
+			return nil, fmt.Errorf("drop trigger %s: %w", tr.name, err)
+		}
+	}
+	return trigs, nil
+}
+
+func restoreAndVerifyAllTriggers(ctx context.Context, t *Target, expected []triggerDef) error {
+	for _, tr := range expected {
+		if _, err := t.DB.ExecContext(ctx, tr.sqlText); err != nil {
+			return fmt.Errorf("recreate trigger %s: %w", tr.name, err)
+		}
+	}
+	actual, err := snapshotTriggers(ctx, t)
+	if err != nil {
+		return fmt.Errorf("resnapshot triggers: %w", err)
+	}
+	if len(actual) != len(expected) {
+		return fmt.Errorf("trigger count mismatch after restore: got %d, want %d", len(actual), len(expected))
+	}
+	hasPasswordGuard := false
+	for i := range expected {
+		if actual[i].name != expected[i].name || actual[i].sqlText != expected[i].sqlText {
+			return fmt.Errorf("trigger definition mismatch at %s: got %q, want %q", expected[i].name, actual[i].sqlText, expected[i].sqlText)
+		}
+		if expected[i].name == "mailbox_password_version_insert_guard" {
+			hasPasswordGuard = true
+		}
+	}
+
+	var integrity string
+	if err := t.DB.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
+		return fmt.Errorf("integrity_check: %w", err)
+	}
+	if integrity != "ok" {
+		return fmt.Errorf("integrity_check=%q", integrity)
+	}
+	fkRows, err := t.DB.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("foreign_key_check: %w", err)
+	}
+	hasFKViolation := fkRows.Next()
+	_ = fkRows.Close()
+	if hasFKViolation {
+		return fmt.Errorf("foreign_key_check reported violation(s) after trigger restore")
+	}
+
+	if hasPasswordGuard {
+		if err := probeMailboxPasswordGuard(ctx, t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func probeMailboxPasswordGuard(ctx context.Context, t *Target) error {
+	if _, err := t.DB.ExecContext(ctx, "SAVEPOINT s5_trigger_probe"); err != nil {
+		return fmt.Errorf("begin trigger probe savepoint: %w", err)
+	}
+	rollbackProbe := func() error {
+		if _, rbErr := t.DB.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s5_trigger_probe"); rbErr != nil {
+			return fmt.Errorf("rollback trigger probe savepoint: %w", rbErr)
+		}
+		if _, relErr := t.DB.ExecContext(ctx, "RELEASE SAVEPOINT s5_trigger_probe"); relErr != nil {
+			return fmt.Errorf("release trigger probe savepoint: %w", relErr)
+		}
+		return nil
+	}
+
+	var tenantID, domainID int64
+	var fqdn string
+	err := t.DB.QueryRowContext(ctx,
+		`SELECT d.tenant_id, d.id, d.fqdn
+		 FROM domains d
+		 JOIN tenants t ON t.id = d.tenant_id
+		 WHERE t.status IN ('active','pending')
+		   AND d.status = 'active'
+		   AND d.verified_at IS NOT NULL
+		   AND d.provisioning_state = 'ready'
+		 LIMIT 1`).Scan(&tenantID, &domainID, &fqdn)
+	if errors.Is(err, sql.ErrNoRows) {
+		if rbErr := rollbackProbe(); rbErr != nil {
+			return rbErr
+		}
+		return nil
+	}
+	if err != nil {
+		_ = rollbackProbe()
+		return fmt.Errorf("lookup domain for trigger probe: %w", err)
+	}
+
+	_, probeErr := t.DB.ExecContext(ctx,
+		`INSERT INTO mailboxes(tenant_id, domain_id, local_part, address, password_hash, quota_bytes, password_version, password_revoke_pending)
+		 VALUES(?, ?, '__s5_probe__', ?, 'x', -1, 1, 0)`,
+		tenantID, domainID, "__s5_probe__@"+fqdn)
+	if rbErr := rollbackProbe(); rbErr != nil {
+		return rbErr
+	}
+	if probeErr == nil || !strings.Contains(probeErr.Error(), "MAILBOX_PASSWORD_VERSION_IMMUTABLE") {
+		return fmt.Errorf("trigger liveness probe failed: expected MAILBOX_PASSWORD_VERSION_IMMUTABLE, got %w", probeErr)
+	}
+	return nil
 }
 
 // suppressTriggers drops every trigger on the table and returns a restore

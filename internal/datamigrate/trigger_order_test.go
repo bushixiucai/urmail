@@ -1,12 +1,15 @@
 package datamigrate
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/bushixiucai/urmail/internal/sqlitedb"
 )
 
 // TestTriggerInsertDependenciesAreTopologicallyOrdered parses every SQLite
@@ -112,5 +115,86 @@ func TestTriggerInsertDependenciesAreTopologicallyOrdered(t *testing.T) {
 	// Explicit regression check for R2 #11: mailboxes must precede mailbox_aliases.
 	if pos["mailboxes"] >= pos["mailbox_aliases"] {
 		t.Fatalf("mailboxes (pos %d) must precede mailbox_aliases (pos %d)", pos["mailboxes"], pos["mailbox_aliases"])
+	}
+}
+
+func TestSuspendAndRestoreAllTriggersExactByteParityAndProbe(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "s5_triggers.sqlite")
+	rawDB, err := sqlitedb.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("sqlitedb.Open: %v", err)
+	}
+	defer func() { _ = rawDB.Close() }()
+	if err := sqlitedb.Migrate(ctx, rawDB, os.DirFS("../.."), "migrations_sqlite"); err != nil {
+		t.Fatalf("sqlitedb.Migrate: %v", err)
+	}
+
+	tx, err := rawDB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	target := &Target{DB: sqlTxHandle{tx: tx}}
+
+	before, err := snapshotTriggers(ctx, target)
+	if err != nil {
+		t.Fatalf("snapshotTriggers(before): %v", err)
+	}
+	if len(before) < 97 {
+		t.Fatalf("expected >= 97 non-recall triggers in migrated SQLite schema, got %d", len(before))
+	}
+	var totalTriggers int
+	if err := target.DB.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='trigger'").Scan(&totalTriggers); err != nil {
+		t.Fatal(err)
+	}
+	if totalTriggers < 103 {
+		t.Fatalf("expected >= 103 total triggers in migrated SQLite schema, got %d", totalTriggers)
+	}
+
+	suspended, err := suspendAllTriggers(ctx, target)
+	if err != nil {
+		t.Fatalf("suspendAllTriggers: %v", err)
+	}
+	mid, err := snapshotTriggers(ctx, target)
+	if err != nil {
+		t.Fatalf("snapshotTriggers(mid): %v", err)
+	}
+	if len(mid) != 0 {
+		t.Fatalf("expected 0 active triggers while suspended, got %d", len(mid))
+	}
+
+	// Historical rows with password_version > 0 must land cleanly while suspended.
+	if _, err := target.DB.ExecContext(ctx,
+		`INSERT INTO brands(id, slug, name) VALUES(1, 'b1', 'b1');
+		 INSERT INTO tenants(id, brand_id, name, slug, status) VALUES(1, 1, 't1', 't1', 'active');
+		 INSERT INTO domains(id, tenant_id, fqdn, verification_token, status, verified_at, provisioning_state) VALUES(1, 1, 'example.test', 'tok', 'active', 1, 'ready');
+		 INSERT INTO mailboxes(id, tenant_id, domain_id, local_part, address, password_hash, quota_bytes, password_version, password_revoke_pending)
+		 VALUES(7, 1, 1, 'tiger', 'tiger@example.test', 'hash', -1, 2, 0);`); err != nil {
+		t.Fatalf("insert historical mailbox while triggers suspended: %v", err)
+	}
+
+	if err := restoreAndVerifyAllTriggers(ctx, target, suspended); err != nil {
+		t.Fatalf("restoreAndVerifyAllTriggers: %v", err)
+	}
+
+	after, err := snapshotTriggers(ctx, target)
+	if err != nil {
+		t.Fatalf("snapshotTriggers(after): %v", err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("trigger count mismatch: got %d, want %d", len(after), len(before))
+	}
+	for i := range before {
+		if after[i].name != before[i].name || after[i].sqlText != before[i].sqlText {
+			t.Fatalf("trigger %s mismatch after restore:\ngot:  %q\nwant: %q", before[i].name, after[i].sqlText, before[i].sqlText)
+		}
+	}
+
+	// Confirm the guard is live again after restore.
+	if _, err := target.DB.ExecContext(ctx,
+		`INSERT INTO mailboxes(tenant_id, domain_id, local_part, address, password_hash, quota_bytes, password_version, password_revoke_pending)
+		 VALUES(1, 1, 'bad', 'bad@example.test', 'hash', -1, 1, 0)`); err == nil || !strings.Contains(err.Error(), "MAILBOX_PASSWORD_VERSION_IMMUTABLE") {
+		t.Fatalf("expected restored guard to abort with MAILBOX_PASSWORD_VERSION_IMMUTABLE, got %v", err)
 	}
 }

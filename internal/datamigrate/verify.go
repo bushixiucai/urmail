@@ -58,9 +58,18 @@ func VerifyRowHashes(ctx context.Context, src Source, t *Target, tm TypeMap, cfg
 		}
 		pk := ti.PK
 		pkList := quoteList(pk, false)
+		srcPKParts := make([]string, len(pk))
+		for i, c := range pk {
+			if colMap, ok := cm[c]; ok && colMap.PGType == "text" {
+				srcPKParts[i] = `"` + c + `" COLLATE "C"`
+			} else {
+				srcPKParts[i] = `"` + c + `"`
+			}
+		}
+		srcPKList := strings.Join(srcPKParts, ", ")
 
-		// Source: ordered converted rows.
-		srcRows, err := src.Query(ctx, fmt.Sprintf("SELECT %s FROM %s ORDER BY %s", quoteList(ti.Columns, false), ti.Name, pkList))
+		// Source: ordered converted rows (COLLATE "C" on text PKs matches SQLite BINARY).
+		srcRows, err := src.Query(ctx, fmt.Sprintf("SELECT %s FROM %s ORDER BY %s", quoteList(ti.Columns, false), ti.Name, srcPKList))
 		if err != nil {
 			return report, fmt.Errorf("table %s source select: %w", ti.Name, err)
 		}
