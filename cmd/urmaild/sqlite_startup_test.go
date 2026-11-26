@@ -199,8 +199,10 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 		t.Fatalf("GET /api/v1/mailbox/folders: %v", err)
 	}
 	_ = folderResp.Body.Close()
-	if folderResp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/v1/mailbox/folders = %d, want 200", folderResp.StatusCode)
+	// The listing routes live inside the slice-1 gate: an empty SQLite index
+	// must never masquerade as an empty mailbox (QA TC-13a).
+	if folderResp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("GET /api/v1/mailbox/folders = %d, want 503", folderResp.StatusCode)
 	}
 
 	msgReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/mailbox/messages", nil)
