@@ -33,10 +33,10 @@ func TestComposeSubmissionHasNoDanglingMilterOverride(t *testing.T) {
 	if strings.Contains(master, "smtpd_milters=") || strings.Contains(master, "milter_default_action=") {
 		t.Fatalf("compose master.cf carries a milter override:\n%s", master)
 	}
-	// The policy check must not appear in the compose master.cf at all: the
-	// socket lives on a volume the postfix container does not mount, and the
-	// comma restriction form was invalid master.cf syntax (DevOps live
-	// hotfix). Host/v80 keep the check with the space-separated syntax.
+	// The policy check must not appear in any master.cf shape: a -o value
+	// cannot contain spaces (the space form broke the parser itself) and the
+	// comma form parsed as an unknown restriction. The global main.cf check
+	// covers every smtpd service instead.
 	if strings.Contains(master, "check_policy_service") {
 		t.Fatalf("compose master.cf carries a policy check:\n%s", master)
 	}
@@ -84,11 +84,8 @@ func TestComposeSubmissionHasNoDanglingMilterOverride(t *testing.T) {
 		}()},
 		{"host", out[postfix.FileMasterCF]},
 	} {
-		if strings.Count(shape.master, "-o smtpd_data_restrictions=check_policy_service unix:") != 2 {
-			t.Fatalf("%s master.cf lost the two policy checks (space syntax):\n%s", shape.name, shape.master)
-		}
-		if strings.Contains(shape.master, "check_policy_service,") {
-			t.Fatalf("%s master.cf uses the invalid comma restriction form:\n%s", shape.name, shape.master)
+		if strings.Contains(shape.master, "smtpd_data_restrictions") {
+			t.Fatalf("%s master.cf still carries a data-restrictions override:\n%s", shape.name, shape.master)
 		}
 	}
 }

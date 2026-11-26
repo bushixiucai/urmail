@@ -90,15 +90,13 @@ func renderMasterCF(node NodeConfig) string {
 	for _, line := range submissionMilterOverrides(node) {
 		b.WriteString("  " + line + "\n")
 	}
-	// The -o value uses the space-separated restriction syntax
-	// (check_policy_service unix:<socket>): the comma form is parsed as one
-	// unknown restriction name and rejected every DATA (DevOps live hotfix).
-	// The compose shape omits the line entirely: the policy socket lives on
-	// the urmaild config volume the postfix container does not mount, and a
-	// fail-closed check against an unreachable socket would 451 every DATA.
-	if node.PolicyEnabled && !isComposeShape(node) {
-		b.WriteString("  -o smtpd_data_restrictions=check_policy_service unix:" + policySocket(node) + "\n")
-	}
+	// smtpd_data_restrictions deliberately has NO per-service override here:
+	// a master.cf -o value cannot contain spaces, so neither the comma form
+	// (parsed as one unknown restriction name; DevOps live hotfix removed
+	// it) nor the space form (breaks the master.cf parser itself — postfix
+	// refuses to start, CI Linux-installation jobs) is renderable. Every
+	// smtpd service inherits the main.cf global check, whose
+	// milter/policy posture is already proven by the inbound 25 path.
 	b.WriteString("smtps     inet  n       -       n       -       -       smtpd\n")
 	b.WriteString("  -o syslog_name=postfix/smtps\n")
 	b.WriteString("  -o smtpd_tls_wrappermode=yes\n")
@@ -107,10 +105,6 @@ func renderMasterCF(node NodeConfig) string {
 	b.WriteString("  -o milter_macro_daemon_name=ORIGINATING\n")
 	for _, line := range submissionMilterOverrides(node) {
 		b.WriteString("  " + line + "\n")
-	}
-	// Same space syntax and compose gating as the submission service above.
-	if node.PolicyEnabled && !isComposeShape(node) {
-		b.WriteString("  -o smtpd_data_restrictions=check_policy_service unix:" + policySocket(node) + "\n")
 	}
 	b.WriteString("pickup    unix  n       -       y       60      1       pickup\n")
 	b.WriteString("cleanup   unix  n       -       y       -       0       cleanup\n")
