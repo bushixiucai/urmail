@@ -37,8 +37,25 @@ func submissionMilters(node NodeConfig) string {
 
 // submissionMilterOverrides renders the shared per-service milter overrides
 // for submission/smtps: the full milter chain and fail-closed behavior (an
-// unavailable From-authorization milter must not wave spoofable mail through).
+// unavailable From-authorization milter must not wave spoofable mail
+// through).
+//
+// Compose shape (config dir injected, no preserved legacy stack) emits NO
+// override: the urmail-signer (12301) and from-bind (12302) milters are
+// optional compose profiles that may legitimately be absent, and a
+// tempfail override pointing at them turned every 587/465 submission into
+// 454/451 (post-cutover QA TC-06/08/09). Without the override the services
+// inherit main.cf's chain, whose milter_default_action=accept degrades to
+// unsigned delivery instead of refusing mail. DKIM path note (TC-07): in
+// the compose shape signing happens only when the urmail-signer profile is
+// enabled (inet:127.0.0.1:12301); until then outbound mail is unsigned by
+// design, and the legacy host stack keeps signing through its OpenDKIM on
+// 8891/8893. The v80 preserve shape keeps the fail-closed chain because its
+// milters are live host services.
 func submissionMilterOverrides(node NodeConfig) []string {
+	if node.ConfigDir != "" && !node.V80Preserve {
+		return nil
+	}
 	return []string{
 		"-o smtpd_milters=" + submissionMilters(node),
 		"-o milter_default_action=tempfail",
