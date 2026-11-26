@@ -14,6 +14,7 @@
  },
  "panels": [
   {
+   "id": 1,
    "type": "stat",
    "title": "urmail_operational_condition",
    "gridPos": {
@@ -29,7 +30,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -42,6 +56,7 @@
    ]
   },
   {
+   "id": 2,
    "type": "stat",
    "title": "urmail_database_reachable",
    "gridPos": {
@@ -57,7 +72,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -70,6 +98,7 @@
    ]
   },
   {
+   "id": 3,
    "type": "stat",
    "title": "urmail_dovecot_auth_snapshot_dirty",
    "gridPos": {
@@ -111,6 +140,7 @@
    ]
   },
   {
+   "id": 31,
    "type": "row",
    "title": "R1 使用率",
    "gridPos": {
@@ -121,6 +151,7 @@
    }
   },
   {
+   "id": 32,
    "type": "stat",
    "title": "数据根 fs 使用率",
    "gridPos": {
@@ -162,6 +193,7 @@
    ]
   },
   {
+   "id": 33,
    "type": "row",
    "title": "R2 7d 预测",
    "gridPos": {
@@ -172,6 +204,7 @@
    }
   },
   {
+   "id": 34,
    "type": "timeseries",
    "title": "7d avail 预测",
    "gridPos": {
@@ -202,8 +235,9 @@
    ]
   },
   {
+   "id": 35,
    "type": "row",
-   "title": "R3 inode",
+   "title": "R3 inode 与域级占用",
    "gridPos": {
     "x": 0,
     "y": 17,
@@ -212,12 +246,13 @@
    }
   },
   {
+   "id": 36,
    "type": "timeseries",
    "title": "inode 余量",
    "gridPos": {
     "x": 0,
     "y": 18,
-    "w": 24,
+    "w": 12,
     "h": 5
    },
    "datasource": {
@@ -238,6 +273,37 @@
     {
      "refId": "A",
      "expr": "node_filesystem_files_free{fstype!~\"tmpfs|overlay\"}"
+    }
+   ]
+  },
+  {
+   "id": 37,
+   "type": "timeseries",
+   "title": "urmail_mailbox_bytes{domain}（域级聚合）",
+   "gridPos": {
+    "x": 12,
+    "y": 18,
+    "w": 12,
+    "h": 5
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "urmail-prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(urmail_mailbox_bytes{domain!~\"\"}) by (domain)"
     }
    ]
   }

@@ -16,7 +16,7 @@ func TestHTTPListenerValidatesExplicitBind(t *testing.T) {
 			t.Errorf("dev address=%s: %v", address, err)
 		}
 	}
-	for _, address := range []string{"0.0.0.0:8080", "[::]:8080", "172.31.0.5:8080", "example.com:8080"} {
+	for _, address := range []string{"0.0.0.0:8080", "[::]:8080", "172.31.0.5:8080", "example.com:8080", ":8080", "localhost:8080", "192.0.2.1:8080"} {
 		cfg := Config{DevMode: true, ListenAddr: address, DatabaseURL: "app", DatabaseURLPlatform: "platform"}
 		if err := cfg.validate(); err == nil {
 			t.Errorf("dev accepted non-loopback address=%s", address)

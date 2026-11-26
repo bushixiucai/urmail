@@ -379,17 +379,24 @@ func (h *AuthHandler) CheckAuthProxy(c *gin.Context) {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
-	session, err := h.Store.GetSessionByID(c.Request.Context(), middleware.HashSessionToken(token))
+	// Every store call carries the platform scope: the production store is a
+	// ScopedQuerier whose method_scope contract rejects a bare request
+	// context (QA PR150 P0-1). Brand/origin boundary note (QA P2-3): the
+	// cookie is issued on the primary domain only, and GetSessionByID's SQL
+	// joins the active-user predicate — a disabled user or a foreign-brand
+	// session simply fails the lookup here.
+	authCtx := authScopeContext(c)
+	session, err := h.Store.GetSessionByID(authCtx, middleware.HashSessionToken(token))
 	if err != nil || session.ExpiresAt != 0 && session.ExpiresAt < timeutil.NowMicro() {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
-	admin, err := h.Store.CheckPlatformAdmin(authScopeContext(c), session.UserID)
+	admin, err := h.Store.CheckPlatformAdmin(authCtx, session.UserID)
 	if err != nil || !admin {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
-	user, err := h.Store.GetUserByID(authScopeContext(c), session.UserID)
+	user, err := h.Store.GetUserByID(authCtx, session.UserID)
 	if err != nil {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
@@ -399,7 +406,9 @@ func (h *AuthHandler) CheckAuthProxy(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-// Logout revokes the authenticated session.
+// Logout revokes the authenticated session and expires the AuthProxy
+// cookie, so the browser stops replaying a dead credential to the Caddy
+// forward_auth chain (QA PR150 P1-3).
 func (h *AuthHandler) Logout(c *gin.Context) {
 	val, exists := c.Get(middleware.ContextSession)
 	if exists {
@@ -409,6 +418,10 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 				return
 			}
 		}
+	}
+	if h.PanelDomain != "" {
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie(authProxyCookie, "", -1, "/", "."+h.PanelDomain, true, true)
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

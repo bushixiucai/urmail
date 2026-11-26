@@ -818,6 +818,7 @@ func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 		NginxNode: nginx.NodeConfig{PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, BackendHTTP: "http://" + cfg.ListenAddr, WebmailBackend: fixedWebmailBackend(cfg)}, DKIM: p.DKIM,
 		RenderRoot:      cfg.RenderedConfigDir,
 		GrafanaHostname: cfg.GrafanaHostname,
+		AuthProxyTarget: cfg.AuthProxyTarget,
 	}
 	// An explicit panel hostname wins over the distribution's default HTTP
 	// server, so HTTP-01 never falls through to /var/www/html.

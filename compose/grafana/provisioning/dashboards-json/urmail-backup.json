@@ -14,6 +14,7 @@
  },
  "panels": [
   {
+   "id": 1,
    "type": "stat",
    "title": "urmail_operational_condition",
    "gridPos": {
@@ -29,7 +30,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -42,6 +56,7 @@
    ]
   },
   {
+   "id": 2,
    "type": "stat",
    "title": "urmail_database_reachable",
    "gridPos": {
@@ -57,7 +72,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -70,6 +98,7 @@
    ]
   },
   {
+   "id": 3,
    "type": "stat",
    "title": "urmail_dovecot_auth_snapshot_dirty",
    "gridPos": {
@@ -111,6 +140,7 @@
    ]
   },
   {
+   "id": 43,
    "type": "row",
    "title": "R1 连续性",
    "gridPos": {
@@ -121,6 +151,7 @@
    }
   },
   {
+   "id": 44,
    "type": "stat",
    "title": "last_id",
    "gridPos": {
@@ -136,7 +167,16 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -149,6 +189,7 @@
    ]
   },
   {
+   "id": 45,
    "type": "stat",
    "title": "id gap（>0 红）",
    "gridPos": {
@@ -190,6 +231,7 @@
    ]
   },
   {
+   "id": 46,
    "type": "stat",
    "title": "备份距时 (h)",
    "gridPos": {
@@ -214,8 +256,12 @@
         "value": null
        },
        {
-        "color": "red",
+        "color": "orange",
         "value": 24
+       },
+       {
+        "color": "red",
+        "value": 72
        }
       ]
      }
@@ -231,6 +277,7 @@
    ]
   },
   {
+   "id": 47,
    "type": "row",
    "title": "R2 距时",
    "gridPos": {
@@ -241,6 +288,7 @@
    }
   },
   {
+   "id": 48,
    "type": "timeseries",
    "title": "local/offsite 距时 (h)",
    "gridPos": {
@@ -259,6 +307,23 @@
      "custom": {
       "lineWidth": 1,
       "fillOpacity": 10
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 24
+       },
+       {
+        "color": "red",
+        "value": 72
+       }
+      ]
      }
     },
     "overrides": []
@@ -275,6 +340,7 @@
    ]
   },
   {
+   "id": 49,
    "type": "row",
    "title": "R3 offsite 时间线",
    "gridPos": {
@@ -285,6 +351,7 @@
    }
   },
   {
+   "id": 50,
    "type": "timeseries",
    "title": "offsite 成功步进",
    "gridPos": {

@@ -14,6 +14,7 @@
  },
  "panels": [
   {
+   "id": 1,
    "type": "stat",
    "title": "urmail_operational_condition",
    "gridPos": {
@@ -29,7 +30,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -42,6 +56,7 @@
    ]
   },
   {
+   "id": 2,
    "type": "stat",
    "title": "urmail_database_reachable",
    "gridPos": {
@@ -57,7 +72,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -70,6 +98,7 @@
    ]
   },
   {
+   "id": 3,
    "type": "stat",
    "title": "urmail_dovecot_auth_snapshot_dirty",
    "gridPos": {
@@ -111,6 +140,7 @@
    ]
   },
   {
+   "id": 9,
    "type": "row",
    "title": "R1 成功率",
    "gridPos": {
@@ -121,6 +151,7 @@
    }
   },
   {
+   "id": 10,
    "type": "stat",
    "title": "投递成功率 (1h)",
    "gridPos": {
@@ -141,11 +172,11 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "green",
+        "color": "red",
         "value": null
        },
        {
-        "color": "red",
+        "color": "green",
         "value": 0.99
        }
       ]
@@ -156,12 +187,13 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(increase(urmail_probe_smtp_success[1h]))/clamp_min(sum(increase(urmail_probe_smtp_success[1h]))+sum(increase(1-urmail_probe_smtp_success[1h])),1)",
+     "expr": "avg_over_time(urmail_probe_smtp_success[1h])",
      "instant": true
     }
    ]
   },
   {
+   "id": 11,
    "type": "stat",
    "title": "delivery events (status)",
    "gridPos": {
@@ -177,7 +209,16 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -190,6 +231,7 @@
    ]
   },
   {
+   "id": 12,
    "type": "row",
    "title": "R2 探针延迟",
    "gridPos": {
@@ -200,6 +242,7 @@
    }
   },
   {
+   "id": 13,
    "type": "timeseries",
    "title": "SMTP 探针时延",
    "gridPos": {
@@ -218,6 +261,19 @@
      "custom": {
       "lineWidth": 1,
       "fillOpacity": 10
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 10
+       }
+      ]
      }
     },
     "overrides": []
@@ -230,6 +286,7 @@
    ]
   },
   {
+   "id": 14,
    "type": "timeseries",
    "title": "每域占用（关联行）",
    "gridPos": {
@@ -260,6 +317,7 @@
    ]
   },
   {
+   "id": 15,
    "type": "row",
    "title": "R3 队列联动",
    "gridPos": {
@@ -270,6 +328,7 @@
    }
   },
   {
+   "id": 16,
    "type": "timeseries",
    "title": "队列深度（关联）",
    "gridPos": {
@@ -288,6 +347,19 @@
      "custom": {
       "lineWidth": 1,
       "fillOpacity": 10
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 10
+       }
+      ]
      }
     },
     "overrides": []

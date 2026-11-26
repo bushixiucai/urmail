@@ -14,6 +14,7 @@
  },
  "panels": [
   {
+   "id": 1,
    "type": "stat",
    "title": "urmail_operational_condition",
    "gridPos": {
@@ -29,7 +30,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -42,6 +56,7 @@
    ]
   },
   {
+   "id": 2,
    "type": "stat",
    "title": "urmail_database_reachable",
    "gridPos": {
@@ -57,7 +72,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -70,6 +98,7 @@
    ]
   },
   {
+   "id": 3,
    "type": "stat",
    "title": "urmail_dovecot_auth_snapshot_dirty",
    "gridPos": {
@@ -111,6 +140,7 @@
    ]
   },
   {
+   "id": 17,
    "type": "row",
    "title": "R1 会话",
    "gridPos": {
@@ -121,6 +151,7 @@
    }
   },
   {
+   "id": 18,
    "type": "stat",
    "title": "IMAPS 会话成功率 (30m)",
    "gridPos": {
@@ -141,11 +172,11 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "green",
+        "color": "red",
         "value": null
        },
        {
-        "color": "red",
+        "color": "green",
         "value": 0.99
        }
       ]
@@ -156,12 +187,13 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(rate(urmail_probe_imaps_success[30m]))",
+     "expr": "avg_over_time(urmail_probe_imaps_success[30m])",
      "instant": true
     }
    ]
   },
   {
+   "id": 19,
    "type": "timeseries",
    "title": "IMAPS 探针时延",
    "gridPos": {
@@ -180,6 +212,19 @@
      "custom": {
       "lineWidth": 1,
       "fillOpacity": 10
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 10
+       }
+      ]
      }
     },
     "overrides": []
@@ -192,6 +237,7 @@
    ]
   },
   {
+   "id": 20,
    "type": "row",
    "title": "R2 auth snapshot",
    "gridPos": {
@@ -202,6 +248,7 @@
    }
   },
   {
+   "id": 21,
    "type": "timeseries",
    "title": "auth snapshot dirty",
    "gridPos": {
@@ -220,6 +267,19 @@
      "custom": {
       "lineWidth": 1,
       "fillOpacity": 10
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
      }
     },
     "overrides": []
@@ -232,6 +292,7 @@
    ]
   },
   {
+   "id": 22,
    "type": "timeseries",
    "title": "auth snapshot staleness (s)",
    "gridPos": {
@@ -262,6 +323,7 @@
    ]
   },
   {
+   "id": 23,
    "type": "row",
    "title": "R3 容器资源",
    "gridPos": {
@@ -272,6 +334,7 @@
    }
   },
   {
+   "id": 24,
    "type": "table",
    "title": "R3 cAdvisor 二期暂缓",
    "gridPos": {

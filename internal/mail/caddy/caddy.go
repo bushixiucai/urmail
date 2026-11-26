@@ -42,7 +42,12 @@ func Generate(snapshot nginx.Snapshot) (map[string]string, error) {
 		fmt.Fprintf(&b, "%s {\n", snapshot.GrafanaHostname)
 		fmt.Fprintf(&b, "  forward_auth %s {\n", target)
 		fmt.Fprintf(&b, "    uri      /api/v1/auth/check\n")
-		fmt.Fprintf(&b, "    copy_headers Cookie Authorization\n")
+		// copy_headers runs AFTER a 2xx check response and copies (with
+		// rename) the identity headers onto the Grafana upstream request,
+		// overwriting anything the client forged (QA PR150 P0-2). Caddy
+		// already forwards the client's Cookie/Authorization to the auth
+		// endpoint on its own.
+		fmt.Fprintf(&b, "    copy_headers X-URMAIL-Mailbox>X-WEBAUTH-USER X-WEBAUTH-ROLE\n")
 		fmt.Fprintf(&b, "  }\n")
 		fmt.Fprintf(&b, "  reverse_proxy 127.0.0.1:3000\n}\n\n")
 	}

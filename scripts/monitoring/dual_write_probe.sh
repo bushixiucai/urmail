@@ -11,8 +11,19 @@ set -euo pipefail
 PUSHGATEWAY="${URMAIL_PUSHGATEWAY:-http://127.0.0.1:9091}"
 LEASE="${URMAIL_WRITER_LEASE:?URMAIL_WRITER_LEASE must point at the live .urmail-writer.lease}"
 
-rc=0
-flock -n "$LEASE" true 2>/dev/null || rc=$?
+# Lock provenance (QA PR150 P0-4): the lease file is created and held
+# exclusively by the live urmaild writer for the whole run — this probe
+# must NEVER create it. A missing file is an unhealthy state too, so the
+# probe reports rc=1 (flock's default conflict code) for it.
+if [ ! -s "$LEASE" ]; then
+  rc=1
+else
+  # -E 75 makes util-linux flock return the sentinel this probe exports;
+  # the default conflict exit code is 1, which the dashboard treats as a
+  # stop-write signal.
+  rc=0
+  flock -n -E 75 "$LEASE" true 2>/dev/null || rc=$?
+fi
 case "$rc" in
   75) healthy=1 ;;
   *) healthy=0 ;;

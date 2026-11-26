@@ -25,7 +25,7 @@ func TestGrafanaSiteBlockRendered(t *testing.T) {
 		"grafana.example.test {",
 		"forward_auth 127.0.0.1:8080 {",
 		"    uri      /api/v1/auth/check",
-		"    copy_headers Cookie Authorization",
+		"    copy_headers X-URMAIL-Mailbox>X-WEBAUTH-USER X-WEBAUTH-ROLE",
 		"  }",
 		"  reverse_proxy 127.0.0.1:3000",
 	} {

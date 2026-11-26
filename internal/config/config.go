@@ -48,6 +48,11 @@ type Config struct {
 	// forward_auth session check (GRAFANA-DESIGN §5). Empty keeps the
 	// historical Caddyfile without a monitoring site.
 	GrafanaHostname string
+	// AuthProxyTarget is where the rendered Caddy forward_auth dials
+	// urmaild (URMAIL_AUTH_PROXY_TARGET). Empty keeps the host loopback
+	// chain 127.0.0.1:8080; a compose deployment with published ports or a
+	// shared network namespace sets the reachable address explicitly.
+	AuthProxyTarget string
 
 	// DatabaseURL is the connection string for the tenant-scoped role
 	// (urmail_app). Queries issued over this connection are subject to
@@ -301,6 +306,7 @@ func Load() (*Config, error) {
 		ACMERootCA:                  values["URMAIL_ACME_ROOT_CA"],
 		ListenAddr:                  values["URMAIL_LISTEN_ADDR"],
 		GrafanaHostname:             strings.TrimSpace(values["URMAIL_GRAFANA_HOSTNAME"]),
+		AuthProxyTarget:             strings.TrimSpace(values["URMAIL_AUTH_PROXY_TARGET"]),
 		DatabaseURL:                 values["URMAIL_DATABASE_URL"],
 		DatabaseURLPlatform:         values["URMAIL_DATABASE_URL_PLATFORM"],
 		DatabaseURLMigrate:          values["URMAIL_DATABASE_URL_MIGRATE"],
@@ -501,6 +507,12 @@ func (c *Config) validate() error {
 		}
 		if len(missing) > 0 {
 			return fmt.Errorf("%w: %s", ErrMissing, strings.Join(missing, ", "))
+		}
+	}
+	if c.GrafanaHostname != "" {
+		host := strings.TrimSpace(c.GrafanaHostname)
+		if host == "" || strings.ContainsAny(host, " \t\r\n{}$") {
+			return errors.New("URMAIL_GRAFANA_HOSTNAME must be a bare hostname without whitespace or Caddy-site metacharacters")
 		}
 	}
 	// CFG-01: outside development the SaaS policy service is the only place

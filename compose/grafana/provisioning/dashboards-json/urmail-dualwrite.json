@@ -14,6 +14,7 @@
  },
  "panels": [
   {
+   "id": 1,
    "type": "stat",
    "title": "urmail_operational_condition",
    "gridPos": {
@@ -29,7 +30,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -42,6 +56,7 @@
    ]
   },
   {
+   "id": 2,
    "type": "stat",
    "title": "urmail_database_reachable",
    "gridPos": {
@@ -57,7 +72,20 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -70,6 +98,7 @@
    ]
   },
   {
+   "id": 3,
    "type": "stat",
    "title": "urmail_dovecot_auth_snapshot_dirty",
    "gridPos": {
@@ -111,6 +140,7 @@
    ]
   },
   {
+   "id": 38,
    "type": "row",
    "title": "R1 rc 事件",
    "gridPos": {
@@ -121,6 +151,7 @@
    }
   },
   {
+   "id": 39,
    "type": "stat",
    "title": "非预期 rc≠75（0 为绿）",
    "gridPos": {
@@ -162,6 +193,7 @@
    ]
   },
   {
+   "id": 40,
    "type": "stat",
    "title": "最近探针 rc",
    "gridPos": {
@@ -177,7 +209,24 @@
    "fieldConfig": {
     "defaults": {
      "unit": "none",
-     "decimals": 2
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 75
+       },
+       {
+        "color": "green",
+        "value": 75.5
+       }
+      ]
+     }
     },
     "overrides": []
    },
@@ -190,6 +239,7 @@
    ]
   },
   {
+   "id": 41,
    "type": "row",
    "title": "R2 探针时序",
    "gridPos": {
@@ -200,6 +250,7 @@
    }
   },
   {
+   "id": 42,
    "type": "timeseries",
    "title": "probe rc 序列",
    "gridPos": {
@@ -218,6 +269,23 @@
      "custom": {
       "lineWidth": 1,
       "fillOpacity": 10
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 75
+       },
+       {
+        "color": "green",
+        "value": 75.5
+       }
+      ]
      }
     },
     "overrides": []
