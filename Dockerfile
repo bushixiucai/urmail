@@ -50,7 +50,7 @@ RUN apt-get update \
     && env https_proxy=$https_proxy http_proxy=$http_proxy \
        apt-get install -y --no-install-recommends \
          ca-certificates curl bash openssl sqlite3 \
-         postfix dovecot-core dovecot-imapd dovecot-lmtpd dovecot-sieve \
+         postfix dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sieve \
          dovecot-managesieved \
     && rm -rf /var/lib/apt/lists/*
 
