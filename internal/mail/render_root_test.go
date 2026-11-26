@@ -60,6 +60,7 @@ func TestRenderRootDefaultsToEtc(t *testing.T) {
 func TestRenderRootInjectsComposeLayout(t *testing.T) {
 	ctx := baseContext()
 	ctx.RenderRoot = "/srv/urmail/data/config"
+	ctx.GrafanaHostname = "mail.example.test"
 	files, err := mail.RenderAll(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -86,6 +87,19 @@ func TestRenderRootInjectsComposeLayout(t *testing.T) {
 			!strings.HasPrefix(path, "/srv/urmail/data/config/dovecot/") &&
 			path != "/srv/urmail/data/config/caddy/Caddyfile" {
 			t.Fatalf("unexpected artifact under injected render root: %s", path)
+		}
+	}
+	// The dashboard route embeds inside the primary site block (2026-11-27
+	// entry-path decision), with the fail-closed forward_auth chain.
+	caddyOut := files["/srv/urmail/data/config/caddy/Caddyfile"]
+	for _, want := range []string{
+		"  @dashboard path /dashboard /dashboard/*",
+		"  handle_path @dashboard /dashboard/* {",
+		"    copy_headers X-URMAIL-Mailbox>X-WEBAUTH-USER X-WEBAUTH-ROLE",
+		"    reverse_proxy 127.0.0.1:3000",
+	} {
+		if !strings.Contains(caddyOut, want) {
+			t.Fatalf("compose Caddyfile missing dashboard route %q:\n%s", want, caddyOut)
 		}
 	}
 	conf := files["/srv/urmail/data/config/dovecot/dovecot.conf"]

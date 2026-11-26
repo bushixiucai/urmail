@@ -42,11 +42,13 @@ type Config struct {
 	// /internal/metrics (GRAFANA-DESIGN §2.1 option A); the bearer-token
 	// gate on that endpoint is unaffected by the bind address.
 	ListenAddr string
-	// GrafanaHostname is the public host of the Grafana monitoring entry
-	// (URMAIL_GRAFANA_HOSTNAME, e.g. grafana.<primary domain>). When set,
-	// the compose Caddy renderer emits the grafana site block with its
-	// forward_auth session check (GRAFANA-DESIGN §5). Empty keeps the
-	// historical Caddyfile without a monitoring site.
+	// GrafanaHostname is the public HOST that carries the monitoring entry
+	// path /dashboard (URMAIL_GRAFANA_HOSTNAME, the primary site host such
+	// as box.<primary domain> — user decision 2026-11-27 replaced the
+	// deprecated grafana.<domain> subdomain). When set, the compose Caddy
+	// renderer embeds the forward_auth-guarded /dashboard route inside that
+	// site block. Empty keeps the historical Caddyfile without a monitoring
+	// route.
 	GrafanaHostname string
 	// AuthProxyTarget is where the rendered Caddy forward_auth dials
 	// urmaild (URMAIL_AUTH_PROXY_TARGET). Empty keeps the host loopback

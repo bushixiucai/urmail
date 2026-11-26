@@ -28,28 +28,38 @@ func Generate(snapshot nginx.Snapshot) (map[string]string, error) {
 		if domain.TLSCertFile != "" && domain.TLSKeyFile != "" {
 			fmt.Fprintf(&b, "  tls %s %s\n", domain.TLSCertFile, domain.TLSKeyFile)
 		}
+		// User decision 2026-11-27: the monitoring plane lives at
+		// https://<primary host>/dashboard on the SAME site, not a separate
+		// grafana. subdomain. handle_path strips the /dashboard prefix for
+		// the Grafana upstream while GF_SERVER_SERVE_FROM_SUB_PATH=true makes
+		// Grafana emit /dashboard-prefixed URLs back; the named matcher binds
+		// tighter than the site-wide fallback proxy below, so webmail and
+		// /api routes are unaffected. forward_auth stays fail-closed.
+		if snapshot.GrafanaHostname != "" && strings.EqualFold(domain.FQDN, snapshot.GrafanaHostname) {
+			fmt.Fprintf(&b, "  @dashboard path /dashboard /dashboard/*\n")
+			fmt.Fprintf(&b, "  handle_path @dashboard /dashboard/* {\n")
+			fmt.Fprintf(&b, "    forward_auth %s {\n", authProxyTarget(snapshot))
+			fmt.Fprintf(&b, "      uri      /api/v1/auth/check\n")
+			// copy_headers runs AFTER a 2xx check response and copies (with
+			// rename) the identity headers onto the Grafana upstream request,
+			// overwriting anything the client forged (QA PR150 P0-2).
+			fmt.Fprintf(&b, "      copy_headers X-URMAIL-Mailbox>X-WEBAUTH-USER X-WEBAUTH-ROLE\n")
+			fmt.Fprintf(&b, "    }\n")
+			fmt.Fprintf(&b, "    reverse_proxy 127.0.0.1:3000\n")
+			fmt.Fprintf(&b, "  }\n")
+		}
 		fmt.Fprintf(&b, "  reverse_proxy 127.0.0.1:8080\n}\n\n")
 	}
-	// GRAFANA-DESIGN §5: the monitoring plane's single public entry. The
-	// forward_auth check is fail-closed on the urmaild side (only a live
-	// platform-admin session earns a 2xx), and Grafana trusts the injected
-	// X-WEBAUTH-* headers only from 127.0.0.1.
-	if snapshot.GrafanaHostname != "" {
-		target := snapshot.AuthProxyTarget
-		if target == "" {
-			target = "127.0.0.1:8080"
-		}
-		fmt.Fprintf(&b, "%s {\n", snapshot.GrafanaHostname)
-		fmt.Fprintf(&b, "  forward_auth %s {\n", target)
-		fmt.Fprintf(&b, "    uri      /api/v1/auth/check\n")
-		// copy_headers runs AFTER a 2xx check response and copies (with
-		// rename) the identity headers onto the Grafana upstream request,
-		// overwriting anything the client forged (QA PR150 P0-2). Caddy
-		// already forwards the client's Cookie/Authorization to the auth
-		// endpoint on its own.
-		fmt.Fprintf(&b, "    copy_headers X-URMAIL-Mailbox>X-WEBAUTH-USER X-WEBAUTH-ROLE\n")
-		fmt.Fprintf(&b, "  }\n")
-		fmt.Fprintf(&b, "  reverse_proxy 127.0.0.1:3000\n}\n\n")
-	}
+	// The deprecated standalone grafana.<domain> site block (GRAFANA-DESIGN
+	// §5 as written) was removed by the 2026-11-27 entry-path decision.
 	return map[string]string{FileName: b.String()}, nil
+}
+
+// authProxyTarget resolves where forward_auth dials urmaild (the host
+// loopback chain unless URMAIL_AUTH_PROXY_TARGET overrides it).
+func authProxyTarget(snapshot nginx.Snapshot) string {
+	if snapshot.AuthProxyTarget != "" {
+		return snapshot.AuthProxyTarget
+	}
+	return "127.0.0.1:8080"
 }
