@@ -28,6 +28,8 @@ set -euo pipefail
 
 V=""
 DRY_RUN=0
+WRITERS_STOPPED=""
+CANONICAL_COMPOSE_WRITERS="urmaild postfix dovecot"
 FENCED=0
 RELEASED=0
 HANDLED=0
@@ -42,6 +44,20 @@ warn() { printf '[upgrade] WARNING: %s\n' "$*" >&2; }
 die()  { printf '[upgrade] ABORT: %s\n' "$*" >&2; return 4; }
 usage(){ sed -n '2,15p' "$0"; exit 0; }
 
+# E5 #4: validate --writers-stopped congruence against canonical Compose writers.
+validate_writers_congruence() {
+    local raw="${1:-}"
+    [ -n "$raw" ] || return 0
+    local norm
+    norm=$(printf '%s' "$raw" | tr ',' ' ')
+    local got_sorted want_sorted
+    got_sorted=$(printf '%s\n' $norm | grep -v '^$' | sort -u | tr '\n' ' ')
+    want_sorted=$(printf '%s\n' $CANONICAL_COMPOSE_WRITERS | sort -u | tr '\n' ' ')
+    if [ "$got_sorted" != "$want_sorted" ]; then
+        die "--writers-stopped ($got_sorted) must be congruent with canonical writer set ($want_sorted)"
+    fi
+}
+
 main() {
     # Snapshot BEFORE parsing: `shift` empties "$@", and the TMPDIR re-exec
     # below must forward the original arguments.
@@ -49,6 +65,8 @@ main() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --dry-run) DRY_RUN=1; shift ;;
+            --writers-stopped) [ $# -ge 2 ] || die "--writers-stopped requires a value"; WRITERS_STOPPED="$2"; shift 2 ;;
+            --writers-stopped=*) WRITERS_STOPPED="${1#--writers-stopped=}"; shift ;;
             -h|--help) usage ;;
             -*) die "unknown flag: $1" ;;
             *)  if [ -n "$V" ]; then die "unexpected argument: $1"; fi
@@ -57,6 +75,7 @@ main() {
     done
     [ -n "$V" ] || usage
     printf '%s' "$V" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || die "version must look like vX.Y.Z (got: $V)"
+    validate_writers_congruence "$WRITERS_STOPPED"
 
     # Self-rewrite guard (QA): `git checkout $V` rewrites this very script
     # while bash may still be reading it (undefined behaviour). Re-exec from
@@ -110,10 +129,8 @@ main() {
     docker version >/dev/null 2>&1 || die "docker not reachable"
     docker compose version >/dev/null 2>&1 || die "docker compose v2 not reachable"
 
-    # Dedicated holds dir (QA condition): the hold marker lives in its own
-    # subdirectory so writer containers can ro-mount JUST the marker without
-    # gaining read access to config/master.key or the database directory.
-    HOLD="$DATA_ROOT/holds/upgrade.hold"
+    # E5 #12: unified protocol hold path under maintenance/ (shadow holds/ retired).
+    HOLD="$DATA_ROOT/maintenance/upgrade.hold"
 
     if [ "$DRY_RUN" = 1 ]; then
         cat <<PLAN
@@ -308,7 +325,16 @@ PLAN
     if [ "$writers_ok" != "1" ]; then
         die "writers failed to start; fence/hold kept (post-up)"
     fi
-    rm -f "$HOLD"
+    # E5 #12: release via protocol command (no bare shadow rm -f on production path).
+    if [ "${URMAIL_ALLOW_RECORDLESS_RIG:-0}" = "1" ]; then
+        rm -f "$HOLD"
+        note "rig mode: maintenance hold cleared under URMAIL_ALLOW_RECORDLESS_RIG=1"
+    else
+        docker compose run --rm --no-deps --user 0:0 \
+            -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
+            -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/maintenance \
+            --entrypoint /usr/local/bin/urmailctl urmaild upgrade release >>"$EVIDENCE" 2>&1
+    fi
     RELEASED=1
     T1=$(date +%s)
     note "writers started, hold cleared; fence window $((T1 - T0))s"
@@ -327,7 +353,7 @@ finish_failure() {
                 # intentional word split: URMAIL_WRITERS is a service list
                 # shellcheck disable=SC2086
                 docker compose start urmaild ${URMAIL_WRITERS:-postfix dovecot} 2>&1 || true
-                rm -f "${URMAIL_DATA_ROOT:-data}/holds/upgrade.hold" && echo "hold cleared"
+                rm -f "${URMAIL_DATA_ROOT:-data}/maintenance/upgrade.hold" && echo "maintenance hold cleared (pre-up abort)"
                 echo "old stack keeps serving; no data-plane change was made"
             } >>"$EVIDENCE" 2>&1
             note "pre-up failure: writers restored, hold cleared (old stack keeps serving); evidence: $EVIDENCE"
@@ -341,7 +367,7 @@ Rollback runbook (execute in a second maintenance window, hold stays in place):
   3. docker compose up -d --no-deps urmaild   (migrations of the new stack may
      need manual assessment first: docker compose logs urmaild)
   4. confirm healthz ok, then start writers: docker compose start postfix dovecot
-  5. clear the hold: rm -f ${URMAIL_DATA_ROOT:-data}/holds/upgrade.hold
+  5. clear the hold via protocol: urmailctl upgrade release (maintenance dir: ${URMAIL_DATA_ROOT:-data}/maintenance/upgrade.hold)
 The script deliberately does NOT auto-release an unverified new stack.
 RUNBOOK
             } >>"$EVIDENCE" 2>&1
