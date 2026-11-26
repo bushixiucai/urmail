@@ -62,8 +62,13 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("# Virtual domains, mailboxes and aliases\n")
 	fmt.Fprintf(&b, "virtual_mailbox_domains = %s\n", virtualMailboxDomains)
 	fmt.Fprintf(&b, "virtual_mailbox_base = %s/mail/mailboxes\n", strings.TrimRight(node.StorageRoot, "/"))
-	b.WriteString("virtual_mailbox_maps = hash:/etc/postfix/urmail/virtual_mailbox.map\n")
-	b.WriteString("virtual_alias_maps = hash:/etc/postfix/urmail/virtual_alias.map\n")
+	// The map root follows the deployment shape (URMAIL_RENDERED_CONFIG_DIR
+	// contract): Postfix resolves map specs by absolute path only, so a
+	// compose deployment pointed at -c <render root>/postfix must see the
+	// rendered mount-surface paths, not the host /etc/postfix layout.
+	mapRoot := node.MapRoot()
+	fmt.Fprintf(&b, "virtual_mailbox_maps = hash:%s/virtual_mailbox.map\n", mapRoot)
+	fmt.Fprintf(&b, "virtual_alias_maps = hash:%s/virtual_alias.map\n", mapRoot)
 	if node.V80Preserve {
 		// The measured source has no SMTP reinjection: one Postfix delivery goes
 		// through spampd, then directly to Dovecot's loopback LMTP listener.
@@ -72,8 +77,8 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 		b.WriteString("virtual_transport = lmtp:unix:private/dovecot-lmtp\n")
 	}
 	if node.ArchiveEnabled {
-		b.WriteString("recipient_bcc_maps = hash:/etc/postfix/urmail/archive_bcc.map\n")
-		b.WriteString("transport_maps = hash:/etc/postfix/urmail/archive_transport.map\n")
+		fmt.Fprintf(&b, "recipient_bcc_maps = hash:%s/archive_bcc.map\n", mapRoot)
+		fmt.Fprintf(&b, "transport_maps = hash:%s/archive_transport.map\n", mapRoot)
 	}
 	b.WriteString("\n")
 
@@ -102,7 +107,7 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("# accept the message unsigned instead of blocking mail delivery.\n")
 	b.WriteString("milter_default_action = accept\n")
 	b.WriteString("milter_protocol = 6\n")
-	b.WriteString("header_checks = regexp:/etc/postfix/urmail/spam-header-checks\n")
+	fmt.Fprintf(&b, "header_checks = regexp:%s/spam-header-checks\n", mapRoot)
 	// MAIL-002: the shared content verdict runs after the signing milters.
 	// Incoming Authentication-Results are not trusted by name. It only
 	// inserts X-UrMail-Spam headers; with milter_default_action = accept an
@@ -129,7 +134,7 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	}
 
 	b.WriteString("# Sender login restrictions\n")
-	b.WriteString("smtpd_sender_login_maps = hash:/etc/postfix/urmail/sender_login.map\n")
+	fmt.Fprintf(&b, "smtpd_sender_login_maps = hash:%s/sender_login.map\n", mapRoot)
 	b.WriteString("smtpd_sender_restrictions =\n")
 	if node.V80Preserve {
 		// Preserve the measured source order. The authenticated identity map

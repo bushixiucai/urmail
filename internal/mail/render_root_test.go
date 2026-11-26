@@ -39,6 +39,21 @@ func TestRenderRootDefaultsToEtc(t *testing.T) {
 	if !found {
 		t.Fatal("default render root did not produce /etc artifacts")
 	}
+	mainCF := files["/etc/postfix/main.cf"]
+	if mainCF == "" {
+		t.Fatal("default render did not produce /etc/postfix/main.cf")
+	}
+	for _, want := range []string{
+		"hash:/etc/postfix/urmail/virtual_mailbox.map",
+		"hash:/etc/postfix/urmail/sender_login.map",
+	} {
+		if !strings.Contains(mainCF, want) {
+			t.Fatalf("host layout lost %q:\n%s", want, mainCF)
+		}
+	}
+	if strings.Contains(mainCF, "/srv/urmail") {
+		t.Fatalf("default render root leaked compose paths:\n%s", mainCF)
+	}
 }
 
 // TestRenderRootInjectsComposeLayout pins the contract paths and the Caddyfile.
@@ -100,5 +115,27 @@ func TestRenderRootInjectsComposeLayout(t *testing.T) {
 	// User script and legacy sieve_dir stay on StorageRoot, not the config root.
 	if !strings.Contains(conf, "sieve = file:/var/mail/sieve/%u.sieve") {
 		t.Fatal("user sieve location left StorageRoot")
+	}
+	// Postfix file maps follow the same shape contract: main.cf is read from
+	// <render root>/postfix as config_dir, so every map reference must name
+	// the rendered mount surface (PM-S7 render-path contract).
+	mainCF := files["/srv/urmail/data/config/postfix/main.cf"]
+	for _, want := range []string{
+		"hash:/srv/urmail/data/config/postfix/urmail/virtual_mailbox.map",
+		"hash:/srv/urmail/data/config/postfix/urmail/virtual_alias.map",
+		"hash:/srv/urmail/data/config/postfix/urmail/sender_login.map",
+		"regexp:/srv/urmail/data/config/postfix/urmail/spam-header-checks",
+	} {
+		if !strings.Contains(mainCF, want) {
+			t.Fatalf("injected main.cf missing %q:\n%s", want, mainCF)
+		}
+	}
+	if strings.Contains(mainCF, "/etc/postfix/urmail") {
+		t.Fatalf("injected main.cf still names the host map tree:\n%s", mainCF)
+	}
+	for _, ref := range []string{"urmail/virtual_mailbox.map", "urmail/virtual_alias.map", "urmail/sender_login.map", "urmail/spam-header-checks"} {
+		if _, ok := files["/srv/urmail/data/config/postfix/"+ref]; !ok {
+			t.Fatalf("referenced map %s is not rendered into the mount surface", ref)
+		}
 	}
 }
