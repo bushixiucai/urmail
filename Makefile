@@ -43,6 +43,7 @@ build-go: frontend-check ## 只构建 Go 二进制（前端资源需已存在且
 	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/urmaild-agent ./cmd/urmaild-agent
 	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/urmailctl ./cmd/urmailctl
 	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/urmail-archive ./cmd/urmail-archive
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/urmail-milter ./cmd/urmail-milter
 
 .PHONY: frontend
 frontend: ## 构建前端并拷贝到 embed 目录
