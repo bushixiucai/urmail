@@ -69,3 +69,6 @@ mock.sql
 docker-compose.override.yml
 broken-ctl
 rig-acceptance-output.log
+
+# CI/rig acceptance evidence archive (suite artifact; must not dirty the tree)
+/evidence-archive/

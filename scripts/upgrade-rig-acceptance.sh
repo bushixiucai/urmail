@@ -21,6 +21,11 @@ assert() {
     else FAIL=$((FAIL+1)); record "FAIL $label got=$got want=$want"; fi
 }
 ev_count() { cat "$URMAIL_DATA_ROOT"/upgrade-evidence-"$V_GOOD"-*.log 2>/dev/null | grep -c "$1"; }
+# path_reached <marker>: occurrences of an upgrade-chain path marker in the
+# current scenario's evidence (same basis as ev_count). Introduced when the
+# D/E fence-path assertions landed (QA #27) — the helper itself was missing
+# from every prior commit, which made both assertions fail with got="".
+path_reached() { ev_count "$1"; }
 archive_ev() { # archive <label>
     local lbl=${1:-misc}
     mkdir -p "$EV_ARCHIVE/$lbl"
@@ -51,7 +56,9 @@ mock_row() {
 clear_rows() {
     docker compose exec -T pg psql -U urmail -d urmail -q -c "DELETE FROM backup_runs" 2>/dev/null || true
 }
-hold_state() { [ -f "$URMAIL_DATA_ROOT/holds/upgrade.hold" ] && echo yes || echo no; }
+# E5 #12: main's upgrade.sh keeps the protocol hold under the unified
+# maintenance/ dir (the shadow holds/ dir is retired).
+hold_state() { [ -f "$URMAIL_DATA_ROOT/maintenance/upgrade.hold" ] && echo yes || echo no; }
 # port_occupy <port> : block a dovecot bind with a python listener.
 # Ubuntu runner python3 is guaranteed; dovecot must be stopped first so the
 # port is actually free when we bind it. N1 (PM): wait until the port is
@@ -90,7 +97,7 @@ reset_stack
 mock_row
 out=$(URMAIL_ALLOW_RECORDLESS_RIG=1 URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 echo "$out" | head -4
-assert "D_path_reached" "$(path_reached 'native fence: hold written')" "0"
+assert "D_path_reached" "$(path_reached 'native fence: hold written')" "1"
 assert "D_rc" "$rc" "0"
 assert "D_hold" "$(hold_state)" "no"
 assert "D_healthz" "$(docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz 2>/dev/null | grep -c '"status":"ok"')" "1"
@@ -114,15 +121,18 @@ mock_row
 docker compose stop dovecot >/dev/null 2>&1 || true
 INJ_PID=$(port_occupy 10143) || INJ_PID=""
 assert "E_injection_ready" "$([ -n "$INJ_PID" ] && echo yes || echo no)" "yes"
-out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
+# ALLOW_RECORDLESS: E targets the post-up WRITER-START failure path; without
+# the switch readiness-record fails closed first and the injection is dead
+# code (same fail-closed default R1 covers).
+out=$(URMAIL_ALLOW_RECORDLESS_RIG=1 URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 port_release "$INJ_PID"
 printf '%s\n' "$out" | grep -E "not running after start|post-up failure|Rollback runbook" | head -3
-assert "E_path_fence" "$(path_reached 'native fence: hold written')" "0"
+assert "E_path_fence" "$(path_reached 'native fence: hold written')" "1"
 assert "E_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
 assert "E_hold" "$(hold_state)" "yes"
 assert "E_runbook" "$(ev_count 'Rollback runbook')" "1"
 assert "E_no_started_note" "$(ev_count 'writers started, hold cleared')" "0"
-rm -f "$URMAIL_DATA_ROOT/holds/upgrade.hold"
+rm -f "$URMAIL_DATA_ROOT/maintenance/upgrade.hold"
 archive_ev "E"
 
 echo "==================== C1a: absent writer skip ====================="
@@ -141,14 +151,15 @@ mock_row
 docker compose stop dovecot >/dev/null 2>&1 || true
 INJ_PID=$(port_occupy 10143) || INJ_PID=""
 assert "C1b_injection_ready" "$([ -n "$INJ_PID" ] && echo yes || echo no)" "yes"
-out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
+# ALLOW_RECORDLESS: C1b targets the writer-start failure path (see E).
+out=$(URMAIL_ALLOW_RECORDLESS_RIG=1 URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 port_release "$INJ_PID"
 printf '%s\n' "$out" | grep -E "not running after start|writers failed" | head -2
 assert "C1b_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
 assert "C1b_hold" "$(hold_state)" "yes"
 assert "C1b_not_running" "$(ev_count 'not running after start')" "1"
 assert "C1b_no_started_note" "$(ev_count 'writers started, hold cleared')" "0"
-rm -f "$URMAIL_DATA_ROOT/holds/upgrade.hold"
+rm -f "$URMAIL_DATA_ROOT/maintenance/upgrade.hold"
 archive_ev "C1b"
 
 echo "==================== R1: fail-closed (no rig switch) ============="
@@ -169,7 +180,7 @@ printf '%s\n' "$out" | grep -E "read live upgrade fence|readiness-record" | head
 assert "R1_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
 assert "R1_hold" "$(hold_state)" "yes"
 assert "R1_record_failed" "$(ev_count 'read live upgrade fence')" "1"
-rm -f "$URMAIL_DATA_ROOT/holds/upgrade.hold"
+rm -f "$URMAIL_DATA_ROOT/maintenance/upgrade.hold"
 archive_ev "R1"
 
 echo "==================== C2: uid5000 maintenance lock ================"

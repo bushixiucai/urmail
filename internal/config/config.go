@@ -98,11 +98,6 @@ type Config struct {
 	// PolicyEnabled controls whether Postfix queries the policy service.
 	PolicyEnabled bool
 
-	// Phase 2 (compose form): milter upstream addresses. Defaults are the
-	// compose service names; host-systemd deployments inject loopback.
-	SignerMilterAddr string
-	SpamMilterAddr   string
-
 	// PostfixV80Preserve enables the fixed, reviewed v80 SMTP compatibility profile.
 	// It requires the SaaS policy service and never accepts raw restrictions.
 	PostfixV80Preserve bool
@@ -328,8 +323,6 @@ func Load() (*Config, error) {
 		MyHostname:                  values["URMAIL_MYHOSTNAME"],
 		PrimaryDomain:               values["URMAIL_PRIMARY_DOMAIN"],
 		PolicyEnabled:               parseBool(values["URMAIL_POLICY_ENABLED"]),
-		SignerMilterAddr:            values["URMAIL_MILTER_SIGNER_ADDR"],
-		SpamMilterAddr:              values["URMAIL_MILTER_SPAM_ADDR"],
 		PostfixV80Preserve:          preserveV80,
 		PreserveExternalNSD:         preserveNSD,
 		PreserveExternalWeb:         preserveWeb,
@@ -392,12 +385,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.PolicySocket == "" {
 		c.PolicySocket = "/run/urmail-policy/policy.sock"
-	}
-	if c.SignerMilterAddr == "" {
-		c.SignerMilterAddr = "urmail-signer:12301"
-	}
-	if c.SpamMilterAddr == "" {
-		c.SpamMilterAddr = "urmail-spam:11339"
 	}
 	if c.MasterKeyPath == "" {
 		c.MasterKeyPath = "/etc/urmail/master.key"
