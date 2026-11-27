@@ -47,11 +47,32 @@ reset_stack() {
     rm -rf "$URMAIL_DATA_ROOT/db/pg"
     prep_dirs
     docker compose up -d pg urmaild postfix dovecot --wait >/dev/null 2>&1
+    # Schema readiness: urmaild's boot auto-migrate races the first mock_row /
+    # clear_rows after a fresh pg volume; wait it out (90s cap).
+    local i=0
+    until docker compose exec -T pg psql -U urmail -d urmail -q -c "SELECT 1 FROM backup_runs LIMIT 1" >/dev/null 2>&1; do
+        i=$((i + 1))
+        [ "$i" -ge 90 ] && break
+        sleep 1
+    done
     rm -f "$URMAIL_DATA_ROOT"/upgrade-evidence-*.log
 }
 mock_row() {
+    # 0160 added offsite_state; the fence preflight (main binary) demands
+    # 'uploaded' (or pending_local_only) on the newest successful run, and a
+    # fresh pg has no schema until urmaild's boot auto-migrate lands — wait
+    # for the table before writing the mock row (QA: silent no-op row).
+    local i=0
+    until docker compose exec -T pg psql -U urmail -d urmail -q -c "SELECT 1 FROM backup_runs LIMIT 1" >/dev/null 2>&1; do
+        i=$((i + 1))
+        if [ "$i" -ge 90 ]; then
+            echo "mock_row: backup_runs schema never appeared; preflight verdicts will not be deterministic" >&2
+            return 1
+        fi
+        sleep 1
+    done
     docker compose exec -T pg psql -U urmail -d urmail -q -c \
-        "DELETE FROM backup_runs; INSERT INTO backup_runs (run_uid,state,scope,started_at,finished_at,error,manifest_name,offsite_uri) VALUES ('mock-fresh-run-1','success','local-mail-and-metadata',now(),now(),'', 'urmail-'||to_char(now() at time zone 'UTC','YYYYMMDD')||'T000000Z.manifest.json','s3://mock/urmail')"
+        "DELETE FROM backup_runs; INSERT INTO backup_runs (run_uid,state,scope,started_at,finished_at,error,manifest_name,offsite_uri,offsite_state) VALUES ('mock-fresh-run-1','success','local-mail-and-metadata',now(),now(),'', 'urmail-'||to_char(now() at time zone 'UTC','YYYYMMDD')||'T000000Z.manifest.json','s3://mock/urmail','uploaded')"
 }
 clear_rows() {
     docker compose exec -T pg psql -U urmail -d urmail -q -c "DELETE FROM backup_runs" 2>/dev/null || true
