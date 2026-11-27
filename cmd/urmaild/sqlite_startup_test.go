@@ -200,10 +200,13 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 		t.Fatalf("GET /api/v1/mailbox/folders: %v", err)
 	}
 	_ = folderResp.Body.Close()
-	// The listing routes live inside the slice-1 gate: an empty SQLite index
-	// must never masquerade as an empty mailbox (QA TC-13a).
-	if folderResp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("GET /api/v1/mailbox/folders = %d, want 503", folderResp.StatusCode)
+	// Slice-1.5 contract: the read-only listings route through the live
+	// IMAP dial and answer LOUDLY when that dial cannot connect — the
+	// fixture pins the IMAP endpoint unreachable, so the expected status is
+	// the transport 502 IMAP_UNAVAILABLE, never the silent empty list that
+	// motivated QA TC-13a and never the gate 503 (the route left the gate).
+	if folderResp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("GET /api/v1/mailbox/folders = %d, want 502 IMAP_UNAVAILABLE", folderResp.StatusCode)
 	}
 
 	msgReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/mailbox/messages", nil)
@@ -213,10 +216,10 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 		t.Fatalf("GET /api/v1/mailbox/messages: %v", err)
 	}
 	_ = msgResp.Body.Close()
-	// The message listing is inside the slice-1 gate (QA TC-13a): an empty
-	// SQLite index must answer the explicit 503, not a silent empty list.
-	if msgResp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("GET /api/v1/mailbox/messages = %d, want 503", msgResp.StatusCode)
+	// Same slice-1.5 contract for the message listing: loud IMAP transport
+	// failure instead of a gate or a silent empty list.
+	if msgResp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("GET /api/v1/mailbox/messages = %d, want 502 IMAP_UNAVAILABLE", msgResp.StatusCode)
 	}
 
 	sendReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/send",
