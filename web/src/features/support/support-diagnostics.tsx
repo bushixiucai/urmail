@@ -1,3 +1,4 @@
+import { formatH23Time } from "@/lib/format-h23";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -80,7 +81,7 @@ export function SupportDiagnostics({
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
             {t("support.diagnostics_expires", {
-              time: new Date(preview.expires_at).toLocaleTimeString(),
+              time: formatH23Time(preview.expires_at),
             })}
           </p>
           <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 text-xs">

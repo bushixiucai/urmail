@@ -1,3 +1,4 @@
+import { formatH23Date } from "@/lib/format-h23";
 import { useMailboxAIConsent } from "./mailbox-ai-consent";
 import {
   MAILBOX_AI_CONFIGURATION_CHANGED,
@@ -666,12 +667,8 @@ export function MailboxAIDrawer({
                   budget.entitlement?.period_end ? (
                     <span>
                       {t("page.webmail.ai_quota_period", {
-                        start: new Date(
-                          budget.entitlement.period_start,
-                        ).toLocaleDateString(),
-                        end: new Date(
-                          budget.entitlement.period_end,
-                        ).toLocaleDateString(),
+                        start: formatH23Date(budget.entitlement.period_start),
+                        end: formatH23Date(budget.entitlement.period_end),
                       })}
                     </span>
                   ) : null}

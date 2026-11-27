@@ -1,3 +1,4 @@
+import { formatH23Date } from "@/lib/format-h23";
 import {
   useCallback,
   useEffect,
@@ -385,7 +386,7 @@ export function ArchiveInvestigations({
               <p className="text-sm text-muted-foreground">
                 {t(`archive.case.status.${detail.case.status}`)} ·{" "}
                 {t("archive.case.version", { version: detail.case.version })} ·{" "}
-                {new Date(detail.case.expires_at).toLocaleDateString()}
+                {formatH23Date(detail.case.expires_at)}
               </p>
             </header>
             <section className="space-y-3" aria-labelledby="case-members-title">

@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/app/auth-context";
@@ -149,7 +150,7 @@ function DeliveryWorkspace() {
             <p className="text-sm text-muted-foreground">
               {t("delivery.observed", {
                 time: health.observed_at
-                  ? new Date(health.observed_at).toLocaleString()
+                  ? formatH23DateTime(health.observed_at)
                   : t("delivery.never_observed"),
               })}
             </p>
@@ -209,7 +210,7 @@ function DeliveryWorkspace() {
           <>
             <p className="text-sm">
               {t("delivery.observed", {
-                time: new Date(queue.observed_at).toLocaleString(),
+                time: formatH23DateTime(queue.observed_at),
               })}
             </p>
             {queue.truncated && (
@@ -230,7 +231,7 @@ function DeliveryWorkspace() {
                     </h3>
                     <p className="text-sm break-all">
                       {entry.sender} ·{" "}
-                      {new Date(entry.arrival_time * 1000).toLocaleString()}
+                      {formatH23DateTime(entry.arrival_time * 1000)}
                     </p>
                     <ul className="space-y-1 text-sm">
                       {entry.recipients.map((recipient, index) => (

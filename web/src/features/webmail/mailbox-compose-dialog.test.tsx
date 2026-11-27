@@ -1239,3 +1239,24 @@ describe("standalone read and compose tabs", () => {
     expect(subjectInput.value).toBe("Hello Charlie");
   });
 });
+
+it("renders the reply quote header in deterministic h23 shape (QA P3-3)", () => {
+  const msg = {
+    uid: 6,
+    from: [{ name: "Alice", email: "alice@example.test" }],
+    to: [],
+    cc: [],
+    subject: "Source",
+    date: "2026-11-27T15:04:05",
+    text: "source body",
+    html: "<p>source body</p>",
+    flags: [],
+  } as never;
+  const draft = draftFromMessage("reply", msg);
+  const quoteHtml = (draft as { html?: string }).html ?? "";
+  expect(quoteHtml).toMatch(
+    /On \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}, Alice <alice@example\.test> wrote:/,
+  );
+  // h23 contract: never the locale-default 12h rendering.
+  expect(quoteHtml).not.toMatch(/AM|PM/);
+});

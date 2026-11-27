@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
@@ -199,7 +200,7 @@ export function MarketingReportDialog({
             <p className="break-all text-xs text-muted-foreground">
               {t(prefix + "snapshot", {
                 digest: report.digest,
-                at: new Date(report.observed_at).toLocaleString(),
+                at: formatH23DateTime(report.observed_at),
                 count: report.total_facts,
               })}
             </p>

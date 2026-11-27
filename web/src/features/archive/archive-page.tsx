@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { RecallWorkspace } from "./recall-workspace";
 import { ArchiveInvestigations } from "./investigations";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -344,8 +345,7 @@ function ArchiveWorkspace() {
                     {entry.subject || entry.message_id}
                   </h2>
                   <p className="text-sm text-muted-foreground break-all">
-                    {entry.from_addr} ·{" "}
-                    {new Date(entry.received_at).toLocaleString()} ·{" "}
+                    {entry.from_addr} · {formatH23DateTime(entry.received_at)} ·{" "}
                     {entry.size_bytes.toLocaleString()} {t("archive.bytes")}
                   </p>
                   {entry.legal_hold && (
@@ -626,7 +626,7 @@ function ArchiveWorkspace() {
               </p>
               <p className="text-sm">
                 {t("archive.preview_expires", {
-                  time: new Date(preview.expires_at).toLocaleString(),
+                  time: formatH23DateTime(preview.expires_at),
                 })}
               </p>
               <label className="flex gap-2 items-start text-sm">

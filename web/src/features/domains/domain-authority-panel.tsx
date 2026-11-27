@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -154,14 +155,14 @@ export function DomainAuthorityPanel({ domain }: { domain: Domain }) {
             !state.rollover_not_before.startsWith("0001-") && (
               <p>
                 {t("domain.authority.rollover_not_before")}:{" "}
-                {new Date(state.rollover_not_before).toLocaleString()}
+                {formatH23DateTime(state.rollover_not_before)}
               </p>
             )}
           {state.signatures_expire_at &&
             !state.signatures_expire_at.startsWith("0001-") && (
               <p>
                 {t("domain.authority.signatures_expire_at")}:{" "}
-                {new Date(state.signatures_expire_at).toLocaleString()}
+                {formatH23DateTime(state.signatures_expire_at)}
               </p>
             )}
           <p className="text-xs text-muted-foreground">
