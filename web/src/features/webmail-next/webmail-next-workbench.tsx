@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useSearchParams as useRouterSearchParams } from "react-router-dom";
 import {
   useInfiniteQuery,
   useQuery,
@@ -179,6 +180,8 @@ export function WebmailNextWorkbench({
   const [composeKey, setComposeKey] = useState(0);
 
   const queryClient = useQueryClient();
+  // Folder deep-link / share / back-navigation (REVIEW-UIUX-017).
+  const [routeParams, setRouteParams] = useRouterSearchParams();
 
   // Remote images dual authorization model:
   // 1. Account-level confirmed global preference
@@ -599,10 +602,59 @@ export function WebmailNextWorkbench({
     loadedUidsRef.current = uids;
   }, []);
 
-  const cancelSearch = () => {
+  // Search-503 recovery (REVIEW-UIUX-004): any of the three exits — sidebar
+  // folder click, clearing the query, closing the advanced panel — fully
+  // abandons the search (committed text, advanced params, phase, in-flight
+  // queries) and restores the plain folder list.
+  const exitSearch = useCallback(() => {
     void queryClient.cancelQueries({ queryKey: ["webmail", "messages"] });
+    setSearchDraft("");
+    setSearchText("");
+    setDebouncedText("");
+    setDebouncedParams({});
+    setSearchParams({});
     setSearchPhase("idle");
-  };
+  }, [queryClient]);
+
+  const cancelSearch = exitSearch;
+
+  // Clearing the search box abandons the committed TEXT search immediately
+  // (REVIEW-UIUX-004 清词 exit). Advanced-param searches legitimately keep
+  // an empty box, so this only fires on the non-empty → empty transition;
+  // with advanced params present only the text part is dropped.
+  const searchDraftRef = useRef("");
+  useEffect(() => {
+    const was = searchDraftRef.current;
+    searchDraftRef.current = searchDraft;
+    if (searchDraft.trim() !== "" || was.trim() === "") return;
+    if (!searchText && searchPhase === "idle") return;
+    if (Object.keys(searchParams).length === 0) {
+      exitSearch();
+      return;
+    }
+    setSearchText("");
+    setDebouncedText("");
+  }, [searchDraft, searchText, searchPhase, searchParams, exitSearch]);
+
+  // Folder ↔ URL two-way binding (REVIEW-UIUX-017): switching folders is
+  // shareable and back/forward navigable. The ref arbitrates so URL-driven
+  // updates never echo back into the URL.
+  const urlFolderRef = useRef(routeParams.get("folder") ?? initialFolder);
+  const folderFromUrl = routeParams.get("folder") ?? initialFolder;
+  useEffect(() => {
+    if (folderFromUrl === urlFolderRef.current) return;
+    urlFolderRef.current = folderFromUrl;
+    setActiveFolder((prev) => (prev === folderFromUrl ? prev : folderFromUrl));
+  }, [folderFromUrl]);
+  useEffect(() => {
+    if (activeFolder === urlFolderRef.current) return;
+    urlFolderRef.current = activeFolder;
+    setRouteParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("folder", activeFolder);
+      return next;
+    });
+  }, [activeFolder, setRouteParams]);
 
   // Exact composite lookup: numeric uids are per-folder and the same
   // thread may legally contain INBOX 148 AND Sent 148 — resolving only by
@@ -1787,7 +1839,13 @@ export function WebmailNextWorkbench({
         onOpenContacts={() => setIsContactsOpen(true)}
         isAdvancedSearchOpen={isAdvancedSearchOpen}
         onOpenAdvancedSearch={() => setIsAdvancedSearchOpen((prev) => !prev)}
-        onCloseAdvancedSearch={() => setIsAdvancedSearchOpen(false)}
+        onCloseAdvancedSearch={() => {
+          setIsAdvancedSearchOpen(false);
+          // REVIEW-UIUX-004: closing the panel over a failed search must not
+          // leave the error state hosing the list; a healthy search keeps
+          // its results.
+          if (listError && searchPhase !== "idle") exitSearch();
+        }}
         folders={folders}
         searchParams={searchParams}
         onApplyAdvancedSearch={handleApplyAdvancedSearch}
@@ -1843,6 +1901,9 @@ export function WebmailNextWorkbench({
             isCollapsed={isRailCollapsed}
             activeFolder={activeFolder}
             onSelectFolder={(f) => {
+              // REVIEW-UIUX-004: navigating folders abandons any search —
+              // a failed search must never hijack the list area.
+              exitSearch();
               setActiveFolder(f);
               setSelectedUid(null);
               setCursorUid(null);

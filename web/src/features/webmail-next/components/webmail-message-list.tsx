@@ -787,7 +787,7 @@ export function WebmailMessageList({
                 type="button"
                 onClick={onRefresh}
                 disabled={isRefreshing}
-                className={`p-1.5 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
+                className={`touch-target p-1.5 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
                   isRefreshing ? "animate-spin" : ""
                 }`}
                 aria-label={t("webmail_next.refresh")}
@@ -839,6 +839,11 @@ export function WebmailMessageList({
                 </button>
               )}
             </div>
+          ) : isInitialLoading ? (
+            // REVIEW-UIUX-015: data has not arrived and the skeleton delay
+            // has not elapsed — stay blank instead of flashing "empty folder"
+            // on a slow first load.
+            <div key="list-loading" data-testid="list-loading" />
           ) : isSearchView ? (
             <div key="list-empty-search" className="h-full">
               <WebmailEmptyState

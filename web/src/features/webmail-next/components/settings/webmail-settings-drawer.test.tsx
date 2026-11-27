@@ -379,3 +379,28 @@ describe("WebmailSettingsDrawer", () => {
     expect(document.activeElement).toBe(trigger);
   });
 });
+
+describe("appearance section (REVIEW-UIUX-008)", () => {
+  it("wires the language and theme controls into the drawer", async () => {
+    const { I18nProvider } = await import("@/app/providers");
+    render(
+      <I18nProvider>
+        <WebmailSettingsDrawer
+          isOpen={true}
+          onClose={vi.fn()}
+          initialTab="appearance"
+        />
+      </I18nProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-appearance-section")).toBeTruthy(),
+    );
+    // AppearanceControls' labelled selects are the wired entries.
+    expect(
+      screen.getAllByLabelText("appearance.language").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("appearance.theme").length).toBeGreaterThan(
+      0,
+    );
+  });
+});

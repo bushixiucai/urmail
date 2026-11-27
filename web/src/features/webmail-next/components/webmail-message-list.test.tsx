@@ -930,3 +930,43 @@ describe("list scroll persistence (REVIEW-FE-008 return-to-position)", () => {
     expect(container.scrollTop).toBe(0);
   });
 });
+
+describe("empty-state flash guard (REVIEW-UIUX-015)", () => {
+  const emptyRows: MessageSummary[] = [];
+  const base = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    isCrossFolder: false,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+    onSelectMessage: vi.fn(),
+  };
+
+  it("never flashes the empty state while the initial load is in flight", () => {
+    render(
+      <WebmailMessageList
+        {...base}
+        messages={emptyRows}
+        isInitialLoading={true}
+      />,
+    );
+    // Pre-skeleton-threshold window: blank placeholder, never "empty folder".
+    expect(screen.getByTestId("list-loading")).toBeTruthy();
+    expect(screen.queryByTestId("empty-folder")).toBeNull();
+    expect(screen.queryByTestId("empty-search")).toBeNull();
+  });
+
+  it("shows the empty state only once loading has finished with no rows", () => {
+    render(
+      <WebmailMessageList
+        {...base}
+        messages={emptyRows}
+        isInitialLoading={false}
+      />,
+    );
+    expect(screen.getByTestId("empty-folder")).toBeTruthy();
+  });
+});
