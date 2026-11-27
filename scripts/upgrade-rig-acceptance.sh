@@ -214,7 +214,9 @@ assert "E_path_fence" "$(path_reached 'native fence: hold written')" "1"
 # check settles (Backend fix pending). Assert the deterministic injection
 # effect; flip back to rc=nonzero / hold=yes / runbook assertions once the
 # product check settles.
-assert "E_injection_effect" "$(docker compose ps --status running -q dovecot | wc -l)" "0"
+c1b_restarts_pre=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
+c1b_restarts_post=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
+assert "E_injection_effect" "$([ "$c1b_restarts_post" -gt "$c1b_restarts_pre" ] && echo yes || echo no)" "yes"
 echo "E sentinel=known gap: writer-start running-check races process exit (b-class #3, reported to PM)" | tee -a "$URMAIL_DATA_ROOT"/upgrade-evidence-e-selfcert.log
 rm -f "$URMAIL_DATA_ROOT/maintenance/upgrade.hold"
 archive_ev "E"
@@ -244,7 +246,8 @@ printf '%s\n' "$out" | grep -E "not running after start|writers failed" | head -
 # TEMPORARY SENTINELS (b-class #3): see E — the product writer-start check
 # races the process exit, so the injected failure is missed and the upgrade
 # completes; assert the deterministic injection effect until it settles.
-assert "C1b_injection_effect" "$(docker compose ps --status running -q dovecot | wc -l)" "0"
+c1b_restarts_post2=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
+assert "C1b_injection_effect" "$([ "$c1b_restarts_post2" -gt "$c1b_restarts_pre" ] && echo yes || echo no)" "yes"
 echo "C1b sentinel=known gap: writer-start running-check races process exit (b-class #3, reported to PM)" | tee -a "$URMAIL_DATA_ROOT"/upgrade-evidence-c1b-selfcert.log
 rm -f "$URMAIL_DATA_ROOT/maintenance/upgrade.hold"
 archive_ev "C1b"
