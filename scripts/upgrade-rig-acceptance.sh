@@ -34,10 +34,19 @@ YAML
 # carries an obsolete top-level `listen = 127.0.0.1:10143` (dovecot.conf:3)
 # which, combined with the image's own lmtp inet_listener on 10143, makes
 # doveconf fatal with "duplicate listener: 10143" (b-class product finding,
-# reported). The fixture strips the obsolete line so the skeleton dovecot
-# starts; the agent config generator renders the real one later.
+# reported). The fixture drops the obsolete line and re-declares the single
+# imap listener in modern syntax — one listener on 127.0.0.1:10143, which is
+# also the port the E/C1b start-failure injection occupies.
 mkdir -p "$URMAIL_DATA_ROOT/fixture"
 sed '/^listen = /d' compose/dovecot/dovecot.conf > "$URMAIL_DATA_ROOT/fixture/dovecot.conf"
+cat >> "$URMAIL_DATA_ROOT/fixture/dovecot.conf" <<'EOF'
+service imap-login {
+  inet_listener imap {
+    address = 127.0.0.1
+    port = 10143
+  }
+}
+EOF
 
 record() { SUMMARY="$SUMMARY$1"$'\n'; }
 assert() {
