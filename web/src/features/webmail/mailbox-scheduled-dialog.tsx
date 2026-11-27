@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiRequestError } from "@/lib/api/client";
@@ -31,7 +32,7 @@ export function MailboxScheduledDialog({
   open,
   onOpenChange,
 }: MailboxScheduledDialogProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [items, setItems] = useState<ScheduledSendItem[]>([]);
   const [receipts, setReceipts] = useState<SendReceipt[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -209,9 +210,7 @@ export function MailboxScheduledDialog({
                   <p className="font-medium">
                     {t("page.webmail.receipt_item", {
                       id: receipt.id,
-                      time: new Date(receipt.created_at).toLocaleString(
-                        i18n.language,
-                      ),
+                      time: formatH23DateTime(receipt.created_at),
                       status: t(
                         `page.webmail.receipt_status_${receipt.status}`,
                       ),
@@ -273,9 +272,7 @@ export function MailboxScheduledDialog({
                 <div className="min-w-0">
                   <div className="font-medium truncate">
                     {t("page.webmail.scheduled_item", {
-                      time: new Date(item.send_at).toLocaleString(
-                        i18n.language,
-                      ),
+                      time: formatH23DateTime(item.send_at),
                       status: t(
                         `page.webmail.scheduled_status_${item.status}`,
                         {
@@ -291,9 +288,7 @@ export function MailboxScheduledDialog({
                     item.next_attempt_at && (
                       <p className="text-xs text-muted-foreground">
                         {t("page.webmail.scheduled_retry_at", {
-                          time: new Date(item.next_attempt_at).toLocaleString(
-                            i18n.language,
-                          ),
+                          time: formatH23DateTime(item.next_attempt_at),
                         })}
                       </p>
                     )}

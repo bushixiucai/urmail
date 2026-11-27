@@ -1,3 +1,4 @@
+import { formatH23TimeShort } from "@/lib/format-h23";
 import { formatH23Date } from "@/lib/format-h23";
 import { useMailboxAIConsent } from "./mailbox-ai-consent";
 import {
@@ -650,12 +651,9 @@ export function MailboxAIDrawer({
                   <p className="text-muted-foreground">
                     {budget?.entitlement?.period_end
                       ? t("page.webmail.ai_quota_recovery", {
-                          time: new Date(
+                          time: formatH23TimeShort(
                             budget.entitlement.period_end,
-                          ).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }),
+                          ),
                         })
                       : t("page.webmail.ai_quota_recovery_tomorrow")}
                   </p>

@@ -39,3 +39,10 @@ export function formatH23DateTime(value: H23Input): string {
   if (!parsed) return "—";
   return `${formatH23Date(parsed)} ${formatH23Time(parsed)}`;
 }
+
+/** "HH:MM" — returns "—" for unparseable input (render-safe). */
+export function formatH23TimeShort(value: H23Input): string {
+  const parsed = toParsed(value);
+  if (!parsed) return "—";
+  return `${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}

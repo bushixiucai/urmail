@@ -11,8 +11,12 @@ import { MailboxScheduledDialog } from "./mailbox-scheduled-dialog";
 import * as api from "./mailbox-api";
 
 vi.mock("react-i18next", () => {
-  const t = (key: string, params?: { status?: string }) =>
-    params?.status ? `${key}:${params.status}` : key;
+  const t = (key: string, params?: { status?: string; time?: string }) =>
+    params?.status
+      ? `${key}:${params.status}`
+      : params?.time
+        ? `${key} [${params.time}]`
+        : key;
   return { useTranslation: () => ({ t, i18n: { language: "en" } }) };
 });
 vi.mock("./mailbox-api", () => ({
@@ -120,7 +124,7 @@ describe("scheduled mail results", () => {
       ],
     });
     render(<MailboxScheduledDialog open onOpenChange={vi.fn()} />);
-    await screen.findByText("page.webmail.scheduled_retry_at");
+    await screen.findByText(/page\.webmail\.scheduled_retry_at( \[.*)?/);
     expect(screen.getByText("error.SCHEDULE_RETRY")).toBeTruthy();
   });
 });
@@ -219,4 +223,17 @@ it("finds a retained immediate-send copy after reopening and repairs without SMT
   expect(api.cancelScheduledSend).not.toHaveBeenCalled();
   expect(api.acknowledgeUncertainScheduledSend).not.toHaveBeenCalled();
   await screen.findByText("page.webmail.receipt_copy_repaired");
+});
+
+it("renders retry-at through the shared h23 clock (QA P3-3)", async () => {
+  const pending = {
+    ...item("pending", 9),
+    attempts: 1,
+    next_attempt_at: "2026-11-27T15:04:05",
+    send_at: "2026-11-27T15:04:05",
+  };
+  vi.mocked(api.listScheduledSends).mockResolvedValue({ items: [pending] });
+  render(<MailboxScheduledDialog open onOpenChange={vi.fn()} />);
+  await screen.findByText(/scheduled_retry_at \[2026-11-27 15:04:05\]/);
+  expect(screen.queryByText(/AM|PM/)).toBeNull();
 });

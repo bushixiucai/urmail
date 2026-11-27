@@ -11,7 +11,8 @@ import { MailboxAIDrawer } from "./mailbox-ai-drawer";
 import * as api from "./mailbox-api";
 
 vi.mock("react-i18next", () => {
-  const t = (key: string) => key;
+  const t = (key: string, params?: { time?: string }) =>
+    params?.time ? `${key} [${params.time}]` : key;
   return { useTranslation: () => ({ t }) };
 });
 vi.mock("./mailbox-api", async (original) => ({
@@ -21,6 +22,7 @@ vi.mock("./mailbox-api", async (original) => ({
   fetchMailboxAIContext: vi.fn(),
   previewMailboxAI: vi.fn(),
   runMailboxAI: vi.fn(),
+  fetchMailboxAIBudget: vi.fn(),
 }));
 beforeEach(() => {
   vi.mocked(api.fetchMailboxAITarget).mockResolvedValue({
@@ -42,6 +44,9 @@ beforeEach(() => {
     content_digest: "content-hash",
     messages: [{ role: "user", content: "Exactly selected content" }],
   });
+  // resetAllMocks strips implementations; default the budget probe to the
+  // offline path the real module took before this factory entry existed.
+  vi.mocked(api.fetchMailboxAIBudget).mockRejectedValue(new Error("offline"));
 });
 afterEach(() => {
   cleanup();
@@ -116,4 +121,21 @@ it("never displays or applies a late proposal from another message", async () =>
   );
   expect(screen.queryByText("Confidential reply for A")).toBeNull();
   expect(p.onApplyAIProposal).not.toHaveBeenCalled();
+});
+
+it("shows the exhausted-quota recovery time in h23 shape (QA P3-3)", async () => {
+  const { waitFor } = await import("@testing-library/react");
+  vi.mocked(api.fetchMailboxAIBudget).mockResolvedValue({
+    entitlement: {
+      available: false,
+      calls_remaining: 0,
+      call_limit: 100,
+      period_end: "2026-11-28T15:04:00",
+    },
+  } as never);
+  render(<MailboxAIDrawer {...props()} detail={message(1, "A")} />);
+  await waitFor(() => {
+    expect(screen.getByText(/ai_quota_recovery \[15:04\]/)).toBeTruthy();
+  });
+  expect(screen.queryByText(/AM|PM/)).toBeNull();
 });
