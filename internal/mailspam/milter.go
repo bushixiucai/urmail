@@ -90,6 +90,8 @@ const (
 	// token evidence rarely needs more, and the memory ceiling is then
 	// bounded per connection.
 	DefaultMaxBodySampleBytes = 64 << 10 // 64 KiB
+	// DefaultMaxFullBodyBytes bounds KeepFullBody retention (32 MiB).
+	DefaultMaxFullBodyBytes = 32 << 20
 	// DefaultIdleTimeout bounds one wire read; a stuck client cannot pin a
 	// goroutine forever.
 	DefaultIdleTimeout = 5 * time.Minute
@@ -111,6 +113,14 @@ type MilterConfig struct {
 	DenyScoreThreshold float64
 	// MaxBodySampleBytes caps the retained body sample.
 	MaxBodySampleBytes int
+	// KeepFullBody retains the ENTIRE body in VerdictRequest.FullBody for
+	// handlers that must transform it (DKIM signing). Off by default: the
+	// classifier only needs the bounded sample.
+	KeepFullBody bool
+	// MaxFullBodyBytes caps KeepFullBody retention (default 32 MiB).
+	// Exceeding it marks the capture incomplete and the handler must
+	// degrade to pass-through.
+	MaxFullBodyBytes int
 	// IdleTimeout bounds one wire read.
 	IdleTimeout time.Duration
 }
@@ -136,6 +146,17 @@ type VerdictRequest struct {
 	Recipients   []string
 	Headers      []Header
 	BodySample   []byte
+	// FullBody carries the complete body (raw wire bytes) when the milter
+	// config enables KeepFullBody; nil otherwise.
+	FullBody []byte
+	// ClientAddr is the {client_addr} macro (connecting peer, host:port).
+	ClientAddr string
+	// FullBodyIncomplete / HeadersIncomplete mark captures that were
+	// truncated by size caps; transformation handlers must degrade to
+	// pass-through because a signature over a truncated capture would not
+	// verify on delivery.
+	FullBodyIncomplete bool
+	HeadersIncomplete  bool
 }
 
 // VerdictResponse is the classification outcome expressed as milter actions.
@@ -293,6 +314,9 @@ type session struct {
 	recipients               []string
 	headers                  []Header
 	body                     []byte
+	fullBody                 []byte
+	fullBodyIncomplete       bool
+	headersIncomplete        bool
 	authenticationBody       []byte
 	authenticationIncomplete bool
 	authenticationSlot       bool
@@ -311,6 +335,9 @@ func (s *session) resetMessage() {
 	s.recipients = nil
 	s.headers = nil
 	s.body = nil
+	s.fullBody = nil
+	s.fullBodyIncomplete = false
+	s.headersIncomplete = false
 	s.authenticationBody = nil
 	s.authenticationIncomplete = false
 	s.headerBytes = 0
@@ -395,6 +422,7 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 			}
 			if len(s.headers) >= maxHeaders || s.headerBytes > mailauth.MaxHeaderBytes {
 				s.authenticationIncomplete = true
+				s.headersIncomplete = true
 			}
 		}
 		if len(fields) >= 1 && len(s.headers) < maxHeaders && s.headerBytes <= mailauth.MaxHeaderBytes {
@@ -415,6 +443,18 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 				s.authenticationBody = nil
 			} else {
 				s.authenticationBody = append(s.authenticationBody, payload...)
+			}
+		}
+		if s.dirty && s.cfg.KeepFullBody {
+			limit := s.cfg.MaxFullBodyBytes
+			if limit <= 0 {
+				limit = DefaultMaxFullBodyBytes
+			}
+			if len(s.fullBody)+len(payload) > limit {
+				s.fullBodyIncomplete = true
+				s.fullBody = nil
+			} else {
+				s.fullBody = append(s.fullBody, payload...)
 			}
 		}
 		if s.dirty && len(s.body) < s.cfg.MaxBodySampleBytes {
@@ -442,11 +482,15 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 // finishMessage classifies at end-of-body and emits the response actions.
 func (s *session) finishMessage(ctx context.Context, w io.Writer) error {
 	req := VerdictRequest{
-		SASLUser:     s.macros["{auth_authen}"],
-		EnvelopeFrom: s.envelopeFrom,
-		Recipients:   s.recipients,
-		Headers:      s.headers,
-		BodySample:   s.body,
+		SASLUser:           s.macros["{auth_authen}"],
+		EnvelopeFrom:       s.envelopeFrom,
+		Recipients:         s.recipients,
+		Headers:            s.headers,
+		BodySample:         s.body,
+		FullBody:           s.fullBody,
+		ClientAddr:         s.macros["{client_addr}"],
+		FullBodyIncomplete: s.fullBodyIncomplete,
+		HeadersIncomplete:  s.headersIncomplete,
 	}
 	verdict := VerdictResponse{}
 	if s.handler != nil {

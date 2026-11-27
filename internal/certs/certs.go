@@ -181,6 +181,12 @@ func LoadMasterKey(keyPath string) (*rsa.PrivateKey, error) {
 // tenant domains. It is under the service's ReadWritePaths.
 const DomainCertDir = "/var/lib/urmail-agent/certs/domains"
 
+// PanelCertDir is where urmaild keeps the certificate pair for the primary
+// host (fullchain.pem + privkey.pem, SAN covering the primary host and its
+// mta-sts subdomain). The Caddy/nginx primary site block references this
+// pair (pm-caddy-box-block-1).
+const PanelCertDir = "/var/lib/urmail-agent/certs/panel"
+
 // EnsureDomainCertificate creates a self-signed certificate/key for fqdn if
 // neither exists. It never overwrites an ACME certificate.
 func EnsureDomainCertificate(masterKeyPath, fqdn string) (string, string, error) {

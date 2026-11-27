@@ -223,6 +223,26 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	if err := attachTransportSecurity(ctx, q, nsdZones, &nginxDomains, hostname); err != nil {
 		return nil, err
 	}
+
+	// The primary host block is the webmail/panel main entry (pm-caddy-box-
+	// block-1): it must render even when no tenant domain certificate has
+	// been issued yet, referencing the panel certificate pair issued at
+	// first boot for <hostname> (SAN covers mta-sts.<hostname suffix>).
+	// Existence-gated like the tenant domains above: without the pair the
+	// site stays out rather than breaking Caddy/nginx -t for everyone.
+	panelCert := filepath.Join(certs.PanelCertDir, "fullchain.pem")
+	panelKey := filepath.Join(certs.PanelCertDir, "privkey.pem")
+	if _, err := os.Stat(panelCert); err == nil {
+		if _, err := os.Stat(panelKey); err == nil {
+			nginxDomains = append(nginxDomains, nginx.DomainConfig{
+				FQDN:              hostname,
+				TLSCertFile:       panelCert,
+				TLSKeyFile:        panelKey,
+				ClientMaxBodySize: "128M",
+				EnableWebmail:     true,
+			})
+		}
+	}
 	if len(nameservers) == 0 {
 		nameservers = []string{"ns1." + cfg.PrimaryDomain}
 	}
