@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"io"
 	"net"
 	"strings"
@@ -389,8 +390,24 @@ func TestConnectPayloadPositionalDecode(t *testing.T) {
 			want:    "127.0.0.1",
 		},
 		{
-			name:    "ipv4 external ignores trailing terminator",
-			payload: append(append(append([]byte("client.example\x00"), '4', 0x00, 0x19), 192, 0, 2, 9), 0),
+			// Real bytes: Postfix 3.7.11 port-25 loopback injection (rev-8
+			// rig capture). '[127.0.0.1]' hostname, family '4', source
+			// port 57596, NUL-terminated ASCII address.
+			name:    "postfix 3.7 real capture ipv4 loopback",
+			payload: mustHex("435b3132372e302e302e315d0034e0fc3132372e302e302e3100")[1:],
+			want:    "127.0.0.1",
+		},
+		{
+			// Real bytes: Postfix 3.7.11 dual-stack ::1 injection. '[::1]'
+			// hostname, family '6', source port 37534, ASCII address.
+			name:    "postfix 3.7 real capture ipv6 loopback",
+			payload: mustHex("435b3a3a315d0036929e3a3a3100")[1:],
+			want:    "::1",
+		},
+		{
+			// libmilter spec form: fixed-width binary address.
+			name:    "binary ipv4 external address",
+			payload: append(append([]byte("client.example\x00"), '4', 0x00, 0x19), 192, 0, 2, 9),
 			want:    "192.0.2.9",
 		},
 		{
@@ -425,4 +442,14 @@ func TestConnectPayloadPositionalDecode(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mustHex decodes a hex string for the real-byte fixtures; it panics on
+// malformed input so a typoed capture cannot silently skip a case.
+func mustHex(s string) []byte {
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }

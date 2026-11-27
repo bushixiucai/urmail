@@ -406,17 +406,27 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 		}
 		return false, nil
 	case cmdConnect:
-		// SMFIC_CONNECT payload (libmilter wire format, QA wiring-fix-2
-		// S-2a): hostname\0 family(1B), then per family — '4'/'6': port
-		// (2B network order) followed by the FIXED-WIDTH BINARY address
-		// (4/16B, no separator); 'L': NUL-terminated socket path; 'U': no
-		// address. The address bytes legitimately contain NULs (any 0.x /
-		// 127.x IPv4 word, any compressed IPv6 word), so the payload must
-		// be parsed positionally: the previous split-on-NUL decode corrupted
-		// both family and address, the peer IP never reached the signing
-		// gate, and loopback local injections went out unsigned (rev-6
-		// root cause of the red wire e2e anchors). Trailing bytes beyond
-		// the address are ignored (the protocol defines none).
+		// SMFIC_CONNECT payload: hostname\0 family(1B) then per family —
+		// '4'/'6': port (2B network order) followed by the peer address,
+		// 'L': NUL-terminated socket path, 'U': no address. TWO address
+		// wire forms exist and BOTH are pinned by fixtures (rev-8):
+		//   - libmilter spec form: fixed-width binary (4/16B, no
+		//     separator) — the address bytes legitimately contain NULs;
+		//   - Postfix 3.x wire form: NUL-terminated ASCII dotted/colon
+		//     string. Captured from Postfix 3.7.11 (Debian 12, the
+		//     production family) on a port-25 loopback injection:
+		//     43 5b3132372e302e302e315d 00 34 e0fc 3132372e302e302e3100 —
+		//     '[127.0.0.1]' hostname, family '4', source port, ASCII
+		//     address. The previous decoders (split-on-NUL, then
+		//     binary-only) both corrupted THIS form — rest[2:6] read the
+		//     ASCII bytes as an IP and the loopback peer never reached the
+		//     signing gate, so port-25 local injections went unsigned
+		//     while the SASL path (587) kept signing (its identity rides
+		//     MAIL-stage macros, not the CONNECT payload).
+		// Decode by length: exactly 4/16 bytes → binary, otherwise ASCII
+		// (trailing NUL trimmed). Normalize through net.IP.String(), which
+		// also unwraps an IPv4-mapped IPv6 peer (::ffff:127.0.0.1 → its
+		// dotted form). Trailing bytes beyond the address are ignored.
 		nul := bytes.IndexByte(payload, 0)
 		if nul >= 0 && nul+1 < len(payload) {
 			family, rest := payload[nul+1], payload[nul+2:]
@@ -427,13 +437,22 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 					path = rest[:end]
 				}
 				s.connectionAddr = "unix:" + string(path)
-			case '4':
-				if len(rest) >= 6 {
-					s.connectionAddr = net.IP(rest[2:6]).String()
-				}
-			case '6':
-				if len(rest) >= 18 {
-					s.connectionAddr = net.IP(rest[2:18]).String()
+			case '4', '6':
+				if len(rest) >= 2 {
+					addr := rest[2:]
+					switch {
+					case family == '4' && len(addr) == 4, family == '6' && len(addr) == 16:
+						if ip := net.IP(addr); ip != nil {
+							s.connectionAddr = ip.String()
+						}
+					default:
+						if end := bytes.IndexByte(addr, 0); end >= 0 {
+							addr = addr[:end]
+						}
+						if ip := net.ParseIP(string(addr)); ip != nil {
+							s.connectionAddr = ip.String()
+						}
+					}
 				}
 			}
 		}
