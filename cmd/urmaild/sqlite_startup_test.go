@@ -77,7 +77,11 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 		"URMAIL_POLICY_ENABLED=true\n" +
 		"URMAIL_WEBMAIL_NATIVE=true\n" +
 		"URMAIL_MASTER_KEY_PATH=" + masterKey + "\n" +
-		"URMAIL_MYHOSTNAME=mail.a.example.test\n"
+		"URMAIL_MYHOSTNAME=mail.a.example.test\n" +
+		// Pin the IMAP endpoint unreachable so the slice-1.5 loud-502
+		// assertions cannot flap on a host that happens to run dovecot on
+		// 993 (QA B-1 anti-flake requirement).
+		"URMAIL_IMAP_ADDR=127.0.0.1:1\n"
 	if err := os.WriteFile(envFile, []byte(envContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
