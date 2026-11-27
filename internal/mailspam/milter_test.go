@@ -121,7 +121,15 @@ func (f *fakePostfix) handshake() {
 func (f *fakePostfix) deliver(from, rcpt string, headers [][2]string, body string) []VerdictHeadersAction {
 	f.t.Helper()
 	f.sendMacro('M', "{auth_authen}", "user@example.test")
-	f.send(pkt(cmdConnect, "client.example", "4", string([]byte{192, 0, 2, 9}), string([]byte{0, 25})))
+	// SMFIC_CONNECT on the real wire: hostname\0 family(1B) port(2B
+	// network order) + 4B binary address — the binary part carries no NUL
+	// separators, the address itself may contain NUL bytes.
+	connect := append([]byte("client.example\x00"), '4')
+	var connectPort [2]byte
+	binary.BigEndian.PutUint16(connectPort[:], 25)
+	connect = append(connect, connectPort[:]...)
+	connect = append(connect, 192, 0, 2, 9)
+	f.send(append([]byte{cmdConnect}, connect...))
 	if response, _ := f.readAction(); response != resContinue {
 		f.t.Fatalf("CONNECT response %c", response)
 	}
@@ -361,5 +369,60 @@ func TestMilterQuitClosesConnection(t *testing.T) {
 	// The server closes after QUIT; the next read must hit EOF.
 	if _, err := client.r.Peek(1); err == nil {
 		t.Fatal("connection still open after QUIT")
+	}
+}
+
+// TestConnectPayloadPositionalDecode pins the SMFIC_CONNECT wire decode:
+// the peer address arrives as fixed-width binary AFTER the 2-byte port, with
+// NO NUL separators — address bytes themselves contain NULs (127.0.0.1 does).
+// The previous split-on-NUL parse corrupted family and address, so loopback
+// local injections never reached the signing gate (rev-6 root cause).
+func TestConnectPayloadPositionalDecode(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		want    string
+	}{
+		{
+			name:    "ipv4 loopback address embeds NULs",
+			payload: append(append([]byte("mail.example\x00"), '4', 0x01, 0xbb), 127, 0, 0, 1),
+			want:    "127.0.0.1",
+		},
+		{
+			name:    "ipv4 external ignores trailing terminator",
+			payload: append(append(append([]byte("client.example\x00"), '4', 0x00, 0x19), 192, 0, 2, 9), 0),
+			want:    "192.0.2.9",
+		},
+		{
+			name:    "ipv6 fixed-width address",
+			payload: append(append([]byte("client.example\x00"), '6', 0x01, 0xbb), net.IPv6loopback...),
+			want:    "::1",
+		},
+		{
+			name:    "unix socket path is NUL-terminated",
+			payload: append(append([]byte("mx\x00"), 'L'), append([]byte("/run/mx.sock"), 0)...),
+			want:    "unix:/run/mx.sock",
+		},
+		{
+			name:    "unknown family leaves the address empty",
+			payload: append(append([]byte("unknown\x00"), 'U'), 1, 2, 3),
+			want:    "",
+		},
+		{
+			name:    "truncated payload leaves the address empty",
+			payload: append([]byte("client.example\x004"), 0x01),
+			want:    "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &session{}
+			if _, err := s.handlePacket(t.Context(), append([]byte{cmdConnect}, tc.payload...), io.Discard); err != nil {
+				t.Fatalf("handlePacket: %v", err)
+			}
+			if got := s.clientAddr(); got != tc.want {
+				t.Fatalf("clientAddr = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

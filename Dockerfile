@@ -76,6 +76,8 @@ RUN test "$(stat -c '%a' /usr/share/urmail/bootstrap.sql)" = "644" \
     && test -s /usr/share/urmail/bootstrap.sql
 COPY --from=build /out/bin/urmailctl /usr/local/bin/urmailctl
 COPY --from=build /out/bin/urmaild-agent /usr/local/bin/urmaild-agent
+COPY --from=build /out/bin/urmail-milter /usr/local/bin/urmail-milter
+RUN chmod 0755 /usr/local/bin/urmail-milter
 COPY migrations_sqlite /usr/local/share/urmail/migrations_sqlite
 RUN chmod 0644 /usr/local/share/urmail/migrations_sqlite/*.sql
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
