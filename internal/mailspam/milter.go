@@ -308,9 +308,17 @@ var authenticationCaptureSlots = make(chan struct{}, 4)
 
 // session is one connection's mutable state.
 type session struct {
-	cfg                      MilterConfig
-	handler                  VerdictHandler
-	macros                   map[string]string
+	cfg     MilterConfig
+	handler VerdictHandler
+	// connectionMacros survive the whole TCP connection (CONNECT/Helo
+	// stage: {daemon_name}, {client_addr}, ...); messageMacros are reset
+	// per message (MAIL/DATA stage: {auth_authen}, ...). Lookup merges
+	// both with the message level winning (QA wiring-fix-2 S-2b: clearing
+	// the connection level at EOM made the SECOND mail on a persistent
+	// SMTP connection lose {client_addr} and skip signing).
+	connectionMacros         map[string]string
+	messageMacros            map[string]string
+	connectionAddr           string
 	recipients               []string
 	headers                  []Header
 	body                     []byte
@@ -343,6 +351,9 @@ func (s *session) resetMessage() {
 	s.headerBytes = 0
 	s.envelopeFrom = ""
 	s.verdictHeaders = nil
+	// messageMacros are NOT cleared here: Postfix may deliver MAIL-stage
+	// macros ({auth_authen}) before or after MAIL, and stale ones are
+	// cleared at EOM/ABORT instead (the original contract).
 	s.dirty = false
 }
 
@@ -371,19 +382,43 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 		return false, optNeg(w)
 	case cmdMacro:
 		// SMFIC_MACRO packets expect NO reply; answering would desynchronize
-		// the response stream.
+		// the response stream. The payload's FIRST byte is the stage the
+		// macros apply to: Connect/Helo macros are CONNECTION-level
+		// (survive EOM — {client_addr} rides there), later stages are
+		// message-level (QA wiring-fix-2 S-2b).
 		if len(payload) == 0 {
 			return false, nil
 		}
+		stage := payload[0]
 		fields := splitNUL(payload[1:])
-		if s.macros == nil {
-			s.macros = make(map[string]string, 8)
+		dst := &s.messageMacros
+		if stage == 'C' || stage == 'H' {
+			if s.connectionMacros == nil {
+				s.connectionMacros = make(map[string]string, 8)
+			}
+			dst = &s.connectionMacros
+		} else if *dst == nil {
+			*dst = make(map[string]string, 8)
 		}
 		for i := 0; i+1 < len(fields); i += 2 {
-			s.macros[fields[i]] = fields[i+1]
+			(*dst)[fields[i]] = fields[i+1]
 		}
 		return false, nil
-	case cmdConnect, cmdHelo, cmdData, cmdUnknown:
+	case cmdConnect:
+		// SMFIC_CONNECT payload: hostname\0 family(1B) port(2B network)\0
+		// address\0 — the connecting peer's IP arrives HERE, not in the
+		// default milter_connect_macros list (QA wiring-fix-2 S-2a).
+		fields := splitNUL(payload)
+		if len(fields) >= 4 {
+			family, addr := fields[1], fields[3]
+			if family == "L" {
+				s.connectionAddr = "unix:" + addr
+			} else if family == "4" || family == "6" {
+				s.connectionAddr = addr
+			}
+		}
+		return false, writeResponse(w, resContinue)
+	case cmdHelo, cmdData, cmdUnknown:
 		return false, writeResponse(w, resContinue)
 	case cmdMail:
 		// Macros for the MAIL stage (SASL identity) arrive BEFORE the MAIL
@@ -468,9 +503,11 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 	case cmdEOB:
 		return false, s.finishMessage(ctx, w)
 	case cmdAbort:
-		// ABORT expects no reply per the milter protocol.
+		// ABORT expects no reply per the milter protocol. Connection-level
+		// macros and the connection address survive (they describe the TCP
+		// peer, not the aborted message).
 		s.resetMessage()
-		s.macros = nil
+		s.messageMacros = nil
 		return false, nil
 	case cmdQuit:
 		return true, nil
@@ -482,13 +519,13 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 // finishMessage classifies at end-of-body and emits the response actions.
 func (s *session) finishMessage(ctx context.Context, w io.Writer) error {
 	req := VerdictRequest{
-		SASLUser:           s.macros["{auth_authen}"],
+		SASLUser:           s.macro("{auth_authen}"),
 		EnvelopeFrom:       s.envelopeFrom,
 		Recipients:         s.recipients,
 		Headers:            s.headers,
 		BodySample:         s.body,
 		FullBody:           s.fullBody,
-		ClientAddr:         s.macros["{client_addr}"],
+		ClientAddr:         s.clientAddr(),
 		FullBodyIncomplete: s.fullBodyIncomplete,
 		HeadersIncomplete:  s.headersIncomplete,
 	}
@@ -527,7 +564,9 @@ func (s *session) finishMessage(ctx context.Context, w io.Writer) error {
 		}
 	}
 	s.resetMessage()
-	s.macros = nil
+	// Connection-level macros and the connection address survive: they
+	// describe the TCP peer, not this message (QA wiring-fix-2 S-2b).
+	s.messageMacros = nil
 	if verdict.Reject {
 		recordVerdict(Verdict{Class: ClassSpam}, true)
 		return writeResponse(w, resReject)
@@ -588,4 +627,26 @@ func canonicalVerdictHeader(name string) string {
 		return HeaderNameSpam
 	}
 	return HeaderNameScore
+}
+
+// macro resolves a macro by name: the message level wins over the
+// connection level.
+func (s *session) macro(name string) string {
+	if v, ok := s.messageMacros[name]; ok {
+		return v
+	}
+	return s.connectionMacros[name]
+}
+
+// clientAddr resolves the connecting peer for the signing gate: an explicit
+// {client_addr} macro wins, else the SMFIC_CONNECT address, else the
+// connection-level macro.
+func (s *session) clientAddr() string {
+	if v, ok := s.messageMacros["{client_addr}"]; ok && v != "" {
+		return v
+	}
+	if s.connectionAddr != "" {
+		return s.connectionAddr
+	}
+	return s.connectionMacros["{client_addr}"]
 }
