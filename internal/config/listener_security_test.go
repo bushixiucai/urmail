@@ -45,3 +45,20 @@ func TestDefaultListenAddrStaysLoopback(t *testing.T) {
 		t.Fatalf("default ListenAddr %q must stay loopback-only", cfg.ListenAddr)
 	}
 }
+
+// TestSQLiteModeAllowsDisabledPolicy is the cutover-blockers Blocker B
+// contract: the slice-1 topology has no policy server, so CFG-01 must not
+// force URMAIL_POLICY_ENABLED there — the render then emits no
+// check_policy_service line, which is what keeps 25/587/465 from 451-ing
+// every submission against a socket that will never listen. PostgreSQL
+// deployments keep the requirement.
+func TestSQLiteModeAllowsDisabledPolicy(t *testing.T) {
+	sqliteCfg := Config{DBEngine: "sqlite", SQLitePath: "/tmp/x/urmail.db", PolicyEnabled: false, ListenAddr: "127.0.0.1:8080"}
+	if err := sqliteCfg.validate(); err != nil {
+		t.Fatalf("sqlite without policy rejected: %v", err)
+	}
+	pgCfg := Config{PolicyEnabled: false, ListenAddr: "127.0.0.1:8080", DatabaseURL: "app", DatabaseURLPlatform: "platform"}
+	if err := pgCfg.validate(); err == nil {
+		t.Fatal("PG without policy must stay rejected (CFG-01)")
+	}
+}

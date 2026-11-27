@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -51,6 +52,14 @@ func startMailObservability(ctx context.Context, cfg *config.Config, pool *db.Po
 	go evaluator.Start(ctx, logger)
 }
 
+// sqliteDovecotAuthSource sources the auth snapshot from the single-engine
+// SQLite store; database/sql.Rows satisfies the dovecotauth.Rows contract.
+type sqliteDovecotAuthSource struct{ db *sql.DB }
+
+func (s sqliteDovecotAuthSource) Query(ctx context.Context, query string, args ...any) (dovecotauth.Rows, error) {
+	return s.db.QueryContext(ctx, query, args...)
+}
+
 type dovecotAuthSource struct{ pool *db.Pool }
 
 func (s dovecotAuthSource) Query(ctx context.Context, query string, args ...any) (dovecotauth.Rows, error) {
@@ -70,11 +79,16 @@ func (r dovecotAuthRows) Close() error {
 
 // startDovecotAuthSnapshot binds the read-only SQLite dovecot auth snapshot
 // manager, runs startup sampling reconciliation, and schedules the 24h fallback rebuild.
-func startDovecotAuthSnapshot(ctx context.Context, cfg *config.Config, pool *db.Pool, logger *zap.Logger) {
-	if !cfg.IsSQLite() || cfg.DovecotAuthDB == "" || pool == nil {
+// The builder issues a dialect-neutral SELECT set, so both the PostgreSQL
+// platform pool and the single-engine SQLite store can source it
+// (cutover-blockers: the slice-1 branch previously returned before this
+// wiring, leaving the snapshot manager dead and dovecot auth on a stale
+// file).
+func startDovecotAuthSnapshot(ctx context.Context, cfg *config.Config, src dovecotauth.Source, logger *zap.Logger) {
+	if !cfg.IsSQLite() || cfg.DovecotAuthDB == "" || src == nil {
 		return
 	}
-	mgr := dovecotauth.NewManager(cfg.DovecotAuthDB, dovecotAuthSource{pool: pool})
+	mgr := dovecotauth.NewManager(cfg.DovecotAuthDB, src)
 	dovecotauth.SetMetricsManager(mgr)
 	if err := mgr.Reconcile(ctx, 20); err != nil {
 		logger.Warn("dovecot auth snapshot reconciliation triggered repair", zap.Error(err))

@@ -521,8 +521,13 @@ func (c *Config) validate() error {
 	}
 	// CFG-01: outside development the SaaS policy service is the only place
 	// subscription eligibility and daily send accounting are enforced, so a
-	// deployment must not silently boot without it.
-	if !c.DevMode && !c.PolicyEnabled {
+	// deployment must not silently boot without it. The slice-1 SQLite
+	// topology is the documented exception: its policy server is not
+	// migrated yet, the render therefore emits no check_policy_service line
+	// (a check against a policy service that will never listen would 451
+	// every submission), and the enforced-eligibility surface answers the
+	// explicit slice gates instead (cutover-blockers Blocker B, option b).
+	if !c.DevMode && !c.PolicyEnabled && !c.IsSQLite() {
 		return errors.New("production requires URMAIL_POLICY_ENABLED=true: without the policy service, send eligibility and daily accounting are not enforced")
 	}
 	return nil

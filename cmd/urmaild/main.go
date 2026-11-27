@@ -235,6 +235,13 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 			RoundcubeBridgeKey: cfg.RoundcubeBridgeKey,
 		})
 
+		// Cutover-blockers Blocker A: the auth snapshot must be wired in the
+		// slice-1 branch too — the early return here used to leave the
+		// manager dead, so dovecot auth kept reading a stale file. The
+		// builder's SELECT set is dialect-neutral and the SQLite store
+		// carries the same columns (dovecotauth.Source contract).
+		startDovecotAuthSnapshot(ctx, cfg, sqliteDovecotAuthSource{db: sqliteDB}, logger)
+
 		server := &http.Server{
 			Addr:              cfg.ListenAddr,
 			Handler:           engine,
@@ -442,7 +449,7 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 	dnsPlans := startDomainOnboarding(ctx, cfg, platformPool, secretBox, reconcilePipeline, logger)
 	startMailTelemetry(ctx, cfg, backgroundPool, logger)
 	startMailObservability(ctx, cfg, backgroundPool, logger)
-	startDovecotAuthSnapshot(ctx, cfg, platformPool, logger)
+	startDovecotAuthSnapshot(ctx, cfg, dovecotAuthSource{pool: platformPool}, logger)
 	tokenManager, _ := tokenVerifier.(*domainMail.SuppressionManager)
 	marketingWorker, workerErr := marketing.NewWorker(marketing.Options{Pool: marketingPool, Secrets: secretBox, Tokens: tokenManager, Enabled: cfg.MarketingEnabled && cfg.BackgroundWorkersAllowed(), DevMode: cfg.DevMode, Quarantined: cfg.Quarantined,
 		Hostname: cfg.MyHostname, UnsubscribeURL: baseURL + "/api/v1/marketing/unsubscribe", Logger: logger})
