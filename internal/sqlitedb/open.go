@@ -56,6 +56,18 @@ func pragmaStatements() []string {
 	}
 }
 
+// pragmaHookSkipped reports whether a DSN belongs to a connection the
+// global PRAGMA contract must not touch: read-only consumers (mode=ro,
+// query_only) and the dovecot-auth snapshot file (its journal mode is
+// DELETE by design; flipping it to WAL breaks the read-only dovecot
+// container). foreign_keys/busy_timeout defaults for those consumers come
+// from their own connection strings.
+func pragmaHookSkipped(dsn string) bool {
+	return strings.Contains(dsn, "mode=ro") ||
+		strings.Contains(dsn, "query_only") ||
+		strings.Contains(dsn, "dovecot-auth")
+}
+
 // md5Scalar is PG's md5(text): the lowercase 32-character hex digest of the
 // UTF-8 bytes. NULL stays NULL (PG md5(NULL) IS NULL), and any non-text argument
 // is refused exactly like PG's missing md5(integer) overload — silently hashing
@@ -195,7 +207,17 @@ func RegisterConnectionHook() {
 		if err := sqlite.RegisterDeterministicScalarFunction("urmail_bigrams", 1, bigramsScalar); err != nil {
 			panic(fmt.Sprintf("register urmail_bigrams UDF: %v", err))
 		}
-		sqlite.RegisterConnectionHook(func(conn sqlite.ExecQuerierContext, _ string) error {
+		sqlite.RegisterConnectionHook(func(conn sqlite.ExecQuerierContext, dsn string) error {
+			// The hook is process-global, but the WAL/synchronous contract is
+			// ours alone: read-only consumers (mode=ro / query_only DSNs) and
+			// the dovecot-auth snapshot (its own single-file DELETE journal,
+			// mounted read-only into the dovecot container) must never see a
+			// journal-mode flip. A WAL flip on the published auth snapshot
+			// made the read-only dovecot mount fail with SQLITE_CANTOPEN
+			// (cutover-blockers Blocker 2 / pm-dovecotauth-wal-fix-1).
+			if pragmaHookSkipped(dsn) {
+				return nil
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), pragmaTimeout)
 			defer cancel()
 			for _, stmt := range pragmaStatements() {

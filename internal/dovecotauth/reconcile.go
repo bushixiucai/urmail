@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"time"
 )
 
@@ -16,15 +17,30 @@ type Counts struct {
 	Mailboxes int64
 }
 
+// ErrSnapshotDrift marks a published snapshot whose journal mode or
+// sidecar state violates the single-file DELETE contract.
+var ErrSnapshotDrift = errors.New("auth snapshot journal drift")
+
 // Reconcile compares the published snapshot with the source: row counts always,
 // plus a random sample of mailbox rows when sample > 0. A mismatch marks the
 // snapshot dirty; callers run Repair to rebuild it.
+//
+// The snapshot is opened STRICTLY read-only (mode=ro + query_only): the
+// process-global sqlite hook must not flip its journal mode, and any drift
+// (WAL mode set, -wal/-shm sidecars present) is reported as dirty so
+// Repair -> Rebuild republishes a clean single-file DELETE snapshot
+// (cutover-blockers WAL-fix: a WAL flip made the read-only dovecot mount
+// fail with SQLITE_CANTOPEN).
 func (m *Manager) Reconcile(ctx context.Context, sample int) error {
 	src, err := m.sourceCounts(ctx)
 	if err != nil {
 		return err
 	}
-	db, err := openSnapshot(m.path)
+	if drift := snapshotJournalDrift(m.path); drift != "" {
+		m.markDirty()
+		return fmt.Errorf("%w: %s", ErrSnapshotDrift, drift)
+	}
+	db, err := openSnapshotReadOnly(m.path)
 	if err != nil {
 		return fmt.Errorf("open auth snapshot: %w", err)
 	}
@@ -171,3 +187,39 @@ func RequireFreshAfterRestore(ctx context.Context, m *Manager) (Snapshot, error)
 
 // MaxStalenessThreshold is the alerting threshold for snapshot age.
 const MaxStalenessThreshold = 60 * time.Second
+
+// snapshotJournalDrift returns a human-readable drift description when the
+// published snapshot violates the single-file DELETE contract (journal mode
+// flipped to WAL, or -wal/-shm sidecars present), or "" when clean.
+func snapshotJournalDrift(path string) string {
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)")
+	if err != nil {
+		return "cannot open for journal inspection: " + err.Error()
+	}
+	defer func() { _ = db.Close() }()
+	var mode string
+	if err := db.QueryRowContext(context.Background(), `PRAGMA journal_mode`).Scan(&mode); err != nil {
+		return "cannot read journal mode: " + err.Error()
+	}
+	if mode != "delete" {
+		return "journal mode is " + mode + ", want delete"
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + suffix); err == nil {
+			return suffix + " sidecar present"
+		}
+	}
+	return ""
+}
+
+// openSnapshotReadOnly opens the published snapshot strictly read-only:
+// mode=ro forbids writes, query_only forbids pragma writes, so neither the
+// process-global sqlite hook nor anything else can flip the journal mode.
+func openSnapshotReadOnly(path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
+}

@@ -235,6 +235,16 @@ func (m *Manager) rebuildLocked(ctx context.Context) (Snapshot, error) {
 		cleanup()
 		return Snapshot{}, fmt.Errorf("chmod snapshot: %w", err)
 	}
+	// Remove stale sidecars of the PREVIOUS published file first: a drifted
+	// (WAL) snapshot leaves -wal/-shm next to the path, and leaving them
+	// next to the fresh single-file snapshot would re-attach them on the
+	// next open (QA wal-fix acceptance b).
+	for _, suffix := range []string{m.path + "-wal", m.path + "-shm"} {
+		if err = os.Remove(suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			cleanup()
+			return Snapshot{}, fmt.Errorf("remove stale sidecar: %w", err)
+		}
+	}
 	if err = os.Rename(tmpPath, m.path); err != nil {
 		cleanup()
 		return Snapshot{}, fmt.Errorf("publish snapshot: %w", err)

@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -15,16 +18,6 @@ type Change struct {
 	Address  string
 	DomainID int64
 	TenantID int64
-}
-
-// openSnapshot opens the published snapshot for ordinary (non-ATTACH) writes.
-func openSnapshot(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	return db, nil
 }
 
 // Apply compensates one committed main-store change in the snapshot. A failed
@@ -57,22 +50,108 @@ func (m *Manager) ApplyBestEffort(ctx context.Context, changes ...Change) {
 }
 
 func (m *Manager) applyLocked(ctx context.Context, changes []Change) error {
-	db, err := openSnapshot(m.path)
+	// WAL-fix: never open the published snapshot for writing. Copy it,
+	// apply the compensations to the copy, and republish atomically —
+	// byte-for-byte the same finalize contract as rebuildLocked
+	// (checkpoint + DELETE journal + FileMode + sidecar cleanup), so the
+	// read-only dovecot mount never sees a WAL flip or sidecars.
+	dir := filepath.Dir(m.path)
+	tmp, err := os.CreateTemp(dir, ".dovecot-auth-apply-*.tmp")
 	if err != nil {
-		return fmt.Errorf("open auth snapshot: %w", err)
+		return fmt.Errorf("create apply temp file: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	tmpPath := tmp.Name()
+	if err = tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err = copyFileContents(m.path, tmpPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("copy published snapshot: %w", err)
+	}
+
+	db, err := sql.Open("sqlite", "file:"+tmpPath+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("open apply copy: %w", err)
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
+		_ = db.Close()
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, change := range changes {
 		if err = m.applyChange(ctx, tx, change); err != nil {
-			return err
+			_ = tx.Rollback()
+			_ = db.Close()
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("apply change to snapshot copy: %w", err)
 		}
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		_ = db.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("commit to snapshot copy: %w", err)
+	}
+	if err = db.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	// Finalize the copy: checkpoint, DELETE journal, FileMode, sidecar
+	// cleanup — identical to rebuildLocked's contract.
+	fin, err := sql.Open("sqlite", "file:"+tmpPath+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("finalize apply copy: %w", err)
+	}
+	if _, err = fin.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		_ = fin.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("checkpoint apply copy: %w", err)
+	}
+	if _, err = fin.ExecContext(ctx, `PRAGMA journal_mode=DELETE`); err != nil {
+		_ = fin.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("finalize apply copy journal: %w", err)
+	}
+	if err = fin.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if err = os.Remove(tmpPath + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("remove apply copy sidecar: %w", err)
+		}
+	}
+	if err = os.Chmod(tmpPath, FileMode); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("chmod apply copy: %w", err)
+	}
+	if err = os.Rename(tmpPath, m.path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("publish apply copy: %w", err)
+	}
+	return nil
+}
+
+// copyFileContents copies one regular file's contents over another.
+func copyFileContents(srcPath, dstPath string) error {
+	src, err := os.Open(srcPath) // #nosec G304 -- manager-owned snapshot path.
+	if err != nil {
+		return err
+	}
+	defer func() { _ = src.Close() }()
+	dst, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_TRUNC, 0o644) // #nosec G304 -- manager-owned temp path.
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dst.Close() }()
+	_, err = io.Copy(dst, src)
+	return err
 }
 
 func (m *Manager) applyChange(ctx context.Context, tx *sql.Tx, change Change) error {
