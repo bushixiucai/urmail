@@ -186,7 +186,7 @@ func runRestoreQuarantine(ctx context.Context, args []string) error {
 		return err
 	}
 	detail, _ := json.Marshal(map[string]string{"actor_type": "root_operator", "restore_id": state.ID, "reason": reason, "source_isolated": "true"})
-	_, err = store.New(pool.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{Action: "restore.quarantine_released", TargetType: pgtype.Text{String: "restore", Valid: true}, TargetID: pgtype.Text{String: state.ID, Valid: true}, Detail: detail})
+	_, err = db.Queries(pool.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{Action: "restore.quarantine_released", TargetType: pgtype.Text{String: "restore", Valid: true}, TargetID: pgtype.Text{String: state.ID, Valid: true}, Detail: detail})
 	if err != nil {
 		return err
 	}

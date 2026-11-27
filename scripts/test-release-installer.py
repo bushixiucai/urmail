@@ -152,6 +152,29 @@ def main():
             state["mode"] = mode
             env = dict(os.environ)
             env.pop("URMAIL_PACKAGE", None)
+            if mode == "fixed":
+                # An upgrade must not race the agent's in-flight configuration
+                # apply from the previous installation: the installer refuses a
+                # host with a pending apply journal (fail-closed, correctly).
+                # Wait, bounded, for the agent to settle its configuration.
+                settle = subprocess.run(["/usr/bin/urmailctl", "config", "status", "--wait", "120s"],
+                                        env=env, capture_output=True, timeout=300)
+                Path(logs, "fixed-config-settle.log").write_bytes(settle.stdout + settle.stderr)
+                if settle.returncode != 0:
+                    print_failure_output(settle.stdout + settle.stderr, env)
+                assert settle.returncode == 0, f"{mode}: agent configuration did not settle (exit {settle.returncode})"
+                # A managed upgrade refuses to fence without a fresh complete
+                # backup run (R1 gate); the disposable host starts with none.
+                # Produce a real local-only generation through the product
+                # worker instead of overriding the gate.
+                seedEnv = dict(os.environ)
+                seedEnv["URMAIL_BACKUP_ALLOW_LOCAL_ONLY"] = "1"
+                seed = subprocess.run(["/usr/bin/urmailctl", "backup-auto"],
+                                      env=seedEnv, capture_output=True, timeout=900)
+                Path(logs, "fixed-backup-auto.log").write_bytes(seed.stdout + seed.stderr)
+                if seed.returncode != 0:
+                    print_failure_output(seed.stdout + seed.stderr, seedEnv)
+                assert seed.returncode == 0, f"{mode}: seeding a local-only backup failed (exit {seed.returncode})"
             env.update(URMAIL_VERSION="latest" if mode == "latest" else "v" + args.version,
                        URMAIL_REPO=base, URMAIL_MIRROR="" if mode == "latest" else base)
             result = subprocess.run(["bash", str(installer)], env=env, capture_output=True, timeout=900)

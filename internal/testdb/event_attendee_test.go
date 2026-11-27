@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -33,8 +33,8 @@ func TestEventUpdateKeepsAttendeeOnSameRow(t *testing.T) {
 	if err = tx.QueryRow(ctx, "INSERT INTO mailbox_calendars(tenant_id,mailbox_id,name) VALUES($1,$2,'Calendar') RETURNING id", tenant, mailbox).Scan(&calendar); err != nil {
 		t.Fatal(err)
 	}
-	start := pgtype.Timestamptz{Time: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), Valid: true}
-	end := pgtype.Timestamptz{Time: start.Time.Add(time.Hour), Valid: true}
+	start := timeutil.Micro(time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))
+	end := timeutil.Micro(timeutil.FromMicro(start).Add(time.Hour))
 	q := store.New(tx)
 	row, err := q.PlatformInsertEvent(ctx, store.PlatformInsertEventParams{TenantID: tenant, MailboxID: mailbox, CalendarID: calendar, Uid: "uid-1", Summary: "A", StartsAt: start, EndsAt: end, Timezone: "UTC", Status: "confirmed", Attendees: []byte("[]")})
 	if err != nil {

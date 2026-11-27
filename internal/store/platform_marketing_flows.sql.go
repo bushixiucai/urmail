@@ -172,20 +172,20 @@ type PlatformClaimMarketingFlowPositionsParams struct {
 }
 
 type PlatformClaimMarketingFlowPositionsRow struct {
-	TenantID          int64              `json:"tenant_id"`
-	FlowID            int64              `json:"flow_id"`
-	Email             string             `json:"email"`
-	StepKey           string             `json:"step_key"`
-	LeaseFence        int64              `json:"lease_fence"`
-	LeaseUntil        pgtype.Timestamptz `json:"lease_until"`
-	EventFacts        []byte             `json:"event_facts"`
-	StepKind          string             `json:"step_kind"`
-	StepNext          string             `json:"step_next"`
-	StepWaitSeconds   int32              `json:"step_wait_seconds"`
-	StepOtherwise     string             `json:"step_otherwise"`
-	ConditionField    string             `json:"condition_field"`
-	ConditionOperator string             `json:"condition_operator"`
-	ConditionValue    string             `json:"condition_value"`
+	TenantID          int64  `json:"tenant_id"`
+	FlowID            int64  `json:"flow_id"`
+	Email             string `json:"email"`
+	StepKey           string `json:"step_key"`
+	LeaseFence        int64  `json:"lease_fence"`
+	LeaseUntil        int64  `json:"lease_until"`
+	EventFacts        []byte `json:"event_facts"`
+	StepKind          string `json:"step_kind"`
+	StepNext          string `json:"step_next"`
+	StepWaitSeconds   int32  `json:"step_wait_seconds"`
+	StepOtherwise     string `json:"step_otherwise"`
+	ConditionField    string `json:"condition_field"`
+	ConditionOperator string `json:"condition_operator"`
+	ConditionValue    string `json:"condition_value"`
 }
 
 // Claim a bounded batch of due positions with SKIP LOCKED. A position is due
@@ -227,10 +227,6 @@ func (q *Queries) PlatformClaimMarketingFlowPositions(ctx context.Context, arg P
 	return items, nil
 }
 
-const platformCommitMarketingFlowWait = `-- name: PlatformCommitMarketingFlowWait :one
-SELECT urmail_commit_marketing_flow_step($1,$2,$3,$4::text,$5::text) AS result
-`
-
 type PlatformCommitMarketingFlowWaitParams struct {
 	PTenant int64  `json:"p_tenant"`
 	PFlow   int64  `json:"p_flow"`
@@ -242,19 +238,6 @@ type PlatformCommitMarketingFlowWaitParams struct {
 // Advance a wait step whose wait_until elapsed, without sending anything.
 // The database function re-checks uncertain, unsubscribe, the wait and the
 // sending gate under FOR UPDATE, so it is the linearization point.
-func (q *Queries) PlatformCommitMarketingFlowWait(ctx context.Context, arg PlatformCommitMarketingFlowWaitParams) (string, error) {
-	row := q.db.QueryRow(ctx, platformCommitMarketingFlowWait,
-		arg.PTenant,
-		arg.PFlow,
-		arg.PEmail,
-		arg.Event,
-		arg.NextKey,
-	)
-	var result string
-	err := row.Scan(&result)
-	return result, err
-}
-
 const platformGetMarketingFlowPosition = `-- name: PlatformGetMarketingFlowPosition :one
 SELECT step_key, unsubscribed FROM marketing_flow_positions
 WHERE tenant_id=$1 AND flow_id=$2 AND email=$3
@@ -393,23 +376,6 @@ func (q *Queries) PlatformListMarketingFlowSteps(ctx context.Context, arg Platfo
 		return nil, err
 	}
 	return items, nil
-}
-
-const platformMarkMarketingFlowUncertain = `-- name: PlatformMarkMarketingFlowUncertain :one
-SELECT urmail_mark_marketing_flow_uncertain($1,$2,$3)
-`
-
-type PlatformMarkMarketingFlowUncertainParams struct {
-	PTenant int64  `json:"p_tenant"`
-	PFlow   int64  `json:"p_flow"`
-	PEmail  string `json:"p_email"`
-}
-
-func (q *Queries) PlatformMarkMarketingFlowUncertain(ctx context.Context, arg PlatformMarkMarketingFlowUncertainParams) (string, error) {
-	row := q.db.QueryRow(ctx, platformMarkMarketingFlowUncertain, arg.PTenant, arg.PFlow, arg.PEmail)
-	var urmail_mark_marketing_flow_uncertain string
-	err := row.Scan(&urmail_mark_marketing_flow_uncertain)
-	return urmail_mark_marketing_flow_uncertain, err
 }
 
 const platformMarkMarketingFlowUnsubscribed = `-- name: PlatformMarkMarketingFlowUnsubscribed :execrows

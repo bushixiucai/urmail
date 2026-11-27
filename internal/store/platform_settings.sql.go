@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformDeleteSetting = `-- name: PlatformDeleteSetting :exec
@@ -25,8 +23,8 @@ SELECT value,updated_at FROM settings WHERE scope='platform' AND scope_id=0 AND 
 `
 
 type PlatformGetSettingRow struct {
-	Value     []byte             `json:"value"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Value     []byte `json:"value"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 func (q *Queries) PlatformGetSetting(ctx context.Context, key string) (PlatformGetSettingRow, error) {
@@ -41,9 +39,9 @@ SELECT key,value,updated_at FROM settings WHERE scope='platform' AND scope_id=0 
 `
 
 type PlatformListSettingsRow struct {
-	Key       string             `json:"key"`
-	Value     []byte             `json:"value"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Key       string `json:"key"`
+	Value     []byte `json:"value"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 func (q *Queries) PlatformListSettings(ctx context.Context) ([]PlatformListSettingsRow, error) {

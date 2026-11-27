@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
@@ -12,6 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -23,7 +27,7 @@ import (
 // AuditStore reads append-only audit records in the tenant transaction.
 type AuditStore interface {
 	ListAuditLogsByTenant(ctx context.Context, arg store.ListAuditLogsByTenantParams) ([]store.AuditLogs, error)
-	GetAuditCursorAnchor(context.Context, store.GetAuditCursorAnchorParams) (pgtype.Timestamptz, error)
+	GetAuditCursorAnchor(context.Context, store.GetAuditCursorAnchorParams) (int64, error)
 	ExportAuditLogsByTenant(context.Context, store.ExportAuditLogsByTenantParams) ([]store.AuditLogs, error)
 	RecordTenantAudit(context.Context, store.RecordTenantAuditParams) error
 }
@@ -53,7 +57,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	if raw := c.Query("limit"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v > 0 && v <= 500 {
-			params.Limit = int32(v)
+			params.Limit = v
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
@@ -61,18 +65,18 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	if raw := c.Query("actor_user_id"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
-			params.ActorUserID = pgtype.Int8{Int64: v, Valid: true}
+			params.ActorUserID = sql.NullInt64{Int64: v, Valid: true}
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
 	}
 	if raw := c.Query("action"); raw != "" {
-		params.Action = pgtype.Text{String: raw, Valid: true}
+		params.Action = sql.NullString{String: raw, Valid: true}
 	}
 	if raw := c.Query("from"); raw != "" {
 		if t, err := parseTimeParam(raw); err == nil {
-			params.FromTime = pgtype.Timestamptz{Time: t, Valid: true}
+			params.FromTime = sql.NullInt64{Int64: t.UnixMicro(), Valid: true}
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
@@ -80,7 +84,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	if raw := c.Query("to"); raw != "" {
 		if t, err := parseTimeParam(raw); err == nil {
-			params.ToTime = pgtype.Timestamptz{Time: t, Valid: true}
+			params.ToTime = sql.NullInt64{Int64: t.UnixMicro(), Valid: true}
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
@@ -88,21 +92,21 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	if raw := c.Query("before_id"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
-			params.BeforeID = pgtype.Int8{Int64: v, Valid: true}
+			params.BeforeID = sql.NullInt64{Int64: v, Valid: true}
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
 	}
-	if params.FromTime.Valid && params.ToTime.Valid && !params.FromTime.Time.Before(params.ToTime.Time) {
+	if params.FromTime.Valid && params.ToTime.Valid && params.FromTime.Int64 >= params.ToTime.Int64 {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
 	if raw := c.Query("target_type"); raw != "" {
-		params.TargetType = pgtype.Text{String: raw, Valid: true}
+		params.TargetType = sql.NullString{String: raw, Valid: true}
 	}
 	if raw := c.Query("target_id"); raw != "" {
-		params.TargetID = pgtype.Text{String: raw, Valid: true}
+		params.TargetID = sql.NullString{String: raw, Valid: true}
 	}
 	q := requestStore(c, h.Store)
 	if export, _ := c.Get("urmail.audit_export"); export == true {
@@ -121,15 +125,15 @@ func (h *AuditHandler) List(c *gin.Context) {
 			authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 			return
 		}
-		anchor, anchorErr := q.GetAuditCursorAnchor(c, store.GetAuditCursorAnchorParams{TenantID: params.TenantID, ID: cursor.ID})
-		if anchorErr != nil || !anchor.Valid || !anchor.Time.Equal(cursor.Time) {
+		anchor, anchorErr := q.GetAuditCursorAnchor(c.Request.Context(), store.GetAuditCursorAnchorParams{TenantID: params.TenantID, ID: cursor.ID})
+		if anchorErr != nil || anchor == 0 || anchor != cursor.Time.UnixMicro() {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		params.BeforeID = pgtype.Int8{Int64: cursor.ID, Valid: true}
-		params.BeforeTime = pgtype.Timestamptz{Time: cursor.Time, Valid: true}
+		params.BeforeID = sql.NullInt64{Int64: cursor.ID, Valid: true}
+		params.BeforeTime = sql.NullInt64{Int64: cursor.Time.UnixMicro(), Valid: true}
 	}
-	logs, err := requestStore(c, h.Store).ListAuditLogsByTenant(c, params)
+	logs, err := requestStore(c, h.Store).ListAuditLogsByTenant(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tenantID}), params)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -137,8 +141,8 @@ func (h *AuditHandler) List(c *gin.Context) {
 	next := ""
 	if len(logs) == int(params.Limit) {
 		last := logs[len(logs)-1]
-		if last.CreatedAt.Valid {
-			payload, _ := json.Marshal(auditCursor{ID: last.ID, Time: last.CreatedAt.Time.UTC(), Scope: scope})
+		if last.CreatedAt != 0 {
+			payload, _ := json.Marshal(auditCursor{ID: last.ID, Time: timeutil.FromMicro(last.CreatedAt).UTC(), Scope: scope})
 			next = base64.RawURLEncoding.EncodeToString(payload)
 		}
 	}
@@ -174,7 +178,7 @@ func (h *AuditHandler) export(c *gin.Context, q AuditStore, p store.ListAuditLog
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	rows, err := q.ExportAuditLogsByTenant(c, store.ExportAuditLogsByTenantParams{TenantID: p.TenantID, ActorUserID: p.ActorUserID, Action: p.Action, TargetType: p.TargetType, TargetID: p.TargetID, FromTime: p.FromTime, ToTime: p.ToTime})
+	rows, err := q.ExportAuditLogsByTenant(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: p.TenantID.Int64}), store.ExportAuditLogsByTenantParams{TenantID: p.TenantID, ActorUserID: p.ActorUserID, Action: p.Action, TargetType: p.TargetType, TargetID: p.TargetID, FromTime: p.FromTime, ToTime: p.ToTime})
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -192,7 +196,7 @@ func (h *AuditHandler) export(c *gin.Context, q AuditStore, p store.ListAuditLog
 			Outcome string `json:"outcome"`
 		}
 		_ = json.Unmarshal(row.Detail, &detail)
-		_ = csvWriter.Write([]string{strconv.FormatInt(row.ID, 10), row.CreatedAt.Time.UTC().Format(time.RFC3339Nano), strconv.FormatInt(row.ActorUserID.Int64, 10), auditCSVCell(row.Action), auditCSVCell(row.TargetType.String), auditCSVCell(row.TargetID.String), strconv.Itoa(detail.Status), auditCSVCell(detail.Outcome)})
+		_ = csvWriter.Write([]string{strconv.FormatInt(row.ID, 10), timeutil.FromMicro(row.CreatedAt).UTC().Format(time.RFC3339Nano), strconv.FormatInt(row.ActorUserID.Int64, 10), auditCSVCell(row.Action), auditCSVCell(row.TargetType.String), auditCSVCell(row.TargetID.String), strconv.Itoa(detail.Status), auditCSVCell(detail.Outcome)})
 	}
 	csvWriter.Flush()
 	if csvWriter.Error() != nil || body.Len() > 7<<20 {
@@ -201,7 +205,7 @@ func (h *AuditHandler) export(c *gin.Context, q AuditStore, p store.ListAuditLog
 	}
 	tid, _ := middleware.GetTenantID(c)
 	uid, _ := middleware.GetUserID(c)
-	if err = q.RecordTenantAudit(c, store.RecordTenantAuditParams{TenantID: tid, UserID: uid, Action: "GET " + c.FullPath(), Target: c.Request.URL.Path, Status: 200}); err != nil {
+	if err = q.RecordTenantAudit(c.Request.Context(), store.RecordTenantAuditParams{TenantID: tid, UserID: uid, Action: "GET " + c.FullPath(), Target: c.Request.URL.Path, Status: 200}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}

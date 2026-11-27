@@ -260,17 +260,17 @@ type PlatformDNSDomainParams struct {
 }
 
 type PlatformDNSDomainRow struct {
-	ID                int64              `json:"id"`
-	TenantID          int64              `json:"tenant_id"`
-	Fqdn              string             `json:"fqdn"`
-	Mode              string             `json:"mode"`
-	Status            string             `json:"status"`
-	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
-	ProvisioningState string             `json:"provisioning_state"`
-	DnsExplicit       bool               `json:"dns_explicit"`
-	DkimSelector      string             `json:"dkim_selector"`
-	DkimPrivateKey    pgtype.Text        `json:"dkim_private_key"`
-	MxHost            pgtype.Text        `json:"mx_host"`
+	ID                int64       `json:"id"`
+	TenantID          int64       `json:"tenant_id"`
+	Fqdn              string      `json:"fqdn"`
+	Mode              string      `json:"mode"`
+	Status            string      `json:"status"`
+	VerifiedAt        int64       `json:"verified_at"`
+	ProvisioningState string      `json:"provisioning_state"`
+	DnsExplicit       bool        `json:"dns_explicit"`
+	DkimSelector      string      `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text `json:"dkim_private_key"`
+	MxHost            pgtype.Text `json:"mx_host"`
 }
 
 func (q *Queries) PlatformDNSDomain(ctx context.Context, arg PlatformDNSDomainParams) (PlatformDNSDomainRow, error) {
@@ -478,11 +478,11 @@ SELECT z.domain_id,z.tenant_id,d.fqdn,z.records,z.updated_at FROM managed_dns_zo
 `
 
 type PlatformListManagedDNSRow struct {
-	DomainID  int64              `json:"domain_id"`
-	TenantID  int64              `json:"tenant_id"`
-	Fqdn      string             `json:"fqdn"`
-	Records   []byte             `json:"records"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DomainID  int64  `json:"domain_id"`
+	TenantID  int64  `json:"tenant_id"`
+	Fqdn      string `json:"fqdn"`
+	Records   []byte `json:"records"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 func (q *Queries) PlatformListManagedDNS(ctx context.Context) ([]PlatformListManagedDNSRow, error) {

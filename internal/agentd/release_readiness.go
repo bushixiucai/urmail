@@ -66,7 +66,11 @@ func loadReleaseManager(cfg *config.Config, root, targetRoot string) (*ApplyMana
 // InspectPreparedRelease reads and verifies installed state without starting an
 // agent, recovering a journal, opening a socket or claiming protocols are ready.
 func InspectPreparedRelease(cfg *config.Config) (PreparedReleaseStatus, error) {
-	m, digest, err := loadReleaseManager(cfg, StateRoot, "")
+	stateRoot, err := resolveStateRoot(cfg)
+	if err != nil {
+		return PreparedReleaseStatus{}, err
+	}
+	m, digest, err := loadReleaseManager(cfg, stateRoot, "")
 	if err != nil {
 		return PreparedReleaseStatus{}, err
 	}
@@ -80,7 +84,11 @@ func InspectPreparedRelease(cfg *config.Config) (PreparedReleaseStatus, error) {
 // startup recovery can mutate services). Called after controlled service start;
 // failure must cause the CLI to restore guards and stop all writers.
 func VerifyReleaseRuntime(ctx context.Context, cfg *config.Config, desired string) error {
-	m, _, err := loadReleaseManager(cfg, StateRoot, "")
+	stateRoot, err := resolveStateRoot(cfg)
+	if err != nil {
+		return err
+	}
+	m, _, err := loadReleaseManager(cfg, stateRoot, "")
 	if err != nil {
 		return err
 	}

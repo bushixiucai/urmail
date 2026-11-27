@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 )
 
 // Budget bounds active operations separately from queued callers. Queue excludes
@@ -84,8 +86,12 @@ func (a *admission) enter(ctx context.Context) (context.Context, func(), error) 
 }
 
 // OpenBudgeted opens another physical pool against the supplied authoritative
-// database URL. It never accepts a separate optional-service database URL.
-func OpenBudgeted(ctx context.Context, url, role, name string, b Budget) (*Pool, error) {
+// database URL bound to scope. It never accepts a separate optional-service URL.
+func OpenBudgeted(ctx context.Context, url string, scope isolation.Scope, name string, b Budget) (*Pool, error) {
+	role, err := pgRoleForScope(scope)
+	if err != nil {
+		return nil, err
+	}
 	if b.MaxConns < 1 || b.MaxQueue < 0 || b.MaxQueue > 1024 || b.AcquireTimeout <= 0 || b.OperationTimeout < time.Millisecond {
 		return nil, fmt.Errorf("invalid database budget")
 	}
@@ -105,7 +111,7 @@ func OpenBudgeted(ctx context.Context, url, role, name string, b Budget) (*Pool,
 	if err != nil {
 		return nil, err
 	}
-	p := &Pool{Pool: raw, role: role, admission: newAdmission(b)}
+	p := &Pool{Pool: raw, scope: scope, admission: newAdmission(b)}
 	pingCtx, cancel := context.WithTimeout(ctx, b.AcquireTimeout)
 	defer cancel()
 	if err := raw.Ping(pingCtx); err != nil {
@@ -115,12 +121,27 @@ func OpenBudgeted(ctx context.Context, url, role, name string, b Budget) (*Pool,
 	return p, nil
 }
 
+// OpenTenantBudgeted opens a budgeted pool bound to tenant scope.
+func OpenTenantBudgeted(ctx context.Context, url, name string, b Budget) (*Pool, error) {
+	return OpenBudgeted(ctx, url, isolation.ScopeTenant, name, b)
+}
+
+// OpenPlatformBudgeted opens a budgeted pool bound to platform scope.
+func OpenPlatformBudgeted(ctx context.Context, url, name string, b Budget) (*Pool, error) {
+	return OpenBudgeted(ctx, url, isolation.ScopePlatform, name, b)
+}
+
 // Close cancels budgeted work and closes all physical connections.
 func (p *Pool) Close() {
+	if p == nil {
+		return
+	}
 	if p.admission != nil {
 		p.admission.cancel()
 	}
-	p.Pool.Close()
+	if p.Pool != nil {
+		p.Pool.Close()
+	}
 }
 
 func (p *Pool) enter(ctx context.Context) (context.Context, func(), error) {
@@ -137,19 +158,30 @@ func (p *Pool) Exec(ctx context.Context, sql string, args ...any) (pgconn.Comman
 		return pgconn.CommandTag{}, err
 	}
 	defer release()
+	if p.sqlite != nil {
+		return p.sqliteExec(op, sql, args...)
+	}
 	return p.Pool.Exec(op, sql, args...)
 }
 
 // Query reserves capacity until rows close, finish, or reach their deadline.
 func (p *Pool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	if p.admission == nil {
+		if p.sqlite != nil {
+			return p.sqliteQuery(ctx, sql, args...)
+		}
 		return p.Pool.Query(ctx, sql, args...)
 	}
 	op, release, err := p.enter(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := p.Pool.Query(op, sql, args...)
+	var rows pgx.Rows
+	if p.sqlite != nil {
+		rows, err = p.sqliteQuery(op, sql, args...)
+	} else {
+		rows, err = p.Pool.Query(op, sql, args...)
+	}
 	if err != nil {
 		release()
 		return nil, err
@@ -220,6 +252,9 @@ func (r *budgetRows) CommandTag() pgconn.CommandTag {
 // QueryRow reserves capacity until Scan or the operation deadline.
 func (p *Pool) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	if p.admission == nil {
+		if p.sqlite != nil {
+			return p.sqliteQueryRow(ctx, sql, args...)
+		}
 		return p.Pool.QueryRow(ctx, sql, args...)
 	}
 	rows, err := p.Query(ctx, sql, args...)
@@ -251,13 +286,21 @@ func (p *Pool) Begin(ctx context.Context) (pgx.Tx, error) { return p.BeginTx(ctx
 // BeginTx starts a transaction and retains capacity through its terminal operation.
 func (p *Pool) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
 	if p.admission == nil {
+		if p.sqlite != nil {
+			return p.sqliteBeginTx(ctx)
+		}
 		return p.Pool.BeginTx(ctx, opts)
 	}
 	op, release, err := p.enter(ctx)
 	if err != nil {
 		return nil, err
 	}
-	tx, err := p.Pool.BeginTx(op, opts)
+	var tx pgx.Tx
+	if p.sqlite != nil {
+		tx, err = p.sqliteBeginTx(op)
+	} else {
+		tx, err = p.Pool.BeginTx(op, opts)
+	}
 	if err != nil {
 		release()
 		return nil, err

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/i18n"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -82,7 +83,10 @@ func (h *MarketingSuppressionHandler) OneClick(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	_, err = store.New(tx).AddMarketingSuppression(c.Request.Context(), store.AddMarketingSuppressionParams{TenantID: tenantID, Email: email, Reason: domainMail.SuppressionReasonUnsubscribe})
+	// Public route: the signed token itself authorizes this tenant write; bind
+	// the tenant scope for the S3 DBTX hook before any statement runs.
+	c.Request = c.Request.WithContext(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tenantID}))
+	_, err = db.Queries(tx).AddMarketingSuppression(c.Request.Context(), store.AddMarketingSuppressionParams{TenantID: tenantID, Email: email, Reason: domainMail.SuppressionReasonUnsubscribe})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "UNSUBSCRIBE_FAILED"}})
 		return

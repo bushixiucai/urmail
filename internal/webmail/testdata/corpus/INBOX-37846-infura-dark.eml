@@ -1,4 +1,4 @@
-Delivered-To: tiger@65efd11485.redacted
+Delivered-To: user-a@65efd11485.redacted
 X-Spam-Checker-Version: SpamAssassin 3.4.6 (2021-04-09) on c06464a9fd.redacted
 X-Spam-Level: 
 X-Spam-Status: No, score=-2.0 required=5.0 tests=BAYES_00,DKIM_SIGNED,
@@ -32,11 +32,11 @@ Date: Sat, 07 Nov 2026 14:22:28 +0000
 Mime-Version: 1.0
 Subject: Your usage for the day has reached 100% of your plan's daily limit
 From: Infura <notifications@699b7898f7.redacted>
-To: tiger@65efd11485.redacted
+To: user-a@65efd11485.redacted
 X-Mailgun-Tag: notifications
 X-Mailgun-Variables: {"thresholdExceeded":true,"thresholdPercentage":100}
 X-Mailgun-Template-Name: credit-usage-threshold
-Message-Id: <20261107142228.059de7fe43978ef2@3a29f06b86.redacted>
+Message-Id: <corpus-inbox-37846-1@3a29f06b86.redacted>
 Content-Type: text/html; charset="utf-8"
 Content-Transfer-Encoding: base64
 

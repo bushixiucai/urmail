@@ -9,6 +9,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/store"
@@ -154,10 +156,10 @@ func (h *MailboxNativeHandler) DeleteDraft(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	if h.draftDeletionLocked(c, folder, uint32(uid), uint32(validity), store.New(tx)) {
+	if h.draftDeletionLocked(c, folder, uint32(uid), uint32(validity), db.Queries(tx)) {
 		return
 	}
-	pending, pendingErr := store.New(tx).PlatformDraftReplacementPending(c.Request.Context(), store.PlatformDraftReplacementPendingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PreviousUid: strconv.FormatUint(uid, 10), PreviousValidity: strconv.FormatUint(validity, 10)})
+	pending, pendingErr := db.Queries(tx).PlatformDraftReplacementPending(platformCtx(c), store.PlatformDraftReplacementPendingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PreviousUid: strconv.FormatUint(uid, 10), PreviousValidity: strconv.FormatUint(validity, 10)})
 	if pendingErr != nil {
 		authError(c, 503, "DB_ERROR")
 		return

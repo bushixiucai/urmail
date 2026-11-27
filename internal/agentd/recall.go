@@ -14,6 +14,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -41,13 +44,16 @@ func (m *ApplyManager) ExpungeRecall(raw json.RawMessage) (string, string, error
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// Trusted platform entry: every recall statement below is platform-scoped,
+	// and a detached context otherwise carries no scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {
 		return "", "", ErrFailed
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	if err = q.PlatformLockRecallTenant(ctx, params.TenantID); err != nil {
+	q := db.Queries(tx)
+	if err = q.PlatformLockRecallTenant(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), params.TenantID); err != nil {
 		return "", "", ErrFailed
 	}
 	target, err := q.PlatformLockRecallForExpunge(ctx, store.PlatformLockRecallForExpungeParams{TenantID: params.TenantID, ID: params.RecallID})
@@ -82,7 +88,7 @@ func (m *ApplyManager) ExpungeRecall(raw json.RawMessage) (string, string, error
 		reason = "remote_delivery_not_recallable"
 	case target.LegalHold:
 		reason = "legal_hold"
-	case target.MailboxID.Valid && target.ArchiveMailboxID.Valid && target.MailboxID.Int64 == target.ArchiveMailboxID.Int64 && target.Address.Valid && safeKickAddress(target.Address.String) && !target.ArchiveDeletedAt.Valid && target.ArchiveMessageID == target.MessageID && target.TenantStatus == "active" && target.MailboxStatus.String == "active" && target.DomainStatus.String == "active":
+	case target.MailboxID.Valid && target.ArchiveMailboxID.Valid && target.MailboxID.Int64 == target.ArchiveMailboxID.Int64 && target.Address.Valid && safeKickAddress(target.Address.String) && target.ArchiveDeletedAt == 0 && target.ArchiveMessageID == target.MessageID && target.TenantStatus == "active" && target.MailboxStatus.String == "active" && target.DomainStatus.String == "active":
 		// ARC-01: expunge matches on Message-ID, so a second archived copy of
 		// the same message under legal hold would lose its Maildir original
 		// together with the recalled copy. Refuse instead of guessing.

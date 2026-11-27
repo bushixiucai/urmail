@@ -55,7 +55,7 @@ func (i offsiteDestinationInput) toDestination() backupauto.Destination {
 
 func (h *BackupOffsiteAdminHandler) loadDestination(c *gin.Context) (backupauto.Destination, bool, error) {
 	q := requestStore(c, h.Store)
-	row, err := q.PlatformGetSetting(c, backupauto.DestinationSettingsKey)
+	row, err := q.PlatformGetSetting(c.Request.Context(), backupauto.DestinationSettingsKey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return backupauto.Destination{}, false, nil
 	}
@@ -174,7 +174,7 @@ func (h *BackupOffsiteAdminHandler) Put(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		if err := q.PlatformDeleteSetting(c, backupauto.DestinationSettingsKey); err != nil {
+		if err := q.PlatformDeleteSetting(c.Request.Context(), backupauto.DestinationSettingsKey); err != nil {
 			authError(c, 500, "DB_ERROR")
 			return
 		}
@@ -214,7 +214,7 @@ func (h *BackupOffsiteAdminHandler) Put(c *gin.Context) {
 		authError(c, 500, "INTERNAL_ERROR")
 		return
 	}
-	if err = q.PlatformUpsertSetting(c, store.PlatformUpsertSettingParams{Key: backupauto.DestinationSettingsKey, Value: value}); err != nil {
+	if err = q.PlatformUpsertSetting(c.Request.Context(), store.PlatformUpsertSettingParams{Key: backupauto.DestinationSettingsKey, Value: value}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -13,6 +14,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -138,7 +143,7 @@ func importAggregate(job store.MailboxImportJobs, items []store.MailboxImportIte
 	if job.Status == "preview" || job.Status == "canceled" || job.Status == "held" {
 		return job.Status
 	}
-	if job.LeaseUntil.Valid && job.LeaseUntil.Time.After(time.Now()) && job.LeaseToken != "" {
+	if job.LeaseUntil != 0 && timeutil.FromMicro(job.LeaseUntil).After(time.Now()) && job.LeaseToken != "" {
 		return "running"
 	}
 	pending, unknown, failed := false, false, false
@@ -170,28 +175,106 @@ func importJobDTO(job store.MailboxImportJobs, items []store.MailboxImportItems)
 		views = append(views, importItemDTO(item))
 		counts[item.Status]++
 	}
-	return gin.H{"id": job.ID, "version": job.Version, "status": importAggregate(job, items), "format": job.Format, "filename": job.Filename, "folder_enc": webmail.EncodeFolderName(job.Folder), "uid_validity": job.UidValidity, "source_digest": job.SourceDigest, "preview_digest": job.PreviewDigest, "duplicate_policy": job.DuplicatePolicy, "bytes": job.SourceBytes, "total": len(items), "expires_at": job.PreviewExpiresAt.Time, "payload_expires_at": job.PayloadExpiresAt.Time, "confirmed_at": job.ConfirmedAt, "cancel_requested": job.CancelRequested, "counts": counts, "items": views}
+	return gin.H{"id": job.ID, "version": job.Version, "status": importAggregate(job, items), "format": job.Format, "filename": job.Filename, "folder_enc": webmail.EncodeFolderName(job.Folder), "uid_validity": job.UidValidity, "source_digest": job.SourceDigest, "preview_digest": job.PreviewDigest, "duplicate_policy": job.DuplicatePolicy, "bytes": job.SourceBytes, "total": len(items), "expires_at": timeutil.FromMicro(job.PreviewExpiresAt), "payload_expires_at": timeutil.FromMicro(job.PayloadExpiresAt), "confirmed_at": job.ConfirmedAt, "cancel_requested": job.CancelRequested, "counts": counts, "items": views}
 }
+
+// importViewMicros decodes a JSON timestamp written by PostgreSQL to_jsonb
+// (RFC3339 text) or by the SQLite view (int64 microseconds). It keeps
+// microsecond precision and refuses any other shape.
+type importViewMicros int64
+
+func (m *importViewMicros) UnmarshalJSON(b []byte) error {
+	if bytes.Equal(b, []byte("null")) {
+		*m = 0
+		return nil
+	}
+	if len(b) > 0 && b[0] == '"' {
+		var text string
+		if err := json.Unmarshal(b, &text); err != nil {
+			return err
+		}
+		value, err := time.Parse(time.RFC3339Nano, text)
+		if err != nil {
+			return err
+		}
+		*m = importViewMicros(value.UTC().UnixMicro())
+		return nil
+	}
+	var value int64
+	if err := json.Unmarshal(b, &value); err != nil {
+		return err
+	}
+	*m = importViewMicros(value)
+	return nil
+}
+
+// mailboxImportItemView mirrors the redacted MailboxImportItemViews JSON row.
+// raw_secret is never present (the SQL strips it); the model field stays empty.
+type mailboxImportItemView struct {
+	TenantID         int64            `json:"tenant_id"`
+	MailboxID        int64            `json:"mailbox_id"`
+	JobID            int64            `json:"job_id"`
+	ItemIndex        int32            `json:"item_index"`
+	Subject          string           `json:"subject"`
+	MessageID        string           `json:"message_id"`
+	RawSha256        string           `json:"raw_sha256"`
+	RawBytes         int64            `json:"raw_bytes"`
+	Selected         bool             `json:"selected"`
+	Status           string           `json:"status"`
+	ErrorCode        string           `json:"error_code"`
+	DuplicateOf      int32            `json:"duplicate_of"`
+	BaselineUids     []int64          `json:"baseline_uids"`
+	DestinationUID   *int64           `json:"destination_uid"`
+	Attempts         int32            `json:"attempts"`
+	AttemptStartedAt importViewMicros `json:"attempt_started_at"`
+	ReconciledAt     importViewMicros `json:"reconciled_at"`
+	ReconcileAbsent  bool             `json:"reconcile_absent"`
+	ReviewReason     string           `json:"review_reason"`
+	UpdatedAt        importViewMicros `json:"updated_at"`
+}
+
+func importItemsFromViews(views []mailboxImportItemView) []store.MailboxImportItems {
+	items := make([]store.MailboxImportItems, 0, len(views))
+	for _, v := range views {
+		uid := pgtype.Int8{}
+		if v.DestinationUID != nil {
+			uid = pgtype.Int8{Int64: *v.DestinationUID, Valid: true}
+		}
+		items = append(items, store.MailboxImportItems{
+			TenantID: v.TenantID, MailboxID: v.MailboxID, JobID: v.JobID, ItemIndex: v.ItemIndex,
+			Subject: v.Subject, MessageID: v.MessageID, RawSha256: v.RawSha256, RawBytes: v.RawBytes,
+			RawSecret: "", Selected: v.Selected, Status: v.Status, ErrorCode: v.ErrorCode,
+			DuplicateOf: v.DuplicateOf, BaselineUids: v.BaselineUids, DestinationUid: uid,
+			Attempts: v.Attempts, AttemptStartedAt: int64(v.AttemptStartedAt), ReconciledAt: int64(v.ReconciledAt),
+			ReconcileAbsent: v.ReconcileAbsent, ReviewReason: v.ReviewReason, UpdatedAt: int64(v.UpdatedAt),
+		})
+	}
+	return items
+}
+
 func importLoad(ctx context.Context, q *store.Queries, sess webmail.Session, id int64, lock bool, payload ...bool) (store.MailboxImportJobs, []store.MailboxImportItems, error) {
 	var job store.MailboxImportJobs
 	var err error
 	if lock {
-		job, err = q.LockMailboxImportJob(ctx, store.LockMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
+		job, err = q.LockMailboxImportJob(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.LockMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	} else {
-		job, err = q.GetMailboxImportJob(ctx, store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
+		job, err = q.GetMailboxImportJob(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	}
 	if err != nil {
 		return job, nil, err
 	}
 	if len(payload) > 0 && !payload[0] {
-		raw, e := q.MailboxImportItemViews(ctx, store.MailboxImportItemViewsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, JobID: id})
-		var items []store.MailboxImportItems
+		raw, e := q.MailboxImportItemViews(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.MailboxImportItemViewsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, JobID: id})
+		var views []mailboxImportItemView
 		if e == nil {
-			e = json.Unmarshal(raw, &items)
+			e = json.Unmarshal(raw, &views)
 		}
-		return job, items, e
+		if e != nil {
+			return job, nil, e
+		}
+		return job, importItemsFromViews(views), nil
 	}
-	items, err := q.ListMailboxImportItems(ctx, store.ListMailboxImportItemsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, JobID: id})
+	items, err := q.ListMailboxImportItems(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.ListMailboxImportItemsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, JobID: id})
 	return job, items, err
 }
 func (h *MailboxImports) respond(c *gin.Context, sess webmail.Session, id int64, status int) {
@@ -200,8 +283,8 @@ func (h *MailboxImports) respond(c *gin.Context, sess webmail.Session, id int64,
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	if e = q.MailboxImportRecoverExpiredLeases(c, store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
+	q := db.Queries(tx)
+	if e = q.MailboxImportRecoverExpiredLeases(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
 		return
 	}
 	job, items, e := importLoad(c, q, sess, id, false, false)
@@ -238,11 +321,11 @@ func (h *MailboxImports) List(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	if e = q.MailboxImportRecoverExpiredLeases(c, store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
+	q := db.Queries(tx)
+	if e = q.MailboxImportRecoverExpiredLeases(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
 		return
 	}
-	jobs, e := q.ListMailboxImportJobs(c, store.ListMailboxImportJobsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	jobs, e := q.ListMailboxImportJobs(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.ListMailboxImportJobsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if importDBError(c, e) {
 		return
 	}
@@ -302,8 +385,8 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 		return
 	}
 	// The request key freezes all source and target parameters before new I/O.
-	q := store.New(h.Native.Pool)
-	prior, e := q.GetMailboxImportByKey(c, store.GetMailboxImportByKeyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key})
+	q := db.Queries(h.Native.Pool)
+	prior, e := q.GetMailboxImportByKey(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.GetMailboxImportByKeyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key})
 	if e == nil {
 		if !importSourceMatches(prior, parsed, folder, in) {
 			authError(c, 409, "MAIL_IMPORT_SOURCE_CONFLICT")
@@ -383,18 +466,18 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q = store.New(tx)
-	if e = q.LockMailboxImportTenantBudget(c, sess.TenantID); importDBError(c, e) {
+	q = db.Queries(tx)
+	if e = q.LockMailboxImportTenantBudget(c.Request.Context(), sess.TenantID); importDBError(c, e) {
 		return
 	}
-	if _, e = q.LockMailboxImportOwner(c, store.LockMailboxImportOwnerParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
+	if _, e = q.LockMailboxImportOwner(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.LockMailboxImportOwnerParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
 		return
 	}
-	if e = q.ClearExpiredMailboxImportPayloads(c, sess.TenantID); importDBError(c, e) {
+	if e = q.ClearExpiredMailboxImportPayloads(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), sess.TenantID); importDBError(c, e) {
 		return
 	}
 	// Serialize key replay under the mailbox row lock before creating payloads.
-	if existing, e := q.GetMailboxImportByKey(c, store.GetMailboxImportByKeyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key}); e == nil {
+	if existing, e := q.GetMailboxImportByKey(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.GetMailboxImportByKeyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key}); e == nil {
 		if !importSourceMatches(existing, parsed, folder, in) {
 			authError(c, 409, "MAIL_IMPORT_SOURCE_CONFLICT")
 			return
@@ -410,7 +493,7 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 		importDBError(c, e)
 		return
 	}
-	budget, e := q.MailboxImportStorageBudget(c, store.MailboxImportStorageBudgetParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	budget, e := q.MailboxImportStorageBudget(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.MailboxImportStorageBudgetParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if importDBError(c, e) {
 		return
 	}
@@ -418,13 +501,13 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 		authError(c, 429, "MAIL_IMPORT_BUDGET_EXCEEDED")
 		return
 	}
-	job, e := q.CreateMailboxImportJob(c, store.CreateMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key, Format: parsed.Format, Filename: parsed.Filename, Folder: folder, UidValidity: int64(in.UIDValidity), SourceDigest: parsed.SourceDigest, PreviewDigest: proof, DuplicatePolicy: in.DuplicatePolicy, SourceBytes: int64(len(source))})
+	job, e := q.CreateMailboxImportJob(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.CreateMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key, Format: parsed.Format, Filename: parsed.Filename, Folder: folder, UidValidity: int64(in.UIDValidity), SourceDigest: parsed.SourceDigest, PreviewDigest: proof, DuplicatePolicy: in.DuplicatePolicy, SourceBytes: int64(len(source))})
 	if importDBError(c, e) {
 		return
 	}
 	for _, row := range prepared {
 		row.JobID = job.ID
-		if e = q.CreateMailboxImportItem(c, row); importDBError(c, e) {
+		if e = q.CreateMailboxImportItem(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), row); importDBError(c, e) {
 			return
 		}
 	}
@@ -435,9 +518,9 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 }
 
 func importUpdateItem(ctx context.Context, q *store.Queries, item store.MailboxImportItems, fence string, start, reconciled, clearPayload bool) (bool, error) {
-	n, e := q.SetMailboxImportItem(ctx, store.SetMailboxImportItemParams{TenantID: item.TenantID, MailboxID: item.MailboxID, JobID: item.JobID, ItemIndex: item.ItemIndex, Selected: item.Selected, Status: item.Status, ErrorCode: item.ErrorCode, BaselineUids: item.BaselineUids, DestinationUid: item.DestinationUid, StartAttempt: start, Reconciled: reconciled, ReconcileAbsent: item.ReconcileAbsent, ReviewReason: item.ReviewReason, ClearPayload: clearPayload, LeaseFence: fence})
+	n, e := q.SetMailboxImportItem(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: item.TenantID}), store.SetMailboxImportItemParams{TenantID: item.TenantID, MailboxID: item.MailboxID, JobID: item.JobID, ItemIndex: item.ItemIndex, Selected: item.Selected, Status: item.Status, ErrorCode: item.ErrorCode, BaselineUids: item.BaselineUids, DestinationUid: item.DestinationUid, StartAttempt: start, Reconciled: reconciled, ReconcileAbsent: item.ReconcileAbsent, ReviewReason: item.ReviewReason, ClearPayload: clearPayload, LeaseFence: fence})
 	return n == 1, e
 }
-func importUpdateJob(ctx context.Context, q *store.Queries, job store.MailboxImportJobs, status, token string, until pgtype.Timestamptz, confirm, cancel bool) (store.MailboxImportJobs, error) {
-	return q.SetMailboxImportJob(ctx, store.SetMailboxImportJobParams{TenantID: job.TenantID, MailboxID: job.MailboxID, JobID: job.ID, ExpectedVersion: job.Version, Status: status, LeaseToken: token, LeaseUntil: until, Confirm: confirm, CancelRequested: cancel})
+func importUpdateJob(ctx context.Context, q *store.Queries, job store.MailboxImportJobs, status, token string, until int64, confirm, cancel bool) (store.MailboxImportJobs, error) {
+	return q.SetMailboxImportJob(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: job.TenantID}), store.SetMailboxImportJobParams{TenantID: job.TenantID, MailboxID: job.MailboxID, JobID: job.ID, ExpectedVersion: job.Version, Status: status, LeaseToken: token, LeaseUntil: until, Confirm: confirm, CancelRequested: cancel})
 }

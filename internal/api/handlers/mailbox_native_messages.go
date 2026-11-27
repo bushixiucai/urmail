@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,10 +15,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailauth"
 	"github.com/bushixiucai/urmail/internal/rendercache"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -45,9 +49,27 @@ import (
 //     By default each message carries a plain-text snippet (preview) fetched
 //     with one batched, byte-bounded IMAP command per page.
 func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
-	folder, ok := h.folderParam(c)
-	if !ok {
-		return
+	var (
+		folder string
+		ok     bool
+	)
+	if c.FullPath() == "/api/v1/mailbox/messages" {
+		rawFolder := strings.TrimSpace(c.Query("folder"))
+		if rawFolder == "" {
+			folder = "INBOX"
+		} else {
+			var decErr error
+			folder, decErr = webmail.DecodeFolderName(rawFolder)
+			if decErr != nil {
+				authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+				return
+			}
+		}
+	} else {
+		folder, ok = h.folderParam(c)
+		if !ok {
+			return
+		}
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
@@ -66,12 +88,6 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
 		return
 	}
-	client, _, ok := h.dialIMAP(c)
-	if !ok {
-		return
-	}
-	defer func() { _ = client.Close() }()
-
 	opts := webmail.ClampListOpts(webmail.ListOpts{
 		Limit:     limit,
 		Offset:    offset,
@@ -82,14 +98,44 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 		Thread:    thread,
 		Preview:   !isDisabledParam(c.Query("preview")),
 	})
-	result, err := client.ListMessages(c.Request.Context(), folder, opts)
-	if err != nil {
-		if errors.Is(err, webmail.ErrInvalidSearchQuery) {
-			authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
+	var result webmail.ListResult
+	if h.ReadOnlyStore != nil {
+		if !h.requireEnabled(c) {
 			return
 		}
-		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
-		return
+		session, sessOK := middleware.GetMailboxSession(c)
+		if !sessOK || session.TenantID <= 0 || session.MailboxID <= 0 {
+			authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+			return
+		}
+		result, err = h.ReadOnlyStore.ListMessages(c.Request.Context(), session.TenantID, session.MailboxID, folder, opts)
+		if err != nil {
+			switch {
+			case errors.Is(err, webmail.ErrInvalidSearchQuery):
+				authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
+			case errors.Is(err, ErrFolderNotFound), errors.Is(err, sql.ErrNoRows), errors.Is(err, ErrMailboxNotFound):
+				authError(c, http.StatusNotFound, "MESSAGE_NOT_FOUND")
+			default:
+				authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+			}
+			return
+		}
+	} else {
+		client, _, dialOK := h.dialIMAP(c)
+		if !dialOK {
+			return
+		}
+		defer func() { _ = client.Close() }()
+
+		result, err = client.ListMessages(c.Request.Context(), folder, opts)
+		if err != nil {
+			if errors.Is(err, webmail.ErrInvalidSearchQuery) {
+				authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
+				return
+			}
+			authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
+			return
+		}
 	}
 	if result.Messages == nil {
 		result.Messages = []webmail.MessageSummary{}
@@ -702,12 +748,12 @@ func lookupPhishingFinding(ctx context.Context, pool *db.Pool, session webmail.S
 	if err != nil {
 		return nil
 	}
-	row, err := store.New(tx).PlatformGetMailboxPhishingFinding(ctx, store.PlatformGetMailboxPhishingFindingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Folder: folder, UidValidity: int64(uidValidity), Uid: int64(uid)})
+	row, err := db.Queries(tx).PlatformGetMailboxPhishingFinding(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetMailboxPhishingFindingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Folder: folder, UidValidity: int64(uidValidity), Uid: int64(uid)})
 	_ = tx.Rollback(ctx)
 	if err != nil {
 		return nil
 	}
-	return phishingFindingFromPayload(row.Result, row.UpdatedAt.Time)
+	return phishingFindingFromPayload(row.Result, timeutil.FromMicro(row.UpdatedAt))
 }
 
 // phishingFindingFromPayload decodes a persisted phishing_v2 payload.

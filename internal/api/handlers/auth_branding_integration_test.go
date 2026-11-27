@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pquerna/otp/totp"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -56,10 +57,10 @@ func authIntegrationDatabase(t *testing.T) (*db.Pool, *db.Pool) {
 	}
 	t.Cleanup(app.Close)
 	var role string
-	if err = platform.QueryRow(context.Background(), "SELECT current_user").Scan(&role); err != nil || role != db.RolePlatform {
+	if err = platform.QueryRow(context.Background(), "SELECT current_user").Scan(&role); err != nil || role != "urmail_platform" || !platform.IsPlatform() {
 		t.Fatal("integration platform role is not active")
 	}
-	if err = app.QueryRow(context.Background(), "SELECT current_user").Scan(&role); err != nil || role != db.RoleApp {
+	if err = app.QueryRow(context.Background(), "SELECT current_user").Scan(&role); err != nil || role != "urmail_app" || app.IsPlatform() {
 		t.Fatal("integration app role is not active")
 	}
 	return platform, app
@@ -191,7 +192,7 @@ func TestAuthCredentialsAndBrandingWithRealRoles(t *testing.T) {
 	}
 	readCredential, readID := create([]string{"legacy:read"})
 	otherUser := scalar("INSERT INTO users(email,password_hash) VALUES('other@example.test',$1) RETURNING id", hash)
-	_, err = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken("other-panel"), UserID: otherUser, ExpectedHash: hash, ExpectedVersion: 0, CsrfToken: "other-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	_, err = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken("other-panel"), UserID: otherUser, ExpectedHash: hash, ExpectedVersion: 0, CsrfToken: "other-csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))})
 	if err != nil {
 		t.Fatal(err)
 	}

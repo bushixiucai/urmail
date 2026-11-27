@@ -15,6 +15,8 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/usagesync"
 )
 
 // version is stamped by the release build.
@@ -68,6 +70,45 @@ func run() error {
 	defer manager.Close()
 	stopAccessWatcher := manager.StartMailAccessWatcher(ctx, logger)
 	defer stopAccessWatcher()
+
+	if cfg.BackgroundWorkersAllowed() {
+		backupSched := &agentd.BackupScheduler{
+			StateRoot: manager.StateRoot(),
+			Logger:    logger,
+		}
+		agentd.RegisterBackupScheduler(backupSched)
+		stopBackupSched := backupSched.Start(ctx)
+		defer func() {
+			stopBackupSched()
+			agentd.RegisterBackupScheduler(nil)
+		}()
+
+		certSched := &agentd.CertScheduler{
+			Manager: manager,
+			Logger:  logger,
+		}
+		stopCertSched := certSched.Start(ctx)
+		defer stopCertSched()
+
+		usageSched := &usagesync.Scheduler{
+			Logger: logger,
+			SyncFn: func(syncCtx context.Context) (int, error) {
+				pool, poolErr := db.OpenPlatform(syncCtx, cfg.DatabaseURLPlatform)
+				if poolErr != nil {
+					return 0, poolErr
+				}
+				defer pool.Close()
+				return usagesync.Sync(syncCtx, usagesync.Options{
+					Pool:            pool,
+					StorageRoot:     cfg.StorageRoot,
+					MaintenanceRoot: os.Getenv("URMAIL_MAINTENANCE_ROOT"),
+				})
+			},
+		}
+		stopUsageSched := usageSched.Start(ctx)
+		defer stopUsageSched()
+	}
+
 	registry := agentd.NewProductionRegistry(manager)
 
 	server := agentd.NewServer(cfg.AgentSocket, registry, logger)

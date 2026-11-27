@@ -19,10 +19,35 @@ import (
 	"github.com/bushixiucai/urmail/internal/backupauto"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/secrets"
+	"github.com/bushixiucai/urmail/internal/sqlitedb"
 )
 
 const automaticBackupSpool = "/var/backups/urmail"
+
+// openBackupPlatformPool opens the platform store for backup bookkeeping on
+// the configured engine. SQLite single-engine mode never builds a PostgreSQL
+// connection: the DSN does not exist there, and pingng it would fail every
+// automatic backup before it could record pending_local_only.
+func openBackupPlatformPool(ctx context.Context, cfg *config.Config) (*db.Pool, error) {
+	if cfg.IsSQLite() {
+		if strings.TrimSpace(cfg.SQLitePath) == "" {
+			return nil, errors.New("SQLite backup bookkeeping requires URMAIL_SQLITE_PATH")
+		}
+		raw, err := sqlitedb.OpenExisting(ctx, cfg.SQLitePath, sqlitedb.ExpectedSchemaVersion)
+		if err != nil {
+			return nil, fmt.Errorf("open sqlite backup bookkeeping: %w", err)
+		}
+		pool, err := db.NewSQLitePool(raw, isolation.ScopePlatform)
+		if err != nil {
+			_ = raw.Close()
+			return nil, err
+		}
+		return pool, nil
+	}
+	return db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+}
 
 // offsiteDestinationFromSettings resolves the platform-admin-configured
 // offsite destination (BE-04) from the settings table. The returned
@@ -30,7 +55,7 @@ const automaticBackupSpool = "/var/backups/urmail"
 // recipient comes from the row when the caller passes an empty one; it is
 // a public key and never secret.
 func offsiteDestinationFromSettings(ctx context.Context, cfg *config.Config, recipient string) (resolvedRecipient, uri string, creds backupauto.Credentials, disabled bool, err error) {
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	pool, err := openBackupPlatformPool(ctx, cfg)
 	if err != nil {
 		return "", "", backupauto.Credentials{}, false, err
 	}
@@ -88,7 +113,9 @@ func runBackupAuto(ctx context.Context, args []string) error {
 	if os.Geteuid() != 0 || len(args) != 0 {
 		return errors.New("backup-auto requires root and no arguments")
 	}
-	if backupWritersHeld() {
+	if held, heldErr := backupWritersHeldChecked(); heldErr != nil {
+		return heldErr
+	} else if held {
 		fmt.Println("automatic backup disabled by restore or upgrade hold")
 		return nil
 	}
@@ -97,7 +124,9 @@ func runBackupAuto(ctx context.Context, args []string) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
-	if backupWritersHeld() {
+	if held, heldErr := backupWritersHeldChecked(); heldErr != nil {
+		return heldErr
+	} else if held {
 		fmt.Println("automatic backup disabled by restore or upgrade hold")
 		return nil
 	}
@@ -123,6 +152,9 @@ func runBackupAuto(ctx context.Context, args []string) error {
 		}
 	}
 	recipient, uri := get("URMAIL_BACKUP_AGE_RECIPIENT"), get("URMAIL_BACKUP_OFFSITE_URI")
+	// An explicit operator approval is the only way to record a local complete
+	// backup when no offsite destination exists. Empty without it.
+	localOnly := get("URMAIL_BACKUP_ALLOW_LOCAL_ONLY") == "1"
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -146,27 +178,39 @@ func runBackupAuto(ctx context.Context, args []string) error {
 			return err
 		}
 		if disabled {
-			if recipient == "" {
-				fmt.Println("automatic backup disabled: recipient and offsite destination are not configured")
-				return nil
+			if !localOnly {
+				if recipient == "" {
+					fmt.Println("automatic backup disabled: recipient and offsite destination are not configured")
+					return nil
+				}
+				return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
 			}
-			return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
 		}
 		if recipient == "" {
 			recipient = resolvedRecipient
 		}
 		uri, creds = resolvedURI, resolvedCreds
 	}
-	if recipient == "" {
+	if uri == "" && !localOnly {
 		return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
 	}
-	if _, err = backupauto.ParseRecipient(recipient); err != nil {
-		return errors.New("invalid automatic backup age public recipient")
+	if uri == "" {
+		// Explicit local-only approval: no offsite credentials are accepted
+		// and the run is recorded as pending_local_only, never as uploaded.
+		recipient = ""
 	}
-	if strings.HasPrefix(uri, "sftp://") && (creds.SFTP.HostKeyFingerprint == "" || (creds.SFTP.Password == "" && creds.SFTP.PrivateKeyPath == "")) {
+	if uri != "" && recipient == "" {
+		return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
+	}
+	if uri != "" {
+		if _, err = backupauto.ParseRecipient(recipient); err != nil {
+			return errors.New("invalid automatic backup age public recipient")
+		}
+	}
+	if uri != "" && strings.HasPrefix(uri, "sftp://") && (creds.SFTP.HostKeyFingerprint == "" || (creds.SFTP.Password == "" && creds.SFTP.PrivateKeyPath == "")) {
 		return errors.New("automatic SFTP backup requires authentication and a pinned SSH host fingerprint")
 	}
-	if creds.SFTP.PrivateKeyPath != "" && strings.HasPrefix(uri, "sftp://") {
+	if uri != "" && creds.SFTP.PrivateKeyPath != "" && strings.HasPrefix(uri, "sftp://") {
 		keyPath := filepath.Clean(creds.SFTP.PrivateKeyPath)
 
 		if err = validatePrivateBackupDirectory(filepath.Dir(keyPath)); err != nil {
@@ -176,11 +220,14 @@ func runBackupAuto(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	store, err := backupauto.ParseDestination(uri, creds)
-	if err != nil {
-		return errors.New("invalid automatic backup destination or credentials")
+	var store backupauto.OffsiteStore
+	if uri != "" {
+		store, err = backupauto.ParseDestination(uri, creds)
+		if err != nil {
+			return errors.New("invalid automatic backup destination or credentials")
+		}
 	}
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	pool, err := openBackupPlatformPool(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -190,7 +237,12 @@ func runBackupAuto(ctx context.Context, args []string) error {
 	if _, err = (&backupauto.StateRecorder{Pool: pool}).StaleRunning(ctx, 0, time.Now()); err != nil {
 		return err
 	}
-	worker := backupauto.Worker{Pool: pool, Runner: rootBackupRunner{}, Store: store, Recipient: recipient, OffsiteURI: uri, Interval: envDuration("URMAIL_BACKUP_INTERVAL_HOURS", backupauto.DefaultInterval), Retention: envRetention()}
+	worker := backupauto.Worker{Pool: pool, Runner: rootBackupRunner{}, Interval: envDuration("URMAIL_BACKUP_INTERVAL_HOURS", backupauto.DefaultInterval), Retention: envRetention()}
+	if uri == "" {
+		worker.LocalOnly = true
+	} else {
+		worker.Store, worker.Recipient, worker.OffsiteURI = store, recipient, uri
+	}
 	return worker.RunOnce(ctx)
 }
 

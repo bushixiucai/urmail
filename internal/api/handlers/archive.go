@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -35,15 +37,15 @@ func NewArchiveHandler(s ArchiveStore) *ArchiveHandler {
 
 // ArchiveResponse defines the tenant mail management contract.
 type ArchiveResponse struct {
-	ID         int64              `json:"id"`
-	MailboxID  pgtype.Int8        `json:"mailbox_id"`
-	MessageID  string             `json:"message_id"`
-	Subject    pgtype.Text        `json:"subject"`
-	FromAddr   pgtype.Text        `json:"from_addr"`
-	ToAddr     pgtype.Text        `json:"to_addr"`
-	ReceivedAt pgtype.Timestamptz `json:"received_at"`
-	SizeBytes  int64              `json:"size_bytes"`
-	LegalHold  bool               `json:"legal_hold"`
+	ID         int64       `json:"id"`
+	MailboxID  pgtype.Int8 `json:"mailbox_id"`
+	MessageID  string      `json:"message_id"`
+	Subject    pgtype.Text `json:"subject"`
+	FromAddr   pgtype.Text `json:"from_addr"`
+	ToAddr     pgtype.Text `json:"to_addr"`
+	ReceivedAt time.Time   `json:"received_at"`
+	SizeBytes  int64       `json:"size_bytes"`
+	LegalHold  bool        `json:"legal_hold"`
 }
 
 func newArchiveResponse(a store.ArchiveEntries) ArchiveResponse {
@@ -54,7 +56,7 @@ func newArchiveResponse(a store.ArchiveEntries) ArchiveResponse {
 		Subject:    a.Subject,
 		FromAddr:   a.FromAddr,
 		ToAddr:     a.ToAddr,
-		ReceivedAt: a.ReceivedAt,
+		ReceivedAt: timeutil.FromMicro(a.ReceivedAt),
 		SizeBytes:  a.SizeBytes,
 		LegalHold:  a.LegalHold,
 	}
@@ -68,19 +70,19 @@ func (h *ArchiveHandler) List(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	limit := int32(50)
-	offset := int32(0)
+	limit := int64(50)
+	offset := int64(0)
 	if raw := c.Query("limit"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v > 0 && v <= 200 {
-			limit = int32(v)
+			limit = v
 		}
 	}
 	if raw := c.Query("offset"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v >= 0 {
-			offset = int32(v)
+			offset = v
 		}
 	}
-	entries, err := q.ListArchiveEntriesByTenant(c, store.ListArchiveEntriesByTenantParams{
+	entries, err := q.ListArchiveEntriesByTenant(c.Request.Context(), store.ListArchiveEntriesByTenantParams{
 		TenantID: tenantID,
 		Limit:    limit,
 		Offset:   offset,
@@ -126,9 +128,9 @@ func (h *ArchiveHandler) mutateHold(c *gin.Context, held bool) {
 	}
 	var entry store.ArchiveEntries
 	if held {
-		entry, err = q.SetArchiveEntryLegalHold(c, store.SetArchiveEntryLegalHoldParams{TenantID: tenantID, ID: id})
+		entry, err = q.SetArchiveEntryLegalHold(c.Request.Context(), store.SetArchiveEntryLegalHoldParams{TenantID: tenantID, ID: id})
 	} else {
-		entry, err = q.ClearArchiveEntryLegalHold(c, store.ClearArchiveEntryLegalHoldParams{TenantID: tenantID, ID: id})
+		entry, err = q.ClearArchiveEntryLegalHold(c.Request.Context(), store.ClearArchiveEntryLegalHoldParams{TenantID: tenantID, ID: id})
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
@@ -160,7 +162,7 @@ func (h *ArchiveHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
-	deletedID, err := q.SoftDeleteArchiveEntry(c, store.SoftDeleteArchiveEntryParams{TenantID: tenantID, ID: id})
+	deletedID, err := q.SoftDeleteArchiveEntry(c.Request.Context(), store.SoftDeleteArchiveEntryParams{TenantID: tenantID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "LEGAL_HOLD"}})
 		return

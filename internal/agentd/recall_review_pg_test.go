@@ -121,7 +121,7 @@ func (f *recallReviewFixture) review(t *testing.T, actor int64, selected []uint3
 	}
 	defer func() { _ = tx.Rollback(t.Context()) }()
 	q := store.New(tx)
-	stored, err := q.StoreRecallReviewPreview(t.Context(), store.StoreRecallReviewPreviewParams{TenantID: f.tenant, ActorID: actor, EntryID: f.entry, Token: uuid.NewString(), Digest: digest, Snapshot: []byte(raw)})
+	stored, err := q.StoreRecallReviewPreview(t.Context(), store.StoreRecallReviewPreviewParams{TenantID: f.tenant, ActorID: actor, EntryID: f.entry, Token: pgtype.Text{String: uuid.NewString(), Valid: true}, Digest: pgtype.Text{String: digest, Valid: true}, Snapshot: []byte(raw)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func (f *recallReviewFixture) review(t *testing.T, actor int64, selected []uint3
 	if err = tx.Commit(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	return store.RecallRequests(confirmed)
+	return confirmed
 }
 func (f *recallReviewFixture) execute(t *testing.T, row store.RecallRequests) store.RecallRequests {
 	t.Helper()

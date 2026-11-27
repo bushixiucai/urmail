@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/nginx"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // transportHosts derives certificate identities from current database-owned
@@ -19,9 +19,9 @@ func (m *ApplyManager) transportHosts(domains []postfix.Domain) ([]string, error
 	if m.pool == nil {
 		return nil, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := platformContext(3 * time.Second)
 	defer cancel()
-	rows, err := store.New(m.pool).PlatformListTransportSecurity(ctx)
+	rows, err := db.Queries(m.pool).PlatformListTransportSecurity(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func (m *ApplyManager) transportCertificateAllowed(host string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	allowed, err := store.New(m.pool).PlatformTransportCertificateAllowed(ctx, host)
+	allowed, err := db.Queries(m.pool).PlatformTransportCertificateAllowed(ctx, host)
 	return err == nil && allowed
 }
 func (m *ApplyManager) transportNginxDomains() []nginx.DomainConfig {

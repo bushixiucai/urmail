@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -37,8 +40,8 @@ func (s *Server) handlePing(ctx context.Context, sess Session, deviceID string, 
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
-	saved, err := q.GetMailboxEASPingConfig(ctx, store.GetMailboxEASPingConfigParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, DeviceID: deviceID})
+	q := db.Queries(tx)
+	saved, err := q.GetMailboxEASPingConfig(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.GetMailboxEASPingConfigParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, DeviceID: deviceID})
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +122,7 @@ func (s *Server) handlePing(ctx context.Context, sess Session, deviceID string, 
 	if err != nil {
 		return nil, err
 	}
-	count, err := store.New(tx).SetMailboxEASPingConfig(ctx, store.SetMailboxEASPingConfigParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, DeviceID: deviceID, PingHeartbeat: int32(hb), PingFolders: raw})
+	count, err := db.Queries(tx).SetMailboxEASPingConfig(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.SetMailboxEASPingConfigParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, DeviceID: deviceID, PingHeartbeat: int32(hb), PingFolders: raw})
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +191,7 @@ func (s *Server) handlePing(ctx context.Context, sess Session, deviceID string, 
 		if err != nil {
 			return nil, err
 		}
-		_, writeErr := store.New(progress).SetMailboxEASPingConfig(ctx, store.SetMailboxEASPingConfigParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, DeviceID: deviceID, PingHeartbeat: int32(hb), PingFolders: encoded})
+		_, writeErr := db.Queries(progress).SetMailboxEASPingConfig(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.SetMailboxEASPingConfigParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, DeviceID: deviceID, PingHeartbeat: int32(hb), PingFolders: encoded})
 		if writeErr == nil {
 			writeErr = progress.Commit(ctx)
 		} else {
@@ -283,5 +286,5 @@ func (s *Server) pingCollectionChanged(ctx context.Context, sess Session, device
 		return false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	return store.New(tx).MailboxEASPingCollectionChanged(ctx, store.MailboxEASPingCollectionChangedParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ResourceType: kind, ResourceID: resourceID, ID: state.ChangeSeq})
+	return db.Queries(tx).MailboxEASPingCollectionChanged(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}), store.MailboxEASPingCollectionChangedParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ResourceType: kind, ResourceID: resourceID, ID: state.ChangeSeq})
 }

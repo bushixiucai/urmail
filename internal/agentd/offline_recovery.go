@@ -42,8 +42,11 @@ func RecoverPendingJournalOffline(ctx context.Context, maintenanceRoot string) (
 	if os.Getenv(maintenance.InstallerLeaseEnv) != "" {
 		return "", errors.New("offline pending recovery refuses inherited installer lease")
 	}
-	stateRoot := StateRoot
-	stateInfo, stateErr := os.Lstat(stateRoot)
+	stateRoot, err := resolveStateRootPath(os.Getenv("URMAIL_AGENT_STATE_ROOT"))
+	if err != nil {
+		return "", err
+	}
+	stateInfo, stateErr := os.Lstat(stateRoot) // #nosec G703 -- root-only offline recovery validates non-root absolute URMAIL_AGENT_STATE_ROOT and root-owned 0700 directory.
 	if stateErr != nil || !stateInfo.IsDir() || stateInfo.Mode()&os.ModeSymlink != 0 || stateInfo.Mode().Perm() != 0700 {
 		return "", errors.New("agent state root must be a private real directory")
 	}
@@ -55,7 +58,7 @@ func RecoverPendingJournalOffline(ctx context.Context, maintenanceRoot string) (
 	if err != nil {
 		return "", err
 	}
-	if err := verifyOfflineWritersForRecovery(ctx, root, holdHash, StateRoot, false); err != nil {
+	if err := verifyOfflineWritersForRecovery(ctx, root, holdHash, stateRoot, false); err != nil {
 		return "", err
 	}
 	lock, err := acquireOfflineRecoveryLock(ctx, root)
@@ -70,7 +73,7 @@ func RecoverPendingJournalOffline(ctx context.Context, maintenanceRoot string) (
 	if holdHashAfterLock != holdHash {
 		return "", errors.New("upgrade hold changed while acquiring operation lock")
 	}
-	if err := verifyOfflineWritersForRecovery(ctx, root, holdHash, StateRoot, true); err != nil {
+	if err := verifyOfflineWritersForRecovery(ctx, root, holdHash, stateRoot, true); err != nil {
 		return "", err
 	}
 	if _, err := os.Lstat(filepath.Join(root, maintenance.BackupReceiptName)); err == nil {
@@ -162,7 +165,10 @@ func verifyEffectiveFenceDropIn(ctx context.Context, unit, holdPath string) erro
 		return fmt.Errorf("inspect effective fence for %s: %w", unit, err)
 	}
 	text := string(out)
-	if strings.Contains(text, "LoadState=not-found") {
+	// Masked fence units are retired the same way not-found ones are: the
+	// drop-in cannot be loaded because systemd no longer manages the unit
+	// (QA blockers2 CB-4).
+	if strings.Contains(text, "LoadState=not-found") || strings.Contains(text, "LoadState=masked") {
 		return nil
 	}
 	if !strings.Contains(text, "LoadState=loaded") || !strings.Contains(text, path) {

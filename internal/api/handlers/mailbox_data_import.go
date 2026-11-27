@@ -13,12 +13,15 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -223,6 +226,7 @@ func metadataComponents(raw, kind string) ([]string, error) {
 
 // Handle validates a preview or atomically commits its reviewed metadata.
 func (h MailboxDataImport) Handle(c *gin.Context) {
+	bindPlatformScope(c)
 	sess, ok := middleware.GetMailboxSession(c)
 	if !ok || h.Pool == nil {
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
@@ -259,8 +263,8 @@ func (h MailboxDataImport) Handle(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
-	if err = q.PlatformLockDataImport(ctx, store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(sess.TenantID, 10), MailboxID: strconv.FormatInt(sess.MailboxID, 10), IdempotencyKey: "metadata-import"}); err != nil {
+	q := db.Queries(tx)
+	if err = q.PlatformLockDataImport(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(sess.TenantID, 10), MailboxID: strconv.FormatInt(sess.MailboxID, 10), IdempotencyKey: "metadata-import"}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
@@ -359,6 +363,7 @@ func (h MailboxDataImport) Handle(c *gin.Context) {
 
 // History lists the authenticated mailbox's durable import receipts.
 func (h MailboxDataImport) History(c *gin.Context) {
+	bindPlatformScope(c)
 	sess, ok := middleware.GetMailboxSession(c)
 	if !ok || h.Pool == nil {
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
@@ -370,7 +375,7 @@ func (h MailboxDataImport) History(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(c) }()
-	rows, err := store.New(tx).PlatformListDataImportReceipts(c, store.PlatformListDataImportReceiptsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	rows, err := db.Queries(tx).PlatformListDataImportReceipts(c.Request.Context(), store.PlatformListDataImportReceiptsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -389,7 +394,7 @@ func (h MailboxDataImport) History(c *gin.Context) {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
-		out = append(out, history{ID: row.ID, CreatedAt: row.CreatedAt.Time, Kind: row.Kind, Key: row.IdempotencyKey, Result: result})
+		out = append(out, history{ID: row.ID, CreatedAt: timeutil.FromMicro(row.CreatedAt), Kind: row.Kind, Key: row.IdempotencyKey, Result: result})
 	}
 	c.JSON(200, gin.H{"imports": out})
 }

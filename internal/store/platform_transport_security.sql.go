@@ -33,12 +33,12 @@ WHERE tenant_id=$1 AND domain_id=$2 AND reporter_digest=$3 AND report_id_digest=
 `
 
 type PlatformFindTLSReportFingerprintParams struct {
-	TenantID       int64              `json:"tenant_id"`
-	DomainID       int64              `json:"domain_id"`
-	ReporterDigest string             `json:"reporter_digest"`
-	ReportIDDigest string             `json:"report_id_digest"`
-	PeriodStart    pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd      pgtype.Timestamptz `json:"period_end"`
+	TenantID       int64  `json:"tenant_id"`
+	DomainID       int64  `json:"domain_id"`
+	ReporterDigest string `json:"reporter_digest"`
+	ReportIDDigest string `json:"report_id_digest"`
+	PeriodStart    int64  `json:"period_start"`
+	PeriodEnd      int64  `json:"period_end"`
 }
 
 func (q *Queries) PlatformFindTLSReportFingerprint(ctx context.Context, arg PlatformFindTLSReportFingerprintParams) (string, error) {
@@ -56,31 +56,31 @@ func (q *Queries) PlatformFindTLSReportFingerprint(ctx context.Context, arg Plat
 }
 
 const platformListTransportSecurity = `-- name: PlatformListTransportSecurity :many
-SELECT t.id, t.tenant_id, t.domain_id, t.mtasts_policy_id, t.mtasts_mode, t.tls_rpt_rua, t.created_at, t.updated_at, t.enabled, t.policy_mx, t.max_age, t.published_at, t.testing_since, t.cache_safe_after, t.observation_digest, t.observed_at, t.observation_status, t.observation_detail, t.version,d.fqdn FROM domain_transport_security t JOIN domains d ON d.id=t.domain_id AND d.tenant_id=t.tenant_id
+SELECT t.id, t.tenant_id, t.domain_id, t.mtasts_policy_id, t.mtasts_mode, t.tls_rpt_rua, t.created_at, t.updated_at, t.enabled, t.policy_mx, t.max_age, coalesce(t.published_at, 0) AS published_at, coalesce(t.testing_since, 0) AS testing_since, t.cache_safe_after, t.observation_digest, coalesce(t.observed_at, 0) AS observed_at, t.observation_status, t.observation_detail, t.version,d.fqdn FROM domain_transport_security t JOIN domains d ON d.id=t.domain_id AND d.tenant_id=t.tenant_id
 WHERE t.enabled AND d.status='active' AND d.verified_at IS NOT NULL ORDER BY t.tenant_id,t.domain_id
 `
 
 type PlatformListTransportSecurityRow struct {
-	ID                int64              `json:"id"`
-	TenantID          int64              `json:"tenant_id"`
-	DomainID          int64              `json:"domain_id"`
-	MtastsPolicyID    string             `json:"mtasts_policy_id"`
-	MtastsMode        string             `json:"mtasts_mode"`
-	TlsRptRua         string             `json:"tls_rpt_rua"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	Enabled           bool               `json:"enabled"`
-	PolicyMx          []string           `json:"policy_mx"`
-	MaxAge            int32              `json:"max_age"`
-	PublishedAt       pgtype.Timestamptz `json:"published_at"`
-	TestingSince      pgtype.Timestamptz `json:"testing_since"`
-	CacheSafeAfter    pgtype.Timestamptz `json:"cache_safe_after"`
-	ObservationDigest pgtype.Text        `json:"observation_digest"`
-	ObservedAt        pgtype.Timestamptz `json:"observed_at"`
-	ObservationStatus string             `json:"observation_status"`
-	ObservationDetail []byte             `json:"observation_detail"`
-	Version           int64              `json:"version"`
-	Fqdn              string             `json:"fqdn"`
+	ID                int64       `json:"id"`
+	TenantID          int64       `json:"tenant_id"`
+	DomainID          int64       `json:"domain_id"`
+	MtastsPolicyID    string      `json:"mtasts_policy_id"`
+	MtastsMode        string      `json:"mtasts_mode"`
+	TlsRptRua         string      `json:"tls_rpt_rua"`
+	CreatedAt         int64       `json:"created_at"`
+	UpdatedAt         int64       `json:"updated_at"`
+	Enabled           bool        `json:"enabled"`
+	PolicyMx          []string    `json:"policy_mx"`
+	MaxAge            int32       `json:"max_age"`
+	PublishedAt       int64       `json:"published_at"`
+	TestingSince      int64       `json:"testing_since"`
+	CacheSafeAfter    int64       `json:"cache_safe_after"`
+	ObservationDigest pgtype.Text `json:"observation_digest"`
+	ObservedAt        int64       `json:"observed_at"`
+	ObservationStatus string      `json:"observation_status"`
+	ObservationDetail []byte      `json:"observation_detail"`
+	Version           int64       `json:"version"`
+	Fqdn              string      `json:"fqdn"`
 }
 
 func (q *Queries) PlatformListTransportSecurity(ctx context.Context) ([]PlatformListTransportSecurityRow, error) {
@@ -125,31 +125,31 @@ func (q *Queries) PlatformListTransportSecurity(ctx context.Context) ([]Platform
 }
 
 const platformPublicTransportSecurity = `-- name: PlatformPublicTransportSecurity :one
-SELECT t.id, t.tenant_id, t.domain_id, t.mtasts_policy_id, t.mtasts_mode, t.tls_rpt_rua, t.created_at, t.updated_at, t.enabled, t.policy_mx, t.max_age, t.published_at, t.testing_since, t.cache_safe_after, t.observation_digest, t.observed_at, t.observation_status, t.observation_detail, t.version,d.fqdn FROM domain_transport_security t JOIN domains d ON d.id=t.domain_id AND d.tenant_id=t.tenant_id
+SELECT t.id, t.tenant_id, t.domain_id, t.mtasts_policy_id, t.mtasts_mode, t.tls_rpt_rua, t.created_at, t.updated_at, t.enabled, t.policy_mx, t.max_age, coalesce(t.published_at, 0) AS published_at, coalesce(t.testing_since, 0) AS testing_since, t.cache_safe_after, t.observation_digest, coalesce(t.observed_at, 0) AS observed_at, t.observation_status, t.observation_detail, t.version,d.fqdn FROM domain_transport_security t JOIN domains d ON d.id=t.domain_id AND d.tenant_id=t.tenant_id
 WHERE d.fqdn=$1 AND t.enabled AND d.status='active' AND d.verified_at IS NOT NULL
 `
 
 type PlatformPublicTransportSecurityRow struct {
-	ID                int64              `json:"id"`
-	TenantID          int64              `json:"tenant_id"`
-	DomainID          int64              `json:"domain_id"`
-	MtastsPolicyID    string             `json:"mtasts_policy_id"`
-	MtastsMode        string             `json:"mtasts_mode"`
-	TlsRptRua         string             `json:"tls_rpt_rua"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	Enabled           bool               `json:"enabled"`
-	PolicyMx          []string           `json:"policy_mx"`
-	MaxAge            int32              `json:"max_age"`
-	PublishedAt       pgtype.Timestamptz `json:"published_at"`
-	TestingSince      pgtype.Timestamptz `json:"testing_since"`
-	CacheSafeAfter    pgtype.Timestamptz `json:"cache_safe_after"`
-	ObservationDigest pgtype.Text        `json:"observation_digest"`
-	ObservedAt        pgtype.Timestamptz `json:"observed_at"`
-	ObservationStatus string             `json:"observation_status"`
-	ObservationDetail []byte             `json:"observation_detail"`
-	Version           int64              `json:"version"`
-	Fqdn              string             `json:"fqdn"`
+	ID                int64       `json:"id"`
+	TenantID          int64       `json:"tenant_id"`
+	DomainID          int64       `json:"domain_id"`
+	MtastsPolicyID    string      `json:"mtasts_policy_id"`
+	MtastsMode        string      `json:"mtasts_mode"`
+	TlsRptRua         string      `json:"tls_rpt_rua"`
+	CreatedAt         int64       `json:"created_at"`
+	UpdatedAt         int64       `json:"updated_at"`
+	Enabled           bool        `json:"enabled"`
+	PolicyMx          []string    `json:"policy_mx"`
+	MaxAge            int32       `json:"max_age"`
+	PublishedAt       int64       `json:"published_at"`
+	TestingSince      int64       `json:"testing_since"`
+	CacheSafeAfter    int64       `json:"cache_safe_after"`
+	ObservationDigest pgtype.Text `json:"observation_digest"`
+	ObservedAt        int64       `json:"observed_at"`
+	ObservationStatus string      `json:"observation_status"`
+	ObservationDetail []byte      `json:"observation_detail"`
+	Version           int64       `json:"version"`
+	Fqdn              string      `json:"fqdn"`
 }
 
 func (q *Queries) PlatformPublicTransportSecurity(ctx context.Context, fqdn string) (PlatformPublicTransportSecurityRow, error) {
@@ -186,16 +186,16 @@ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING
 `
 
 type PlatformRecordTLSReportParams struct {
-	TenantID       int64              `json:"tenant_id"`
-	DomainID       int64              `json:"domain_id"`
-	ReportDigest   string             `json:"report_digest"`
-	ReporterDigest string             `json:"reporter_digest"`
-	ReportIDDigest string             `json:"report_id_digest"`
-	PeriodStart    pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd      pgtype.Timestamptz `json:"period_end"`
-	Successful     int64              `json:"successful"`
-	Failed         int64              `json:"failed"`
-	Failures       []byte             `json:"failures"`
+	TenantID       int64  `json:"tenant_id"`
+	DomainID       int64  `json:"domain_id"`
+	ReportDigest   string `json:"report_digest"`
+	ReporterDigest string `json:"reporter_digest"`
+	ReportIDDigest string `json:"report_id_digest"`
+	PeriodStart    int64  `json:"period_start"`
+	PeriodEnd      int64  `json:"period_end"`
+	Successful     int64  `json:"successful"`
+	Failed         int64  `json:"failed"`
+	Failures       []byte `json:"failures"`
 }
 
 func (q *Queries) PlatformRecordTLSReport(ctx context.Context, arg PlatformRecordTLSReportParams) (int64, error) {

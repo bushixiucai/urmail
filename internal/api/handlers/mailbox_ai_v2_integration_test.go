@@ -12,6 +12,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/ai"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/testdb"
@@ -64,6 +65,7 @@ func mailboxAIFixture(t *testing.T, calls int64, consentOption ...bool) (*db.Poo
 			t.Fatal(err)
 		}
 	}
+	fixtureCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	var brand, tenant, domain, mailbox int64
 	for _, seed := range []struct {
 		sql    string
@@ -91,10 +93,10 @@ func mailboxAIFixture(t *testing.T, calls int64, consentOption ...bool) (*db.Poo
 		t.Fatal(err)
 	}
 	q := store.New(p)
-	if _, err = q.PlatformCreateMailboxSession(ctx, store.PlatformCreateMailboxSessionParams{TokenHash: hash, Address: "independent@ai.example.test"}); err != nil {
+	if _, err = q.PlatformCreateMailboxSession(fixtureCtx, store.PlatformCreateMailboxSessionParams{TokenHash: hash, Address: "independent@ai.example.test"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = q.PlatformSetAIProvider(ctx, store.PlatformSetAIProviderParams{TenantID: tenant, Mode: "platform", Provider: "openai", Endpoint: "https://offline.invalid/v1", Model: "offline", Enabled: true, InputMicrosPerMillion: 1000000, OutputMicrosPerMillion: 1000000}); err != nil {
+	if _, err = q.PlatformSetAIProvider(fixtureCtx, store.PlatformSetAIProviderParams{TenantID: tenant, Mode: "platform", Provider: "openai", Endpoint: "https://offline.invalid/v1", Model: "offline", Enabled: true, InputMicrosPerMillion: 1000000, OutputMicrosPerMillion: 1000000}); err != nil {
 		t.Fatal(err)
 	}
 	var owner int64
@@ -199,6 +201,7 @@ func approveMailboxAICloud(t *testing.T, p *db.Pool, tenant int64, allow bool) {
 	if err := p.QueryRow(ctx, "SELECT user_id FROM user_tenant_roles WHERE tenant_id=$1 AND role='owner' LIMIT 1", tenant).Scan(&owner); err != nil {
 		t.Fatal(err)
 	}
+	platformCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	app, err := db.OpenApp(ctx, p.Config().ConnConfig.ConnString())
 	if err != nil {
 		t.Fatal(err)
@@ -209,11 +212,11 @@ func approveMailboxAICloud(t *testing.T, p *db.Pool, tenant int64, allow bool) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	cfg, err := store.New(p).PlatformGetAIProvider(ctx, tenant)
+	cfg, err := store.New(p).PlatformGetAIProvider(platformCtx, tenant)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.New(tx).TenantConsentAICloud(ctx, store.TenantConsentAICloudParams{ConfigurationDigest: cfg.ConfigurationDigest, ScopeHash: AICloudScopeHash, AllowCloud: allow}); err != nil {
+	if err = store.New(tx).TenantConsentAICloud(platformCtx, store.TenantConsentAICloudParams{ConfigurationDigest: cfg.ConfigurationDigest, ScopeHash: AICloudScopeHash, AllowCloud: allow}); err != nil {
 		t.Fatal(err)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -285,6 +288,7 @@ func TestMailboxAICloudConsentIsTenantBoundAndTargetVersioned(t *testing.T) {
 	if err := p.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status) SELECT brand_id,'Foreign','foreign-ai','active' FROM tenants WHERE id=$1 RETURNING id", principal.TenantID).Scan(&other); err != nil {
 		t.Fatal(err)
 	}
+	platformCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	app, err := db.OpenApp(ctx, p.Config().ConnConfig.ConnString())
 	if err != nil {
 		t.Fatal(err)
@@ -294,7 +298,7 @@ func TestMailboxAICloudConsentIsTenantBoundAndTargetVersioned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.New(tx).TenantConsentAICloud(ctx, store.TenantConsentAICloudParams{ConfigurationDigest: next, ScopeHash: AICloudScopeHash, AllowCloud: true}); err == nil {
+	if err = store.New(tx).TenantConsentAICloud(platformCtx, store.TenantConsentAICloudParams{ConfigurationDigest: next, ScopeHash: AICloudScopeHash, AllowCloud: true}); err == nil {
 		t.Fatal("foreign tenant context accepted a non-member's cloud consent")
 	}
 	_ = tx.Rollback(ctx)

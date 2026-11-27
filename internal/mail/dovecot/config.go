@@ -10,9 +10,12 @@ type NodeConfig struct {
 	TLSCertFile   string       // path to TLS certificate
 	TLSKeyFile    string       // path to TLS private key
 	V80Preserve   bool         // Preserve the measured spampd-to-LMTP loopback chain.
-	DatabaseURL   string       // PostgreSQL connection string for urmail_dovecot
+	DatabaseURL   string       // deprecated: the PG DSN no longer reaches db.conf (S6 snapshot)
 	MailUID       string       // UID for vmail user (default "mail")
 	MailGID       string       // GID for vmail group (default "mail")
+	AuthDBPath    string       // read-only SQLite auth snapshot (design §5)
+	AuthEngine    string       // "sqlite" renders the snapshot; empty keeps the PostgreSQL DSN
+	IncludePrefix string       // absolute config root for !include lines (default /etc/dovecot)
 }
 
 // Snapshot represents the database snapshot needed for Dovecot configuration.

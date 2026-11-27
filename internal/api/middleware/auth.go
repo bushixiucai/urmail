@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	storepkg "github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -61,7 +62,8 @@ func RequireAuth(store SessionStore) gin.HandlerFunc {
 			})
 			return
 		}
-		session, err := store.GetSessionByID(c.Request.Context(), HashSessionToken(token))
+		authCtx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
+		session, err := store.GetSessionByID(authCtx, HashSessionToken(token))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": gin.H{"code": "SESSION_EXPIRED", "message": "auth.session_expired"},
@@ -81,7 +83,7 @@ func RequireAuth(store SessionStore) gin.HandlerFunc {
 			})
 			allowed := false
 			if ok && session.TenantID.Valid {
-				allowed, err = checker.PlatformTenantBrandMatches(c, storepkg.PlatformTenantBrandMatchesParams{ID: session.TenantID.Int64, BrandID: brandID.(int64)})
+				allowed, err = checker.PlatformTenantBrandMatches(authCtx, storepkg.PlatformTenantBrandMatchesParams{ID: session.TenantID.Int64, BrandID: brandID.(int64)})
 			}
 			if err != nil || !allowed {
 				c.AbortWithStatus(403)

@@ -7,12 +7,15 @@ import (
 	"math"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	graph "github.com/bushixiucai/urmail/internal/domain/marketingflow"
 	"github.com/bushixiucai/urmail/internal/marketingflow"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -86,7 +89,10 @@ func (w *FlowWorker) Tick(ctx context.Context) (int, error) {
 	if !w.opts.Enabled || w.opts.DevMode || w.opts.Quarantined {
 		return 0, ErrDisabled
 	}
-	q := store.New(w.opts.Pool)
+	// Flow dispatch pass: recover/claim/record/bump/release are platform-domain
+	// statements; elevate once at entry (purgeExpiredSessions precedent).
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	q := db.Queries(w.opts.Pool)
 	leases, err := q.PlatformRecoverMarketingFlowLeases(ctx)
 	if err != nil {
 		return 0, err
@@ -125,8 +131,8 @@ func (w *FlowWorker) Tick(ctx context.Context) (int, error) {
 func (w *FlowWorker) handle(ctx context.Context, q *store.Queries, p store.PlatformClaimMarketingFlowPositionsRow) {
 	lease := &flowLease{owner: w.id, fence: p.LeaseFence}
 	ctx = context.WithValue(ctx, flowLeaseKey{}, lease)
-	if p.LeaseUntil.Valid {
-		bounded, cancel := context.WithDeadline(ctx, p.LeaseUntil.Time.Add(-5*time.Second))
+	if p.LeaseUntil != 0 {
+		bounded, cancel := context.WithDeadline(ctx, timeutil.FromMicro(p.LeaseUntil).Add(-5*time.Second))
 		defer cancel()
 		ctx = bounded
 	}
@@ -134,8 +140,13 @@ func (w *FlowWorker) handle(ctx context.Context, q *store.Queries, p store.Platf
 	defer func() {
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
 		defer cancel()
-		if _, err := q.PlatformRecordMarketingFlowExecution(finishCtx, store.PlatformRecordMarketingFlowExecutionParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: w.id, LeaseFence: p.LeaseFence, NodeKey: p.StepKey, Status: status, ErrorCode: code, RetrySeconds: retry}); err != nil {
+		if _, err := q.PlatformRecordMarketingFlowNodeExecution(finishCtx, store.PlatformRecordMarketingFlowNodeExecutionParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: w.id, LeaseFence: p.LeaseFence, NodeKey: p.StepKey, Status: status, ErrorCode: code}); err != nil {
 			w.opts.Logger.Warn("marketing flow execution record failed")
+		}
+		if code != "" && retry > 0 {
+			if _, err := q.PlatformBumpMarketingFlowAttempt(finishCtx, store.PlatformBumpMarketingFlowAttemptParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: w.id, LeaseFence: p.LeaseFence, ErrorCode: code, BackoffSeconds: int64(retry)}); err != nil {
+				w.opts.Logger.Warn("marketing flow attempt bump failed")
+			}
 		}
 		if _, err := q.PlatformReleaseMarketingFlowLease(finishCtx, store.PlatformReleaseMarketingFlowLeaseParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: pgtype.Text{String: w.id, Valid: true}, LeaseFence: p.LeaseFence}); err != nil {
 			w.opts.Logger.Warn("marketing flow claim release failed")

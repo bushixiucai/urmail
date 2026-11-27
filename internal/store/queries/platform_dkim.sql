@@ -2,6 +2,8 @@
 -- Exempt from the tenant_id predicate per AGENTS.md (platform_*.sql): the
 -- reconcile worker needs every active domain's key to build the signing table.
 -- name: PlatformListDKIMDomains :many
+-- scope: platform
+
 SELECT d.fqdn, d.dkim_selector, dkim_private_key
 FROM domains d
 JOIN tenants t ON t.id = d.tenant_id

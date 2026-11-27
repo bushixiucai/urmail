@@ -245,7 +245,7 @@ func TestRenderWellKnownGolden(t *testing.T) {
 	p := maildnsreport.MTASTSPolicy{
 		ID:   "20261027000000",
 		Mode: maildnsreport.MTASTSEnforce,
-		MX:   []string{"Box.URMail.CN.", "mx2.urmail.cn"},
+		MX:   []string{"Mail.Example.Test.", "mx2.urmail.cn"},
 	}
 	body, err := maildnsreport.RenderWellKnown(p)
 	if err != nil {
@@ -306,7 +306,7 @@ func TestRenderWellKnownRejectsInvalid(t *testing.T) {
 
 func TestRequiredRecords(t *testing.T) {
 	recs, err := maildnsreport.RequiredRecords("example.com", "20261027000000", "enforce",
-		[]string{"box.urmail.cn"}, "tls-reports@urmail.cn")
+		[]string{"mail.example.test"}, "tls-reports@urmail.cn")
 	if err != nil {
 		t.Fatalf("RequiredRecords: %v", err)
 	}

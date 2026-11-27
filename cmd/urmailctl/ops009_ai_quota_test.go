@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -55,7 +55,7 @@ func ops009AssertAIQuota(t *testing.T, dsn string, restored bool) {
 	}
 	now := time.Now().In(zone)
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, zone)
-	usage, err := q.PlatformAIQuotaUsage(t.Context(), store.PlatformAIQuotaUsageParams{TenantID: tid, MailboxID: mid, IndependentWindow: true, PeriodStart: pgtype.Timestamptz{Time: start, Valid: true}, PeriodEnd: pgtype.Timestamptz{Time: start.AddDate(0, 1, 0), Valid: true}})
+	usage, err := q.PlatformAIQuotaUsage(t.Context(), store.PlatformAIQuotaUsageParams{TenantID: tid, MailboxID: mid, IndependentWindow: true, PeriodStart: timeutil.Micro(start), PeriodEnd: timeutil.Micro(start.AddDate(0, 1, 0))})
 	slots := int64(1)
 	if restored {
 		slots = 0

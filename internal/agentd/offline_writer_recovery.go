@@ -90,7 +90,13 @@ func verifyOfflineWritersForRecovery(ctx context.Context, maintenanceRoot, holdH
 		if err != nil {
 			return err
 		}
+		// Masked units join not-found ones: retirement blocks future
+		// starts, and a masked unit observed inactive or failed is the
+		// expected retired posture (QA blockers2 CB-4).
 		if o.Load == "not-found" && o.Active == "inactive" {
+			continue
+		}
+		if o.Load == "masked" && (o.Active == "inactive" || o.Active == "failed") {
 			continue
 		}
 		if o.Load != "loaded" {
@@ -304,12 +310,12 @@ func verifyEffectiveHoldGuards(service, serviceDropins, timer, timerDropins, mai
 
 func createOfflineWriterEvidenceDir(stateRoot string) (string, error) {
 	root := filepath.Join(stateRoot, "pending-recovery-backups")
-	st, e := os.Lstat(root)
+	st, e := os.Lstat(root) // #nosec G703 -- private subdirectory inside validated root-owned 0700 stateRoot.
 	if errors.Is(e, os.ErrNotExist) {
-		if e = os.Mkdir(root, 0700); e != nil {
+		if e = os.Mkdir(root, 0700); e != nil { // #nosec G703 -- private subdirectory inside validated root-owned 0700 stateRoot.
 			return "", e
 		}
-		st, e = os.Lstat(root)
+		st, e = os.Lstat(root) // #nosec G703 -- private subdirectory inside validated root-owned 0700 stateRoot.
 	}
 	if e != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 || st.Mode().Perm() != 0700 {
 		return "", errors.New("private writer evidence root unsafe")

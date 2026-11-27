@@ -252,7 +252,7 @@ export function IdentitiesSignaturesSection() {
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="e.g. Tiger Wang"
+              placeholder="e.g. Alex Example"
               className="w-full max-w-sm h-9 px-3 text-xs rounded-md border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)]"
             />
           </div>
@@ -333,7 +333,7 @@ export function IdentitiesSignaturesSection() {
                   rows={4}
                   placeholder={t(
                     "settings.identities.signature_placeholder",
-                    "Best regards,\nTiger Wang\nEmail: tiger@urmail.cn",
+                    "Best regards,\nAlex Example\nEmail: alex@example.com",
                   )}
                   className="w-full p-3 text-xs rounded-b-md border border-t-0 border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)] font-sans"
                 />

@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
@@ -20,11 +21,13 @@ import (
 	"github.com/bushixiucai/urmail/internal/carddav"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/eas"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/onboarding"
 	"github.com/bushixiucai/urmail/internal/rendercache"
+	"github.com/bushixiucai/urmail/internal/sqlitedb"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/web"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -58,6 +61,9 @@ type Options struct {
 	Version string
 	// MyHostname is the public MX host advertised in domain DNS guidance.
 	MyHostname string
+	// PrimaryDomain is the mail primary domain; it drives the parent-domain
+	// AuthProxy cookie domain (GRAFANA-DESIGN §4) and the Grafana site host.
+	PrimaryDomain string
 	// Reconcile is the configuration reconcile trigger.
 	Reconcile handlers.ReconcileTrigger
 	// Recall processes persisted local mailbox recalls through the root agent.
@@ -87,6 +93,12 @@ type Options struct {
 
 	// Audit receives one row per successful mutating tenant request.
 	Audit middleware.AuditWriter
+	// SQLiteStore, when non-nil, wires the slice-1 mailbox native surface
+	// (login/session + self settings, V2 contract §5) to the authoritative
+	// SQLite file instead of PostgreSQL. It is a runtime engine selector for
+	// the migration candidate, never a fallback: routes outside the slice
+	// keep their PG wiring and stay unavailable in SQLite mode.
+	SQLiteStore *sql.DB
 	// Secrets encrypts TOTP seeds at rest. Nil keeps legacy plaintext support.
 	Secrets handlers.SecretsBox
 	// DNSProvider writes verification records for delegated domains when set.
@@ -126,7 +138,7 @@ func workloadPoolDefaults(opts Options) Options {
 	return opts
 }
 
-func workloadTenantGroup(v1 *gin.RouterGroup, opts Options, auth *store.Queries, pool *db.Pool) *gin.RouterGroup {
+func workloadTenantGroup(v1 *gin.RouterGroup, opts Options, auth middleware.SessionStore, pool *db.Pool) *gin.RouterGroup {
 	group := v1.Group("")
 	if opts.Audit != nil {
 		group.Use(middleware.Audit(opts.Audit, opts.Logger))
@@ -137,6 +149,19 @@ func workloadTenantGroup(v1 *gin.RouterGroup, opts Options, auth *store.Queries,
 
 // New builds the gin engine with all middleware and routes attached.
 func New(opts Options) *gin.Engine {
+	db.SetIsolationHook(isolation.DBTXScopeHook())
+	db.SetQuerierHook(isolation.WrapQuerier)
+	// Single-engine guard (V2 §1.9): the SQLite runtime candidate must never
+	// share a process with PostgreSQL pools — any non-nil pool would let a
+	// feature route bypass the authoritative single store. Fail before any
+	// route, middleware or default pool wiring exists.
+	if opts.SQLiteStore != nil {
+		for _, pool := range []*db.Pool{opts.AppPool, opts.PlatformPool, opts.AIAppPool, opts.AIPlatformPool, opts.MarketingAppPool, opts.MarketingPlatformPool} {
+			if pool != nil {
+				panic("api.New: SQLiteStore and PostgreSQL pools are mutually exclusive (single-engine ruling, contract V2 §1.9)")
+			}
+		}
+	}
 	opts = workloadPoolDefaults(opts)
 	if opts.Logger == nil {
 		opts.Logger = zap.NewNop()
@@ -151,7 +176,18 @@ func New(opts Options) *gin.Engine {
 	if opts.DevMode {
 		devCanonical = ""
 	}
-	engine.Use(middleware.BrandHostBoundary(opts.PlatformPool, devCanonical))
+	// Brand boundary keeps the same lookup-based core in both engines: the
+	// SQLite slice-1 store implements BrandHostLookup directly, so branded
+	// requests are scoped (and stale hosts rejected) even with no PG pool.
+	sqliteMode := opts.SQLiteStore != nil
+	sqliteStore := handlers.SQLiteMailboxStore{DB: opts.SQLiteStore}
+	var brandHostBoundaryMiddleware gin.HandlerFunc
+	if sqliteMode {
+		brandHostBoundaryMiddleware = middleware.BrandHostBoundaryLookup(sqliteStore, devCanonical)
+	} else {
+		brandHostBoundaryMiddleware = middleware.BrandHostBoundary(opts.PlatformPool, devCanonical)
+	}
+	engine.Use(brandHostBoundaryMiddleware)
 	engine.Use(collaborationProtocolGate(opts))
 	clientConfig := autoconfig.Config{PrimaryMailHost: opts.MyHostname, POP3Enabled: true, CardDAVPath: "/api/v1/carddav/", CalDAVPath: "/caldav/", EASPath: "/Microsoft-Server-ActiveSync"}
 	if !protocolEnabled(opts.CardDAVEnabled) {
@@ -206,31 +242,32 @@ func New(opts Options) *gin.Engine {
 	// tenants are covered by RLS, and the platform role bypasses it. All
 	// tenant-scoped handlers run inside the RequireTenantTx transaction
 	// instead, where the RLS context is published with SET LOCAL.
-	var authQueries *store.Queries
+	var authStore store.Querier
 	if opts.PlatformPool != nil {
-		authQueries = store.New(opts.PlatformPool)
+		authStore = db.Querier(opts.PlatformPool)
 	}
 	var appQueries *store.Queries
 	if opts.AppPool != nil {
-		appQueries = store.New(opts.AppPool)
+		appQueries = db.Queries(opts.AppPool)
 	}
 
 	var aiPlatformQueries, marketingAppQueries, marketingPlatformQueries *store.Queries
 	if opts.AIPlatformPool != nil {
-		aiPlatformQueries = store.New(opts.AIPlatformPool)
+		aiPlatformQueries = db.Queries(opts.AIPlatformPool)
 	}
 	if opts.MarketingAppPool != nil {
-		marketingAppQueries = store.New(opts.MarketingAppPool)
+		marketingAppQueries = db.Queries(opts.MarketingAppPool)
 	}
 	if opts.MarketingPlatformPool != nil {
-		marketingPlatformQueries = store.New(opts.MarketingPlatformPool)
+		marketingPlatformQueries = db.Queries(opts.MarketingPlatformPool)
 	}
 
-	authHandler := handlers.NewAuthHandler(authQueries)
+	authHandler := handlers.NewAuthHandler(authStore)
 	authHandler.Secrets = opts.Secrets
+	authHandler.PanelDomain = opts.PrimaryDomain
 	var platformQueries *store.Queries
 	if opts.PlatformPool != nil {
-		platformQueries = store.New(opts.PlatformPool)
+		platformQueries = db.Queries(opts.PlatformPool)
 	}
 	tenantHandler := handlers.NewTenantHandler(appQueries, platformQueries)
 	onboardingHandler := &handlers.OnboardingHandler{Store: appQueries}
@@ -246,8 +283,24 @@ func New(opts Options) *gin.Engine {
 	archiveEvidence := handlers.ArchiveEvidence{Q: platformQueries}
 	archiveContent := &handlers.ArchiveContentHandler{Store: appQueries, Root: opts.ArchiveRoot}
 	transportHandler := handlers.NewTransportSecurityHandler(opts.PlatformPool, opts.AppPool, opts.MyHostname, opts.Reconcile)
-	engine.GET("/.well-known/mta-sts.txt", transportHandler.Policy)
-	engine.POST("/api/v1/tls-reports/:fqdn", middleware.RateLimitWindow(30, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP() + "/" + c.Param("fqdn"), true }), transportHandler.Intake)
+	engine.GET("/.well-known/mta-sts.txt", func(c *gin.Context) {
+		if sqliteMode {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
+			})
+			return
+		}
+		transportHandler.Policy(c)
+	})
+	engine.POST("/api/v1/tls-reports/:fqdn", middleware.RateLimitWindow(30, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP() + "/" + c.Param("fqdn"), true }), func(c *gin.Context) {
+		if sqliteMode {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
+			})
+			return
+		}
+		transportHandler.Intake(c)
+	})
 	supportHandler := &handlers.SupportHandler{Store: appQueries, Platform: platformQueries, PlatformPool: opts.PlatformPool, DiagnosticKey: []byte(opts.QuoteHMACKey)}
 	recallHandler := &handlers.RecallHandler{AppPool: opts.AppPool, Store: appQueries, Platform: platformQueries, Expunger: opts.Recall}
 	auditHandler := handlers.NewAuditHandler(appQueries)
@@ -260,11 +313,12 @@ func New(opts Options) *gin.Engine {
 	platformHandler.Reconcile = opts.Reconcile
 	legacyTenantID := int64(1)
 	if platformQueries != nil {
-		if tenants, err := platformQueries.PlatformListTenants(context.Background()); err == nil && len(tenants) > 0 {
+		platCtx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
+		if tenants, err := platformQueries.PlatformListTenants(platCtx); err == nil && len(tenants) > 0 {
 			legacyTenantID = tenants[0].ID
 		}
 	}
-	legacyHandler := handlers.NewLegacyHandler(authQueries, platformQueries, legacyTenantID, opts.Version)
+	legacyHandler := handlers.NewLegacyHandler(authStore, platformQueries, legacyTenantID, opts.Version)
 	notificationHandler := &handlers.NotificationHandler{Store: appQueries}
 	platformNotifications := &handlers.NotificationHandler{Store: platformQueries}
 	bridgeKey := []byte(opts.RoundcubeBridgeKey)
@@ -283,6 +337,35 @@ func New(opts Options) *gin.Engine {
 		mailboxHandler.Vault = revoker
 	}
 	nativeStore := handlers.StoreMailboxNative{Q: platformQueries}
+	// Runtime engine selection (V2 §1.9): SQLiteStore routes the slice-1
+	// mailbox surface to the authoritative SQLite file; everything else
+	// keeps its PG wiring. No PG fallback exists inside the slice. The
+	// sqliteMode/sqliteStore values are established at the top of New for
+	// the brand boundary and reused here.
+	mailboxSessionLookup := middleware.MailboxSessionLookup(nativeStore)
+	mailboxAuthStore := handlers.MailboxNativeAuth(nativeStore)
+	mailboxSessionsStore := handlers.MailboxNativeSessions(nativeStore)
+	mailboxSelfSettings := handlers.MailboxSelfSettingsStore(handlers.StoreMailboxSelfSettings{Pool: opts.PlatformPool})
+	// Rules stay PG-only: the managed-Sieve queries are not part of the
+	// slice-1 allow set. In SQLite mode the concrete PG implementation must
+	// not be reachable at all, so the interface stays nil (rulesReady 503s).
+	var mailboxRules handlers.MailboxRulesStore = handlers.StoreMailboxRules{Pool: opts.PlatformPool}
+	// Slice-1.5: folder/message listings are IMAP-backed in SQLite mode too.
+	// The SQLite index tables (mailbox_folders/mailbox_messages) still have
+	// no production writer, and wiring them here answered a silently empty
+	// list while Dovecot held the real messages (post-cutover QA TC-13a).
+	// Leaving ReadOnlyStore nil routes the read-only listing handlers through
+	// the live dialIMAP path, so the webmail serves the authoritative Dovecot
+	// data with its real UIDVALIDITY instead of a placeholder. Fail-loud
+	// IMAP_UNAVAILABLE (502) replaces any wrong-empty answer.
+	var mailboxReadOnly handlers.MailboxReadOnlyStore
+	if sqliteMode {
+		mailboxSessionLookup = sqliteStore
+		mailboxAuthStore = sqliteStore
+		mailboxSessionsStore = sqliteStore
+		mailboxSelfSettings = sqliteStore
+		mailboxRules = nil
+	}
 	smtpAddr := opts.SMTPAddr
 	if smtpAddr == "" {
 		smtpAddr = "127.0.0.1:587"
@@ -293,9 +376,10 @@ func New(opts Options) *gin.Engine {
 	aiBudgetStatus := &handlers.AISearchAskAccounting{Pool: opts.AIPlatformPool}
 	mailboxNative := &handlers.MailboxNativeHandler{
 		MailHost:         opts.MyHostname,
-		Enabled:          opts.WebmailNative && platformQueries != nil,
-		Auth:             nativeStore,
-		Sessions:         nativeStore,
+		Enabled:          opts.WebmailNative && (platformQueries != nil || sqliteMode),
+		Auth:             mailboxAuthStore,
+		Sessions:         mailboxSessionsStore,
+		ReadOnlyStore:    mailboxReadOnly,
 		Vault:            webmailVault,
 		Dialer:           webmail.NetDialer{Addr: opts.IMAPAddr, AuthenticationSecrets: opts.Secrets},
 		Submitter:        webmail.NetSubmitter{Addr: smtpAddr},
@@ -307,9 +391,13 @@ func New(opts Options) *gin.Engine {
 		RenderCache:      rendercache.New(),
 		// WEBMAIL-005/006 mailbox self-service: signature, identities,
 		// quota and managed-sieve rules through the existing safe pipeline.
-		SelfSettings: handlers.StoreMailboxSelfSettings{Pool: opts.PlatformPool},
-		Rules:        handlers.StoreMailboxRules{Pool: opts.PlatformPool},
+		SelfSettings: mailboxSelfSettings,
+		Rules:        mailboxRules,
 		Sieve:        opts.SieveActivator,
+		// SQLite slice-1: Basic protocol authentication validates
+		// credentials only — no session-row write, no vault, no bearer
+		// (contract V2 §5).
+		ProtocolValidateOnly: sqliteMode,
 	}
 	if opts.WebmailSubmitter != nil {
 		mailboxNative.Submitter = opts.WebmailSubmitter
@@ -364,7 +452,10 @@ func New(opts Options) *gin.Engine {
 				c.AbortWithStatus(http.StatusUnauthorized)
 				return
 			}
-			ctx := caldav.WithSession(c.Request.Context(), caldav.Session{TenantID: session.TenantID, MailboxID: session.MailboxID})
+			// The CalDAV server owns the platform query surface; bind its
+			// scope at this trusted, authenticated entry.
+			ctx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
+			ctx = caldav.WithSession(ctx, caldav.Session{TenantID: session.TenantID, MailboxID: session.MailboxID})
 			request := c.Request.WithContext(ctx)
 			if strings.HasPrefix(request.URL.Path, "/api/v1/caldav") {
 				urlCopy := *request.URL
@@ -379,10 +470,26 @@ func New(opts Options) *gin.Engine {
 		}
 	}
 	// Standard devices authenticate here, before the shared EAS transport.
-	engine.OPTIONS("/Microsoft-Server-ActiveSync", protocolAuth, mailboxNative.EASOptions)
-	engine.POST("/Microsoft-Server-ActiveSync", protocolAuth, mailboxNative.EASCommand)
-	engine.OPTIONS("/api/v1/eas", protocolAuth, mailboxNative.EASOptions)
-	engine.POST("/api/v1/eas", protocolAuth, mailboxNative.EASCommand)
+	// SQLite slice-1 single default-deny boundary for native entry points
+	// OUTSIDE the mailboxAuthed group that reach real provider/write
+	// surfaces (the EAS alias through protocol auth, the image proxy
+	// fetch). Protocol auth stays a side-effect-free validation (no
+	// session-row write via ProtocolValidateOnly); the gate then denies the
+	// surface before any provider handling — 503 FEATURE_UNAVAILABLE, no
+	// Retry-After, no fallback. PG mode never sees the gate.
+	sqliteNativeGate := func(c *gin.Context) {
+		if !sqliteMode {
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
+		})
+	}
+	engine.OPTIONS("/Microsoft-Server-ActiveSync", protocolAuth, sqliteNativeGate, mailboxNative.EASOptions)
+	engine.POST("/Microsoft-Server-ActiveSync", protocolAuth, sqliteNativeGate, mailboxNative.EASCommand)
+	engine.OPTIONS("/api/v1/eas", protocolAuth, sqliteNativeGate, mailboxNative.EASOptions)
+	engine.POST("/api/v1/eas", protocolAuth, sqliteNativeGate, mailboxNative.EASCommand)
 	v1 := engine.Group("/api/v1")
 	{
 		v1.GET("/healthz", healthz(opts))
@@ -394,7 +501,11 @@ func New(opts Options) *gin.Engine {
 		// The image proxy is authorized by the signed URL alone: an image
 		// inside the sandboxed message frame cannot present the mailbox
 		// bearer token. A bearer that is sent anyway must belong to the
-		// signed mailbox.
+		// signed mailbox. Slice-1.6: it leaves the default-deny gate — the
+		// gate's network-side-effect concern is owned by the Fetcher itself
+		// (SSRF screen before every dial, redirect re-screen, response type
+		// allowlist with magic-byte verification), and gating it broke every
+		// remote image in every rendered message.
 		v1.GET("/mailbox/images/proxy", middleware.RateLimitWindow(600, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
 		}), mailboxNative.ImageProxy)
@@ -403,14 +514,97 @@ func New(opts Options) *gin.Engine {
 			return c.ClientIP(), true
 		}), mailboxNative.LinkConfirm)
 		v1.GET("/internal/status/ready", func(c *gin.Context) {
-			c.Set("statusReadyQuerier", opts.PlatformPool)
+			if opts.PlatformPool != nil {
+				c.Set("statusReadyQuerier", opts.PlatformPool)
+			} else {
+				c.Set("statusReadyQuerier", nil)
+			}
 			handlers.StatusReady(c)
 		})
 		v1.POST("/mailbox/session", middleware.RateLimitWindow(20, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
 		}), mailboxNative.CreateSession)
 		mailboxAuthed := v1.Group("/mailbox")
-		mailboxAuthed.Use(middleware.RequireMailboxAuth(nativeStore, webmailVault))
+		mailboxAuthed.Use(middleware.RequireMailboxAuth(mailboxSessionLookup, webmailVault))
+		if sqliteMode {
+			// Slice-1 gate (V2 §5, authoritative allow-list): run AFTER
+			// authentication (unauthenticated callers keep the original 401)
+			// and BEFORE any handler side effect — IMAP dial, SMTP submit,
+			// secret unseal, PG query. Approved per slice:
+			//   slice-1: login/logout, settings, quota, identities;
+			//   slice-3: send (SMTP submitter), drafts (IMAP Drafts), rules
+			//   (mailboxes.sieve_script + agent activator);
+			//   slice-1.5 (this change): read-only folder/message listings —
+			//   the IMAP-backed listing has landed (TC-13a fix): listings
+			//   route through the live dialIMAP path and serve Dovecot's
+			//   authoritative data with its real UIDVALIDITY, so the
+			//   previously-gated read surfaces below leave the gate. All
+			//   listing writes (folders POST/PATCH/DELETE, message
+			//   flags/move/copy/trash) stay gated.
+			// Everything else answers 503 FEATURE_UNAVAILABLE with no
+			// Retry-After and no fallback — message mutations and
+			// corporate-directory remain gated.
+			mailboxAuthed.Use(func(c *gin.Context) {
+				method := c.Request.Method
+				switch c.FullPath() {
+				case "/api/v1/mailbox/settings":
+					if method == http.MethodGet || method == http.MethodPut {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/quota", "/api/v1/mailbox/identities":
+					if method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/session":
+					if method == http.MethodDelete {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/send":
+					if method == http.MethodPost {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/drafts":
+					// (no DELETE on the collection; deletion is per-uid below)
+					if method == http.MethodPut || method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/drafts/:uid":
+					// S3-1: the uid sub-route carries the family's DELETE —
+					// without this case the delete-approval method in the
+					// parent case was dead (the FullPaths differ).
+					if method == http.MethodDelete {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/rules":
+					if method == http.MethodGet || method == http.MethodPut {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/folders", "/api/v1/mailbox/messages",
+					"/api/v1/mailbox/folders/:name/messages",
+					"/api/v1/mailbox/folders/:name/messages/:uid",
+					"/api/v1/mailbox/folders/:name/messages/:uid/thread",
+					"/api/v1/mailbox/folders/:name/messages/:uid/attachments/:part_id",
+					"/api/v1/mailbox/folders/:name/messages/:uid/raw":
+					// Slice-1.5: read-only listing/read surfaces. Writes on
+					// these paths keep their existing 405/404 semantics from
+					// the router (no mutating routes are registered on them).
+					if method == http.MethodGet {
+						c.Next()
+						return
+					}
+				}
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+					"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
+				})
+			})
+		}
 		{
 			mailboxAuthed.GET("/folders", mailboxNative.ListFolders)
 			mailboxAuthed.POST("/folders", mailboxNative.CreateFolder)
@@ -421,6 +615,7 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.POST("/folders/:name/messages/restore", mailboxNative.RestoreMessages)
 			// WEBMAIL-004 cross-folder search (bounded fan-out + date merge).
 			mailboxAuthed.GET("/search", mailboxNative.CrossFolderSearch)
+			mailboxAuthed.GET("/messages", mailboxNative.ListMessages)
 			mailboxAuthed.GET("/folders/:name/messages", mailboxNative.ListMessages)
 			mailboxAuthed.POST("/folders/:name/messages/flags", mailboxNative.FlagMessages)
 			mailboxAuthed.POST("/folders/:name/messages/move", mailboxNative.MoveMessages)
@@ -513,28 +708,33 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.POST("/calendars/import", calendarHandler.ImportEvent)
 			mailboxAuthed.DELETE("/session", mailboxNative.DeleteSession)
 		}
-		v1.POST("/mailbox/sieve/exchange", sieveBridge.Exchange)
-		v1.GET("/mailbox/sieve/session", sieveBridge.Session)
-		v1.PUT("/mailbox/sieve/rules", sieveBridge.Save)
-		v1.POST("/mailbox/sieve/logout", sieveBridge.Logout)
+		v1.POST("/mailbox/sieve/exchange", sqliteNativeGate, sieveBridge.Exchange)
+		v1.GET("/mailbox/sieve/session", sqliteNativeGate, sieveBridge.Session)
+		v1.PUT("/mailbox/sieve/rules", sqliteNativeGate, sieveBridge.Save)
+		v1.POST("/mailbox/sieve/logout", sqliteNativeGate, sieveBridge.Logout)
 		v1.GET("/branding", brandingHandler.Public)
 		v1.GET("/i18n/:locale", i18nCatalog(opts))
 
-		v1.POST("/marketing/unsubscribe", marketingSuppressionHandler.OneClick)
-		v1.GET("/marketing/unsubscribe", marketingSuppressionHandler.Confirmation)
-		v1.POST("/marketing/channels/:channel_id/feedback", marketingHandler.Feedback)
+		v1.POST("/marketing/unsubscribe", sqliteNativeGate, marketingSuppressionHandler.OneClick)
+		v1.GET("/marketing/unsubscribe", sqliteNativeGate, marketingSuppressionHandler.Confirmation)
+		v1.POST("/marketing/channels/:channel_id/feedback", sqliteNativeGate, marketingHandler.Feedback)
 
 		// Public Auth
 		authGroup := v1.Group("/auth")
+		authGroup.Use(sqliteNativeGate)
 		{
 			authGroup.POST("/login", middleware.RateLimitWindow(20, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP(), true }), authHandler.Login)
+			// Grafana AuthProxy chain (GRAFANA-DESIGN §4): Caddy forward_auth
+			// calls this with the browser's parent-domain cookie. Fail-closed
+			// for any non-platform-admin credential; no session is created.
+			authGroup.GET("/check", authHandler.CheckAuthProxy)
 			// Second MFA login leg: authenticated by the short-lived
 			// one-time mfa_token, not a session.
 			authGroup.POST("/mfa/verify", authHandler.MFAVerify)
 		}
 
 		// Legacy Mail-in-a-Box API. Basic auth; platform administrators only.
-		if authQueries != nil && platformQueries != nil {
+		if authStore != nil && platformQueries != nil {
 			legacy := v1.Group("/admin")
 			{
 				legacy.GET("/system/status", legacyHandler.Status)
@@ -555,17 +755,17 @@ func New(opts Options) *gin.Engine {
 
 		// Platform administration. These routes deliberately run outside
 		// RequireTenantTx: the platform role is cross-tenant by design.
-		if authQueries != nil && platformQueries != nil {
+		if authStore != nil && platformQueries != nil {
 			// Operator telemetry sits behind the platform admin session.
 			metrics := engine.Group("")
-			metrics.Use(middleware.RequireAuth(authQueries))
-			metrics.Use(middleware.RequirePlatformAdmin(authQueries))
+			metrics.Use(middleware.RequireAuth(authStore))
+			metrics.Use(middleware.RequirePlatformAdmin(authStore))
 			metrics.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 			platform := v1.Group("/platform")
 			platform.Use(middleware.AuditPlatform(opts.Audit, opts.Logger))
-			platform.Use(middleware.RequireAuth(authQueries))
-			platform.Use(middleware.RequirePlatformAdmin(authQueries))
+			platform.Use(middleware.RequireAuth(authStore))
+			platform.Use(middleware.RequirePlatformAdmin(authStore))
 			platform.Use(middleware.RequireCSRF())
 			{
 				platform.GET("/overview", platformHandler.Overview)
@@ -632,7 +832,7 @@ func New(opts Options) *gin.Engine {
 		// current tenant can still switch or sign out instead of getting a
 		// permanent 403 from RequireTenantTx.
 		userLevel := v1.Group("")
-		userLevel.Use(middleware.RequireAuth(authQueries))
+		userLevel.Use(middleware.RequireAuth(authStore))
 		userLevel.Use(middleware.RequireCSRF())
 		{
 			userLevel.POST("/auth/logout", authHandler.Logout)
@@ -660,24 +860,24 @@ func New(opts Options) *gin.Engine {
 		if opts.Audit != nil {
 			dnsPrepared.Use(middleware.Audit(opts.Audit, opts.Logger))
 		}
-		dnsPrepared.Use(middleware.RequireAuth(authQueries), middleware.RequireCSRF(), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey), dnsPlanHandler.Preflight, middleware.RequireTenantTx(opts.AppPool, opts.Logger), middleware.RequireRole("owner", "admin"))
+		dnsPrepared.Use(middleware.RequireAuth(authStore), middleware.RequireCSRF(), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey), dnsPlanHandler.Preflight, middleware.RequireTenantTx(opts.AppPool, opts.Logger), middleware.RequireRole("owner", "admin"))
 		dnsPrepared.PUT("/domains/:id/dns/credentials", dnsPlanHandler.SaveCredential)
 		dnsPrepared.POST("/domains/:id/dns/plans", dnsPlanHandler.Preview)
 		dnsPrepared.POST("/domains/:id/dns/plans/:plan/reconcile", dnsPlanHandler.Reconcile)
 
 		// Network probes own short repository transactions, not a request-long tx.
 		probes := v1.Group("")
-		probes.Use(middleware.RequireAuth(authQueries), middleware.RequireCSRF(), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey))
+		probes.Use(middleware.RequireAuth(authStore), middleware.RequireCSRF(), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey))
 		probes.POST("/domains/:id/verify", domainHandler.Verify)
 		probes.POST("/ai/health", aiConfiguration.Health)
 
-		aiProtected := workloadTenantGroup(v1, opts, authQueries, opts.AIAppPool)
-		marketingProtected := workloadTenantGroup(v1, opts, authQueries, opts.MarketingAppPool)
+		aiProtected := workloadTenantGroup(v1, opts, authStore, opts.AIAppPool)
+		marketingProtected := workloadTenantGroup(v1, opts, authStore, opts.MarketingAppPool)
 		protected := v1.Group("")
 		if opts.Audit != nil {
 			protected.Use(middleware.Audit(opts.Audit, opts.Logger))
 		}
-		protected.Use(middleware.RequireAuth(authQueries))
+		protected.Use(middleware.RequireAuth(authStore))
 		protected.Use(middleware.RequireTenantTx(opts.AppPool, opts.Logger))
 		protected.Use(middleware.RequireCSRF())
 		handlers.RegisterArchiveCaseRoutes(protected, opts.AppPool, opts.PlatformPool, opts.ArchiveRoot)
@@ -790,7 +990,7 @@ func New(opts Options) *gin.Engine {
 	}
 
 	// The legacy Mail-in-a-Box UI calls /admin/* directly, outside /api/v1.
-	if authQueries != nil && platformQueries != nil {
+	if authStore != nil && platformQueries != nil {
 		legacyRoot := engine.Group("/admin")
 		{
 			legacyRoot.GET("/system/status", legacyHandler.Status)
@@ -851,7 +1051,13 @@ func healthz(opts Options) gin.HandlerFunc {
 		if opts.DevMode {
 			status["mode"] = "development"
 		}
-		if err := ping(ctx, opts.AppPool); err != nil {
+		var dbErr error
+		if opts.SQLiteStore != nil {
+			dbErr = pingSQLite(ctx, opts.SQLiteStore)
+		} else {
+			dbErr = ping(ctx, opts.AppPool)
+		}
+		if dbErr != nil {
 			status["status"] = "degraded"
 			status["db"] = "unavailable"
 			c.JSON(http.StatusServiceUnavailable, status)
@@ -868,6 +1074,16 @@ func healthz(opts Options) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, status)
 	}
+}
+
+func pingSQLite(ctx context.Context, db *sql.DB) error {
+	if db == nil {
+		return errors.New("sqlite database is not configured")
+	}
+	if err := db.PingContext(ctx); err != nil {
+		return err
+	}
+	return sqlitedb.AssertPragmas(ctx, db)
 }
 
 func ping(ctx context.Context, pool *db.Pool) error {

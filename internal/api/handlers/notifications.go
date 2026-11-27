@@ -35,7 +35,7 @@ func (h *NotificationHandler) List(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	rows, err := q.ListTenantNotifications(c, store.ListTenantNotificationsParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, BeforeID: cursor})
+	rows, err := q.ListTenantNotifications(c.Request.Context(), store.ListTenantNotificationsParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, BeforeID: cursor})
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -54,7 +54,7 @@ func (h *NotificationHandler) Alerts(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	rows, err := q.PlatformListOperationalAlerts(c)
+	rows, err := q.PlatformListOperationalAlerts(platformCtx(c))
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return

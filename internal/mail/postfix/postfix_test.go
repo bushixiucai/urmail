@@ -17,17 +17,15 @@ var update = flag.Bool("update", false, "update golden files")
 
 func defaultNodeConfig() postfix.NodeConfig {
 	return postfix.NodeConfig{
-		SignerMilterAddr: "127.0.0.1:12301",
-		SpamMilterAddr:   "127.0.0.1:11339",
-		Hostname:         "box.urmail.cn",
-		PrimaryDomain:    "urmail.cn",
-		StorageRoot:      "/var/mail",
-		TLSCertFile:      "/var/mail/ssl/box.urmail.cn.cert",
-		TLSKeyFile:       "/var/mail/ssl/box.urmail.cn.key",
-		PolicyEnabled:    false,
-		PolicySocket:     "private/policy",
-		ArchiveEnabled:   false,
-		ArchiveSocket:    "private/urmail-archive",
+		Hostname:       "mail.example.test",
+		PrimaryDomain:  "urmail.cn",
+		StorageRoot:    "/var/mail",
+		TLSCertFile:    "/var/mail/ssl/mail.example.test.cert",
+		TLSKeyFile:     "/var/mail/ssl/mail.example.test.key",
+		PolicyEnabled:  false,
+		PolicySocket:   "private/policy",
+		ArchiveEnabled: false,
+		ArchiveSocket:  "private/urmail-archive",
 	}
 }
 
@@ -155,6 +153,25 @@ func TestGoldenCases(t *testing.T) {
 			node: func() postfix.NodeConfig {
 				n := defaultNodeConfig()
 				n.PolicyEnabled = false
+				return n
+			}(),
+			snap: postfix.Snapshot{
+				Domains: []postfix.Domain{
+					{FQDN: "example.com", Status: "active"},
+				},
+				Mailboxes: []postfix.Mailbox{
+					{Address: "user@example.com", Status: "active"},
+				},
+			},
+		},
+		{
+			// Compose shape (URMAIL_RENDERED_CONFIG_DIR contract): the Postfix
+			// config_dir lives under the render root, so every file-map
+			// reference must point at the rendered mount surface.
+			name: "compose_rendered_config",
+			node: func() postfix.NodeConfig {
+				n := defaultNodeConfig()
+				n.ConfigDir = "/srv/urmail/config/postfix"
 				return n
 			}(),
 			snap: postfix.Snapshot{

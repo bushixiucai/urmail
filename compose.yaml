@@ -53,7 +53,9 @@ services:
       # 现行 config.Load 强制 HTTP 绑回环（安全位）；跨容器反代接入是
       # 配置生成器阶段的监听规则改造点（ARCH-PLAN §1.1 internal :8080）。
       URMAIL_LISTEN_ADDR: 127.0.0.1:8080
-      URMAIL_MYHOSTNAME: ${URMAIL_MYHOSTNAME:-urmail.local}
+      # "-" (not ":-"): an explicitly empty value must reach setup so it can
+      # reject it; only an unset variable falls back to the default.
+      URMAIL_MYHOSTNAME: ${URMAIL_MYHOSTNAME-urmail.local}
       URMAIL_DATABASE_URL: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
       URMAIL_DATABASE_URL_PLATFORM: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
       URMAIL_DATABASE_URL_MIGRATE: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
@@ -62,8 +64,17 @@ services:
       URMAIL_POLICY_ENABLED: "true"
       # policy sock 挪进 5000 可写卷（默认 /run/urmail-policy 对非 root 不可写）
       URMAIL_POLICY_SOCKET: /srv/urmail/config/run/policy.sock
+      # Loopback-only machine metrics credential for Prometheus (§1.1).
+      # Empty = /internal/metrics stays 403 (MetricsAccess requires >=32 chars).
+      URMAIL_METRICS_TOKEN: ${URMAIL_METRICS_TOKEN:-}
       URMAIL_STORAGE_ROOT: /srv/urmail/data/mail
       URMAIL_PRIMARY_DOMAIN: ${URMAIL_PRIMARY_DOMAIN:-urmail.local}
+      # P3-DW-01 single-writer lease: one urmaild per data root.  The lease is
+      # an exclusive flock on <DATA_ROOT>/.urmail-writer.lease, taken by the
+      # entrypoint before it touches the DB; a second writer exits non-zero.
+      URMAIL_WRITER_LEASE: /srv/urmail/data-root/.urmail-writer.lease
+      URMAIL_VERSION: ${URMAIL_IMAGE_VERSION:-snapshot}
+      URMAIL_WRITER_NAME: ${URMAIL_WRITER_NAME:-}
       URMAIL_WEBMAIL_NATIVE: "true"
       URMAIL_ROUNDCUBE_ENABLED: "false"
     volumes:
@@ -73,6 +84,15 @@ services:
       - ${URMAIL_DATA_ROOT:-./data}/backup:/srv/urmail/data/backup
       # readiness-record 的 maintenance 根（独立子目录，不进 backup 卷枚举面）
       - ${URMAIL_DATA_ROOT:-./data}/maintenance:/srv/urmail/data/maintenance
+      # archive 工作根（代码固定 /var/lib/urmail/archive[-spool]；不挂则 uid
+      # 5000 在 /var/lib 下建目录被拒，见 firstboot-urmaild.log 的历史缺陷）
+      - ${URMAIL_DATA_ROOT:-./data}/archive:/var/lib/urmail
+      # privileged agent 的 unix socket 目录（agent 以 profile 延后启用）
+      - ${URMAIL_DATA_ROOT:-./data}/agent-run:/run/urmail
+      # P3-DW-01: the whole data root (rw) so the writer lease lives at
+      # <DATA_ROOT>/.urmail-writer.lease.  Only urmaild gets this mount; the
+      # MTA/IMAP containers keep their narrow per-directory mounts.
+      - ${URMAIL_DATA_ROOT:-./data}:/srv/urmail/data-root
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/healthz"]
       interval: 10s
@@ -109,16 +129,20 @@ services:
     image: urmail-local:${URMAIL_IMAGE_VERSION:-snapshot}
     profiles: ["agent"]
     command: ["urmaild-agent"]
-    user: "5000:5000"
+    # §1.1: the agent is the privileged helper; it refuses to start unless
+    # euid==0 (cmd/urmaild-agent/main.go) and writes rendered config only.
+    user: "0:0"
     network_mode: host
     restart: unless-stopped
     environment:
-      URMAIL_CONFIG_DIR: ${URMAIL_DATA_ROOT:-./data}/config
+      URMAIL_CONFIG_DIR: /srv/urmail/config
+      URMAIL_ENV_FILE: /srv/urmail/config/urmail.env
     volumes:
       - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/config
       - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
       - ${URMAIL_DATA_ROOT:-./data}/certs:/srv/urmail/data/certs
       - ${URMAIL_DATA_ROOT:-./data}/backup:/srv/urmail/data/backup
+      - ${URMAIL_DATA_ROOT:-./data}/agent-run:/run/urmail
 
   # host network：保源 IP 与投递语义（plan 裁定⑥）。配置为静态占位件，
   # agent 配置生成器落地后由 data/config/postfix 渲染卷替换。
@@ -159,8 +183,9 @@ services:
       - ${URMAIL_DATA_ROOT:-./data}/mail:/srv/urmail/data/mail
       - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
     healthcheck:
-      # doveadm ping only: no `-a` fallback (a hung daemon must fail the check)
-      test: ["CMD", "doveadm", "-c", "/srv/urmail/config/dovecot/dovecot.conf", "ping"]
+      # doveadm process status talks to the running master; Dovecot 2.3 has
+      # no `doveadm ping` subcommand, so the earlier check always exited 64.
+      test: ["CMD", "doveadm", "-c", "/srv/urmail/config/dovecot/dovecot.conf", "process", "status"]
       interval: 30s
       timeout: 10s
       retries: 3

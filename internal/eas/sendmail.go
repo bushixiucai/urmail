@@ -23,6 +23,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/net/html/charset"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -50,6 +53,9 @@ func sendFailure(c *gin.Context, status string) {
 // The receipt commits before SMTP, so an interrupted DATA exchange is never
 // automatically retried even if no final receipt could be recorded.
 func (s *Server) handleSendMail(c *gin.Context, sess Session, deviceID string, req *Node) {
+	// The receipt/vault statements are tenant-scoped; bind the authenticated
+	// mailbox tenant once at this trusted EAS send entry.
+	c.Request = c.Request.WithContext(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID}))
 	if req.Page != pageComposeMail || req.Token != composeCommandToken(c.Query("Cmd")) {
 		sendFailure(c, "101")
 		return
@@ -128,7 +134,7 @@ func (s *Server) handleSendMail(c *gin.Context, sess Session, deviceID string, r
 		_, domain, _ := strings.Cut(sess.Address, "@")
 		outgoing.MessageID = "<eas-" + hex.EncodeToString(key[:]) + "@" + domain + ">"
 	}
-	epoch, err := store.New(s.Pool.Pool).PlatformRestoreSyncEpoch(c.Request.Context())
+	epoch, err := db.Queries(s.Pool.Pool).PlatformRestoreSyncEpoch(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform}))
 	if err != nil {
 		sendFailure(c, "111")
 		return
@@ -142,7 +148,7 @@ func (s *Server) handleSendMail(c *gin.Context, sess Session, deviceID string, r
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	jobID, err := q.ClaimEASSend(ctx, store.ClaimEASSendParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, IdempotencyKey: hex.EncodeToString(key[:]), Payload: payload})
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, e := q.GetEASSend(ctx, store.GetEASSendParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, IdempotencyKey: hex.EncodeToString(key[:])})
@@ -211,13 +217,15 @@ func (s *Server) handleSendMail(c *gin.Context, sess Session, deviceID string, r
 func (s *Server) finishSend(sess Session, id int64, status string, receipt sendReceipt) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// The receipt update is tenant-scoped; the detached write keeps it bounded.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID})
 	tx, err := s.Pool.MailboxTx(ctx, sess.TenantID, sess.MailboxID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	payload, _ := json.Marshal(receipt)
-	err = store.New(tx).FinishEASSend(ctx, store.FinishEASSendParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id, Status: status, Payload: payload})
+	err = db.Queries(tx).FinishEASSend(ctx, store.FinishEASSendParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id, Status: status, Payload: payload})
 	if err != nil {
 		return err
 	}
@@ -359,7 +367,10 @@ func (s *Server) recoverSentCopy(sess Session, secret string, id int64, receipt 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	epoch, err := store.New(s.Pool.Pool).PlatformRestoreSyncEpoch(ctx)
+	// The Sent-copy receipt statements are tenant-scoped; the epoch probe below
+	// binds the platform scope explicitly.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: sess.TenantID})
+	epoch, err := db.Queries(s.Pool.Pool).PlatformRestoreSyncEpoch(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}))
 	if err != nil || receipt.Epoch != epoch {
 		return
 	}
@@ -373,7 +384,7 @@ func (s *Server) recoverSentCopy(sess Session, secret string, id int64, receipt 
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	// Lock by receipt id as well as both principal dimensions.
 	current, err := q.LockEASSendCopy(ctx, store.LockEASSendCopyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	if err != nil || current.Status != "done" {

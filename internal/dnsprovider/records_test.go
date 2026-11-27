@@ -8,7 +8,7 @@ import (
 func TestGenerateMailRecords(t *testing.T) {
 	t.Run("standard generation", func(t *testing.T) {
 		fqdn := "example.com"
-		mailHost := "box.urmail.cn"
+		mailHost := "mail.example.test"
 		selector := "mail"
 		pubKey := "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC3..."
 		dmarcPolicy := "quarantine"
@@ -20,7 +20,7 @@ func TestGenerateMailRecords(t *testing.T) {
 
 		// MX
 		mx := records[0]
-		if mx.Type != RecordTypeMX || mx.Name != "@" || mx.Value != "box.urmail.cn" || mx.Priority != 10 {
+		if mx.Type != RecordTypeMX || mx.Name != "@" || mx.Value != "mail.example.test" || mx.Priority != 10 {
 			t.Errorf("unexpected MX record: %+v", mx)
 		}
 
@@ -48,20 +48,20 @@ func TestGenerateMailRecords(t *testing.T) {
 
 		// autoconfig
 		autoconfig := records[4]
-		if autoconfig.Type != RecordTypeCNAME || autoconfig.Name != "autoconfig.example.com" || autoconfig.Value != "box.urmail.cn" {
+		if autoconfig.Type != RecordTypeCNAME || autoconfig.Name != "autoconfig.example.com" || autoconfig.Value != "mail.example.test" {
 			t.Errorf("unexpected autoconfig record: %+v", autoconfig)
 		}
 
 		// autodiscover
 		autodiscover := records[5]
-		if autodiscover.Type != RecordTypeCNAME || autodiscover.Name != "autodiscover.example.com" || autodiscover.Value != "box.urmail.cn" {
+		if autodiscover.Type != RecordTypeCNAME || autodiscover.Name != "autodiscover.example.com" || autodiscover.Value != "mail.example.test" {
 			t.Errorf("unexpected autodiscover record: %+v", autodiscover)
 		}
 	})
 
 	t.Run("handles trailing dots and full tags", func(t *testing.T) {
 		fqdn := "example.com."
-		mailHost := "box.urmail.cn."
+		mailHost := "mail.example.test."
 		selector := "default"
 		pubKey := "v=DKIM1; k=rsa; p=MIGf..."
 		dmarcPolicy := "v=DMARC1; p=reject; rua=mailto:dmarc@example.com"
@@ -71,7 +71,7 @@ func TestGenerateMailRecords(t *testing.T) {
 			t.Fatalf("expected 6 records, got %d", len(records))
 		}
 
-		if records[0].Value != "box.urmail.cn" {
+		if records[0].Value != "mail.example.test" {
 			t.Errorf("mail host trailing dot not stripped: %s", records[0].Value)
 		}
 		if records[2].Name != "default._domainkey.example.com" {
@@ -86,13 +86,13 @@ func TestGenerateMailRecords(t *testing.T) {
 		if records[3].Value != dmarcPolicy {
 			t.Errorf("dmarc value duplicated tag: %s", records[3].Value)
 		}
-		if records[4].Name != "autoconfig.example.com" || records[4].Value != "box.urmail.cn" {
+		if records[4].Name != "autoconfig.example.com" || records[4].Value != "mail.example.test" {
 			t.Errorf("autoconfig incorrect: %+v", records[4])
 		}
 	})
 
 	t.Run("empty domain / root fallback", func(t *testing.T) {
-		records := GenerateMailRecords("@", "box.urmail.cn", "s1", "abc", "")
+		records := GenerateMailRecords("@", "mail.example.test", "s1", "abc", "")
 		if records[2].Name != "s1._domainkey" {
 			t.Errorf("expected relative dkim name, got %s", records[2].Name)
 		}
@@ -252,7 +252,7 @@ func TestMergeSPF(t *testing.T) {
 }
 
 func TestDiffRecords(t *testing.T) {
-	desired := GenerateMailRecords("example.com", "box.urmail.cn", "mail", "PUBKEY123", "none")
+	desired := GenerateMailRecords("example.com", "mail.example.test", "mail", "PUBKEY123", "none")
 
 	t.Run("all additions when existing is empty", func(t *testing.T) {
 		plan := DiffRecords(nil, desired)
@@ -294,12 +294,12 @@ func TestDiffRecords(t *testing.T) {
 
 	t.Run("normalizes names: relative vs FQDN and trailing dots", func(t *testing.T) {
 		existing := []Record{
-			{Type: RecordTypeMX, Name: "example.com.", Value: "box.urmail.cn.", Priority: 10, TTL: 300},
+			{Type: RecordTypeMX, Name: "example.com.", Value: "mail.example.test.", Priority: 10, TTL: 300},
 			{Type: RecordTypeTXT, Name: "example.com", Value: "\"v=spf1 mx -all\"", TTL: 300},
 			{Type: RecordTypeTXT, Name: "mail._domainkey.example.com.", Value: "v=DKIM1; k=rsa; p=PUBKEY123", TTL: 300},
 			{Type: RecordTypeTXT, Name: "_dmarc.example.com", Value: "v=DMARC1; p=none;", TTL: 300},
-			{Type: RecordTypeCNAME, Name: "autoconfig.example.com.", Value: "box.urmail.cn", TTL: 300},
-			{Type: RecordTypeCNAME, Name: "autodiscover.example.com", Value: "box.urmail.cn.", TTL: 300},
+			{Type: RecordTypeCNAME, Name: "autoconfig.example.com.", Value: "mail.example.test", TTL: 300},
+			{Type: RecordTypeCNAME, Name: "autodiscover.example.com", Value: "mail.example.test.", TTL: 300},
 		}
 
 		plan := DiffRecords(existing, desired)
@@ -311,7 +311,7 @@ func TestDiffRecords(t *testing.T) {
 
 	t.Run("safe update on MX priority change", func(t *testing.T) {
 		existing := []Record{
-			{Type: RecordTypeMX, Name: "@", Value: "box.urmail.cn", Priority: 20, TTL: 300},
+			{Type: RecordTypeMX, Name: "@", Value: "mail.example.test", Priority: 20, TTL: 300},
 		}
 
 		plan := DiffRecords(existing, desired)
@@ -331,7 +331,7 @@ func TestDiffRecords(t *testing.T) {
 
 	t.Run("safe update on TTL difference", func(t *testing.T) {
 		existing := []Record{
-			{Type: RecordTypeCNAME, Name: "autoconfig.example.com", Value: "box.urmail.cn", TTL: 3600},
+			{Type: RecordTypeCNAME, Name: "autoconfig.example.com", Value: "mail.example.test", TTL: 3600},
 		}
 
 		plan := DiffRecords(existing, desired)
@@ -353,7 +353,7 @@ func TestDiffRecords(t *testing.T) {
 
 		// Desired SPF has been merged using MergeSPF:
 		mergedSPF, _, _ := MergeSPF(existing[0].Value, "mx")
-		desiredMerged := GenerateMailRecords("example.com", "box.urmail.cn", "mail", "PUBKEY123", "none")
+		desiredMerged := GenerateMailRecords("example.com", "mail.example.test", "mail", "PUBKEY123", "none")
 		for i := range desiredMerged {
 			if isSPFRecord(desiredMerged[i]) {
 				desiredMerged[i].Value = mergedSPF

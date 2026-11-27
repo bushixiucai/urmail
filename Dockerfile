@@ -49,19 +49,35 @@ ARG http_proxy=""
 RUN apt-get update \
     && env https_proxy=$https_proxy http_proxy=$http_proxy \
        apt-get install -y --no-install-recommends \
-         ca-certificates curl bash openssl \
-         postfix dovecot-core dovecot-imapd \
+         ca-certificates curl bash openssl sqlite3 \
+         postfix dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sieve \
+         dovecot-managesieved dovecot-sqlite dovecot-pgsql \
     && rm -rf /var/lib/apt/lists/*
 
 # Reserved uid/gid for the Maildir owner mapping (plan §5 待拍板项): keep a
 # stable vmail identity so /srv/urmail/data/mail ownership survives upgrades.
+# compose.yaml runs urmaild as 5000:5000, and internal/agentd/peercred.go only
+# admits the agent's own euid plus the uid of the "mailinabox" account, so the
+# runtime stage must carry that account name on the same reserved uid. The
+# dovecot configs keep addressing the mail owner as "vmail", hence a non-unique
+# uid alias instead of a rename. Do not relax the peer policy instead.
 RUN groupadd -g 5000 vmail && useradd -u 5000 -g 5000 -M -N -s /usr/sbin/nologin vmail \
-    && mkdir -p /srv/urmail/config /srv/urmail/data \
-    && mkdir -p /run/urmail-policy && chown 5000:5000 /run/urmail-policy
+    && useradd -o -u 5000 -g 5000 -M -N -s /usr/sbin/nologin mailinabox \
+    && test "$(id -u mailinabox)" = "5000" && getent passwd mailinabox >/dev/null \
+    && mkdir -p /srv/urmail/config /srv/urmail/data /var/lib/urmail /run/urmail \
+    && mkdir -p /run/urmail-policy && chown 5000:5000 /run/urmail-policy /run/urmail /var/lib/urmail
 
 COPY --from=build /out/bin/urmaild /usr/local/bin/urmaild
+# The cluster bootstrap SQL is read by the PostgreSQL process (uid 70) from a
+# bind mount or /usr/share/urmail; a restrictive checkout umask must not make it
+# unreadable, so pin the mode in the image and assert it here.
+COPY --chmod=0644 internal/db/bootstrap.sql /usr/share/urmail/bootstrap.sql
+RUN test "$(stat -c '%a' /usr/share/urmail/bootstrap.sql)" = "644" \
+    && test -s /usr/share/urmail/bootstrap.sql
 COPY --from=build /out/bin/urmailctl /usr/local/bin/urmailctl
 COPY --from=build /out/bin/urmaild-agent /usr/local/bin/urmaild-agent
+COPY migrations_sqlite /usr/local/share/urmail/migrations_sqlite
+RUN chmod 0644 /usr/local/share/urmail/migrations_sqlite/*.sql
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh /usr/local/bin/urmaild \
     /usr/local/bin/urmailctl /usr/local/bin/urmaild-agent

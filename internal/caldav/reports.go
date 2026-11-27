@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
@@ -25,8 +25,8 @@ import (
 )
 
 // pgTime converts a time to a PostgreSQL timestamptz value.
-func pgTime(t time.Time) pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
+func pgTime(t time.Time) int64 {
+	return timeutil.Micro(t.UTC())
 }
 
 // fullRange covers every storable event time.

@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
@@ -41,18 +43,18 @@ func NewAliasHandler(s AliasStore, r ReconcileTrigger) *AliasHandler {
 // AliasResponse is the explicit public shape of an alias. tenant_id is
 // implied by the request context, so it is not repeated in the body.
 type AliasResponse struct {
-	SenderLogins []string           `json:"sender_logins"`
-	ID           int64              `json:"id"`
-	DomainID     int64              `json:"domain_id"`
-	DomainFQDN   string             `json:"domain_fqdn"`
-	LocalPart    string             `json:"local_part"`
-	Target       string             `json:"target"`
-	Kind         string             `json:"kind"`
-	Active       bool               `json:"active"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SenderLogins []string  `json:"sender_logins"`
+	ID           int64     `json:"id"`
+	DomainID     int64     `json:"domain_id"`
+	DomainFQDN   string    `json:"domain_fqdn"`
+	LocalPart    string    `json:"local_part"`
+	Target       string    `json:"target"`
+	Kind         string    `json:"kind"`
+	Active       bool      `json:"active"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
-func newAliasResponse(id, domainID int64, domainFQDN, localPart, target, kind string, active bool, createdAt pgtype.Timestamptz, senderLogins []string) AliasResponse {
+func newAliasResponse(id, domainID int64, domainFQDN, localPart, target, kind string, active bool, createdAt time.Time, senderLogins []string) AliasResponse {
 	if senderLogins == nil {
 		senderLogins = []string{}
 	}
@@ -78,7 +80,7 @@ func (h *AliasHandler) List(c *gin.Context) {
 		return
 	}
 
-	aliases, err := q.ListAliasesByTenant(c, tenantID)
+	aliases, err := q.ListAliasesByTenant(c.Request.Context(), tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -87,7 +89,7 @@ func (h *AliasHandler) List(c *gin.Context) {
 	items := make([]AliasResponse, 0, len(aliases))
 	for _, a := range aliases {
 		items = append(items, newAliasResponse(
-			a.ID, a.DomainID, a.DomainFqdn, a.LocalPart, a.Target, a.Kind, a.Active, a.CreatedAt, a.SenderLogins,
+			a.ID, a.DomainID, a.DomainFqdn, a.LocalPart, a.Target, a.Kind, a.Active, timeutil.FromMicro(a.CreatedAt), a.SenderLogins,
 		))
 	}
 
@@ -140,7 +142,7 @@ func (h *AliasHandler) Create(c *gin.Context) {
 		return
 	}
 
-	domain, err := q.GetDomainByID(c, store.GetDomainByIDParams{
+	domain, err := q.GetDomainByID(c.Request.Context(), store.GetDomainByIDParams{
 		TenantID: tenantID,
 		ID:       req.DomainID,
 	})
@@ -174,8 +176,8 @@ func (h *AliasHandler) Create(c *gin.Context) {
 	}
 
 	// Validate rule against domainMail
-	existingAliases, _ := q.ListAliasesByTenant(c, tenantID)
-	existingMailboxes, _ := q.ListMailboxesByTenant(c, tenantID)
+	existingAliases, _ := q.ListAliasesByTenant(c.Request.Context(), tenantID)
+	existingMailboxes, _ := q.ListMailboxesByTenant(c.Request.Context(), tenantID)
 
 	mailboxAddrs := make([]string, 0, len(existingMailboxes))
 	for _, m := range existingMailboxes {
@@ -211,7 +213,10 @@ func (h *AliasHandler) Create(c *gin.Context) {
 	// predicate answers with a boolean only, so no other tenant's data is
 	// revealed. Catch-all targets are not walkable edges in the renderer.
 	if kind != "catchall" {
-		cycles, err := q.AliasWouldCycle(c, store.AliasWouldCycleParams{
+		// The cycle preflight is a platform-wide boolean by design (a
+		// SECURITY DEFINER function that returns one bit and no rows). The
+		// tenant route already authorized the target domain above.
+		cycles, err := q.AliasWouldCycle(platformCtx(c), store.AliasWouldCycleParams{
 			Domain:    domain.Fqdn,
 			LocalPart: local,
 			Target:    target,
@@ -228,7 +233,7 @@ func (h *AliasHandler) Create(c *gin.Context) {
 		}
 	}
 
-	alias, err := q.CreateAlias(c, store.CreateAliasParams{
+	alias, err := q.CreateAlias(c.Request.Context(), store.CreateAliasParams{
 		TenantID:  tenantID,
 		DomainID:  domain.ID,
 		LocalPart: local,
@@ -249,7 +254,7 @@ func (h *AliasHandler) Create(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"alias": newAliasResponse(
-			alias.ID, alias.DomainID, domain.Fqdn, alias.LocalPart, alias.Target, alias.Kind, alias.Active, alias.CreatedAt, alias.SenderLogins,
+			alias.ID, alias.DomainID, domain.Fqdn, alias.LocalPart, alias.Target, alias.Kind, alias.Active, timeutil.FromMicro(alias.CreatedAt), alias.SenderLogins,
 		),
 	})
 }
@@ -269,7 +274,7 @@ func (h *AliasHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := q.DeleteAlias(c, store.DeleteAliasParams{
+	if err := q.DeleteAlias(c.Request.Context(), store.DeleteAliasParams{
 		TenantID: tenantID,
 		ID:       id,
 	}); err != nil {
@@ -307,7 +312,7 @@ func (h *AliasHandler) Update(c *gin.Context) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	existing, err := q.GetAliasByID(c, store.GetAliasByIDParams{TenantID: tid, ID: id})
+	existing, err := q.GetAliasByID(c.Request.Context(), store.GetAliasByIDParams{TenantID: tid, ID: id})
 	if err != nil {
 		c.JSON(404, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
 		return
@@ -344,12 +349,12 @@ func (h *AliasHandler) Update(c *gin.Context) {
 		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	aliases, err := q.ListAliasesByTenant(c, tid)
+	aliases, err := q.ListAliasesByTenant(c.Request.Context(), tid)
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	mailboxes, err := q.ListMailboxesByTenant(c, tid)
+	mailboxes, err := q.ListMailboxesByTenant(c.Request.Context(), tid)
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -375,7 +380,7 @@ func (h *AliasHandler) Update(c *gin.Context) {
 	}
 	// MAIL-02: same cross-tenant cycle preflight as create.
 	if active && kind != "catchall" {
-		cycles, err := q.AliasWouldCycle(c, store.AliasWouldCycleParams{
+		cycles, err := q.AliasWouldCycle(c.Request.Context(), store.AliasWouldCycleParams{
 			Domain:    existing.DomainFqdn,
 			LocalPart: local,
 			Target:    target,
@@ -389,7 +394,7 @@ func (h *AliasHandler) Update(c *gin.Context) {
 			return
 		}
 	}
-	row, err := q.UpdateAlias(c, store.UpdateAliasParams{TenantID: tid, ID: id, LocalPart: local, Target: target, Kind: kind, Active: active})
+	row, err := q.UpdateAlias(c.Request.Context(), store.UpdateAliasParams{TenantID: tid, ID: id, LocalPart: local, Target: target, Kind: kind, Active: active})
 	if err != nil {
 		c.JSON(409, gin.H{"error": gin.H{"code": "ALIAS_CONFLICT"}})
 		return
@@ -397,5 +402,5 @@ func (h *AliasHandler) Update(c *gin.Context) {
 	if h.Reconcile != nil {
 		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
-	c.JSON(200, gin.H{"alias": newAliasResponse(row.ID, row.DomainID, existing.DomainFqdn, row.LocalPart, row.Target, row.Kind, row.Active, row.CreatedAt, row.SenderLogins)})
+	c.JSON(200, gin.H{"alias": newAliasResponse(row.ID, row.DomainID, existing.DomainFqdn, row.LocalPart, row.Target, row.Kind, row.Active, timeutil.FromMicro(row.CreatedAt), row.SenderLogins)})
 }

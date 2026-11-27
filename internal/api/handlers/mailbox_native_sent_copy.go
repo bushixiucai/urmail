@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -44,10 +46,11 @@ func (h *MailboxNativeHandler) RepairScheduledSentCopy(c *gin.Context) {
 		return
 	}
 	defer func() { _ = client.Close() }()
-	q := store.New(h.Pool.Pool)
-	row, err := q.PlatformClaimOwnedScheduledSentCopy(c.Request.Context(), store.PlatformClaimOwnedScheduledSentCopyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	q := db.Queries(h.Pool.Pool)
+	pctx := platformCtx(c)
+	row, err := q.PlatformClaimOwnedScheduledSentCopy(pctx, store.PlatformClaimOwnedScheduledSentCopyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
-		current, getErr := q.PlatformGetMailboxScheduledSend(c.Request.Context(), store.PlatformGetMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+		current, getErr := q.PlatformGetMailboxScheduledSend(pctx, store.PlatformGetMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 		if errors.Is(getErr, pgx.ErrNoRows) {
 			authError(c, http.StatusNotFound, "NOT_FOUND")
 			return
@@ -63,19 +66,19 @@ func (h *MailboxNativeHandler) RepairScheduledSentCopy(c *gin.Context) {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(pctx, 90*time.Second)
 	defer cancel()
 	if err = mailboxschedule.RepairSentCopyWithAuthority(ctx, q, row, client, h.Secrets, h.copySessionAuthority(session)); err != nil {
 		authError(c, http.StatusConflict, "SENT_COPY_PENDING")
 		return
 	}
-	current, err := q.PlatformGetMailboxScheduledSend(c.Request.Context(), store.PlatformGetMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	current, err := q.PlatformGetMailboxScheduledSend(pctx, store.PlatformGetMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if err != nil {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
 	}
 	detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": session.MailboxID, "schedule_id": id, "result": "complete"})
-	if _, auditErr := q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: session.TenantID, Valid: true}, Action: "mailbox.scheduled_send.sent_copy_repaired", TargetType: pgtype.Text{String: "mailbox_scheduled_send", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: detail}); auditErr != nil {
+	if _, auditErr := q.CreateAuditLog(pctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: session.TenantID, Valid: true}, Action: "mailbox.scheduled_send.sent_copy_repaired", TargetType: pgtype.Text{String: "mailbox_scheduled_send", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: detail}); auditErr != nil {
 		middleware.RecordAuditFailure(true)
 	}
 	c.JSON(http.StatusOK, gin.H{"item": scheduledSendJSON(current)})

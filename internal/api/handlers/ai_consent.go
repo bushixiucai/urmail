@@ -53,7 +53,7 @@ func (h *AIConfigurationHandler) Consent(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if err := q.TenantConsentAICloud(c, store.TenantConsentAICloudParams{ConfigurationDigest: input.ConfigurationDigest, ScopeHash: input.ScopeHash, AllowCloud: input.AllowCloud}); err != nil {
+	if err := q.TenantConsentAICloud(c.Request.Context(), store.TenantConsentAICloudParams{ConfigurationDigest: input.ConfigurationDigest, ScopeHash: input.ScopeHash, AllowCloud: input.AllowCloud}); err != nil {
 		authError(c, 409, "AI_CLOUD_CONSENT_STALE")
 		return
 	}

@@ -102,7 +102,7 @@ func TestVersionedFlowSharesBudgetAndParksUncertainAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	retried, err := store.New(tx).RetryMarketingFlowInstance(ctx, store.RetryMarketingFlowInstanceParams{PTenant: f.tenant, PDefinition: definition, PPosition: scalarFlowPosition(t, f, runtime), PConfirmedNotAccepted: true})
+	retried, err := store.New(tx).RetryMarketingFlowInstance(testTenantCtx(f.tenant), store.RetryMarketingFlowInstanceParams{PTenant: f.tenant, PDefinition: definition, PPosition: scalarFlowPosition(t, f, runtime), PConfirmedNotAccepted: true})
 	if err != nil || !retried {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("explicit retry=%v %v", retried, err)

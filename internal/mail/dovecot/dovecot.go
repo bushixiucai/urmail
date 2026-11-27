@@ -34,7 +34,7 @@ func Generate(node NodeConfig) (map[string]string, error) {
 	result[FileDovecotSQL] = renderDovecotSQL(node)
 	result[FileDBConf] = renderDBConf(node)
 	result[FileDovecotMailboxes] = renderDovecotMailboxes()
-	result[FileDovecotQuota] = renderDovecotQuota()
+	result[FileDovecotQuota] = renderDovecotQuota(node)
 	result[FileSpamSieve] = renderSpamSieve(node.SpamPolicies)
 	result[FileSpamAfterSieve] = renderSpamAfterSieve()
 	result[FileSieveGateHelper] = sievegate.HelperScript

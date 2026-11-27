@@ -3,12 +3,15 @@ package agentd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/sieve"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -30,6 +33,8 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	// Trusted platform entry: the sieve activation statements are platform-scoped.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	tx, err := m.pool.PlatformTx(ctx)
@@ -37,19 +42,22 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 		return "", "", ErrFailed
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	target, err := store.New(tx).PlatformGetSieveActivationTarget(ctx, store.PlatformGetSieveActivationTargetParams{TenantID: params.TenantID, ID: params.MailboxID})
-	if err != nil || target.SieveMode != "managed" || !target.SieveScript.Valid || !safeKickAddress(target.Address) || sieve.Digest(target.SieveScript.String) != params.Digest {
-		return "", "", ErrRejected
+	target, err := db.Queries(tx).PlatformGetSieveActivationTarget(ctx, store.PlatformGetSieveActivationTargetParams{TenantID: params.TenantID, ID: params.MailboxID})
+	if err != nil {
+		return "", "", fmt.Errorf("%w: read activation target: %w", ErrRejected, err)
+	}
+	if target.SieveMode != "managed" || !target.SieveScript.Valid || !safeKickAddress(target.Address) || sieve.Digest(target.SieveScript.String) != params.Digest {
+		return "", "", fmt.Errorf("%w: activation target mismatch (mode=%q valid=%t digest_match=%t)", ErrRejected, target.SieveMode, target.SieveScript.Valid, sieve.Digest(target.SieveScript.String) == params.Digest)
 	}
 	rules, err := sieve.Decode(target.SieveScript.String)
 	if err != nil {
-		return "", "", ErrRejected
+		return "", "", fmt.Errorf("%w: decode stored sieve: %w", ErrRejected, err)
 	}
 	// Recompile the typed policy so the accepted historical missing-copy
 	// declaration is repaired without changing its intended behavior.
 	canonical, err := sieve.Compile(rules)
 	if err != nil {
-		return "", "", ErrRejected
+		return "", "", fmt.Errorf("%w: compile canonical sieve: %w", ErrRejected, err)
 	}
 	stage, err := os.MkdirTemp(m.root, "sieve-*")
 	if err != nil {
@@ -60,8 +68,8 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 	if err = os.WriteFile(source, []byte(canonical), 0600); err != nil {
 		return "", "", ErrFailed
 	}
-	if m.run(ctx, "/usr/bin/sievec", source, filepath.Join(stage, "script.svbin")) != nil {
-		return "", "", ErrRejected
+	if runErr := m.run(ctx, "/usr/bin/sievec", source, filepath.Join(stage, "script.svbin")); runErr != nil {
+		return "", "", fmt.Errorf("%w: sievec: %w", ErrRejected, runErr)
 	}
 	// Publishing only the validated source avoids a torn source/binary pair.
 	// LMTP can compile its private in-memory representation without write access.
@@ -69,7 +77,7 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 	destination := filepath.Join(root, "sieve", target.Address+".sieve")
 	uid, gid := -1, -1
 	if os.Geteuid() == 0 {
-		group, lookupErr := user.LookupGroup("mail")
+		group, lookupErr := user.LookupGroup(mailIdentityName(m.cfg.MailGroup))
 		if lookupErr != nil {
 			return "", "", ErrFailed
 		}
@@ -80,7 +88,7 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 		uid = 0
 	}
 	if _, err = writeFileAtomicOwned(destination, []byte(canonical), 0640, []string{root}, uid, gid); err != nil {
-		return "", "", ErrFailed
+		return "", "", fmt.Errorf("publish sieve: %w", err)
 	}
 	// This transaction only locks the authoritative source. Activation is the
 	// successful atomic filesystem publication, not a database commit.

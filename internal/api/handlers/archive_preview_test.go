@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
@@ -80,7 +82,7 @@ func TestArchivePreviewCannotBypassIndependentAuthorization(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback(ctx)
-		row, err := store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "scoped preview review", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
+		row, err := store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), Reason: "scoped preview review", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
 		if err != nil {
 			t.Fatal(err)
 		}

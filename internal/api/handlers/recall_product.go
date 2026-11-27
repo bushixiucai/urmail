@@ -10,6 +10,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -64,18 +68,7 @@ func recallProductError(c *gin.Context, err error) {
 		authError(c, 409, "RECALL_REVIEW_STALE")
 		return
 	}
-	var databaseError *pgconn.PgError
-	if errors.As(err, &databaseError) {
-		switch databaseError.Code {
-		case "42501":
-			authError(c, 403, "FORBIDDEN")
-			return
-		case "23514", "23505":
-			authError(c, 409, "RECALL_REVIEW_STALE")
-			return
-		}
-	}
-	authError(c, 503, "ARCHIVE_UNAVAILABLE")
+	writeDatabaseError(c, err, "RECALL_REVIEW_STALE")
 }
 func recallAudit(c *gin.Context, q *store.Queries, tenant, actor, id int64, action string, _ any) bool {
 	row, err := q.GetRecallByID(c.Request.Context(), store.GetRecallByIDParams{TenantID: tenant, ID: id})
@@ -171,7 +164,7 @@ func (h *RecallHandler) Preview(c *gin.Context) {
 			switch {
 			case !source.MailboxID.Valid:
 				projection["reason"] = "remote_delivery_not_recallable"
-			case source.DeletedAt.Valid:
+			case source.DeletedAt != 0:
 				projection["reason"] = "archive_source_deleted"
 			default:
 				snapshot, readErr := reviewer.PreviewRecall(ctx, tenant, source.ID, actor)
@@ -217,12 +210,12 @@ func (h *RecallHandler) Preview(c *gin.Context) {
 				authError(c, 503, "ARCHIVE_UNAVAILABLE")
 				return
 			}
-			stored, saveErr := q.StoreRecallReviewPreview(ctx, store.StoreRecallReviewPreviewParams{TenantID: tenant, ActorID: actor, EntryID: source.ID, Token: uuid.NewString(), Digest: digest, Snapshot: encoded})
+			stored, saveErr := q.StoreRecallReviewPreview(ctx, store.StoreRecallReviewPreviewParams{TenantID: tenant, ActorID: actor, EntryID: source.ID, Token: pgtype.Text{String: uuid.NewString(), Valid: true}, Digest: pgtype.Text{String: digest, Valid: true}, Snapshot: encoded})
 			if saveErr != nil {
 				recallProductError(c, saveErr)
 				return
 			}
-			row := store.RecallRequests(stored)
+			row := stored
 			projection := recallPreviewProjection(row)
 			projection["entry_id"] = source.ID
 			if row.Status == "pending" {
@@ -249,8 +242,8 @@ func (h *RecallHandler) recallTransaction(ctx context.Context, tenant, actor int
 	if err != nil {
 		return nil, nil, err
 	}
-	q := store.New(tx)
-	if err = q.PlatformLockRecallTenant(ctx, tenant); err != nil {
+	q := db.Queries(tx)
+	if err = q.PlatformLockRecallTenant(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), tenant); err != nil {
 		_ = tx.Rollback(ctx)
 		return nil, nil, err
 	}
@@ -322,7 +315,7 @@ func (h *RecallHandler) confirmReviewed(c *gin.Context) {
 			return
 		}
 		expected := make([]store.RecallRequests, 0, len(input.Targets))
-		readQ := store.New(readTx)
+		readQ := db.Queries(readTx)
 		for _, target := range input.Targets {
 			row, e := readQ.GetRecallByID(ctx, store.GetRecallByIDParams{TenantID: tenant, ID: target.ID})
 			if e != nil {
@@ -361,7 +354,7 @@ func (h *RecallHandler) confirmReviewed(c *gin.Context) {
 			encoded, _ := json.Marshal(keys)
 			selections = append(selections, encoded)
 			if persisted.Status == "preview" {
-				if !persisted.PreviewExpiresAt.Valid || !persisted.PreviewExpiresAt.Time.After(time.Now()) {
+				if persisted.PreviewExpiresAt == 0 || !timeutil.FromMicro(persisted.PreviewExpiresAt).After(time.Now()) {
 					authError(c, 409, "RECALL_REVIEW_STALE")
 					return
 				}
@@ -390,7 +383,7 @@ func (h *RecallHandler) confirmReviewed(c *gin.Context) {
 				recallProductError(c, e)
 				return
 			}
-			row := store.RecallRequests(confirmed)
+			row := confirmed
 			if !recallAudit(c, q, tenant, actor, row.ID, "compliance.recall.confirm", gin.H{"epoch": row.AttemptEpoch, "digest": row.PreviewDigest, "copy_keys": target.CopyKeys, "scope": "local_mailbox"}) {
 				return
 			}

@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformGetMailboxPhishingFinding = `-- name: PlatformGetMailboxPhishingFinding :one
@@ -26,8 +24,8 @@ type PlatformGetMailboxPhishingFindingParams struct {
 }
 
 type PlatformGetMailboxPhishingFindingRow struct {
-	Result    []byte             `json:"result"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Result    []byte `json:"result"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 func (q *Queries) PlatformGetMailboxPhishingFinding(ctx context.Context, arg PlatformGetMailboxPhishingFindingParams) (PlatformGetMailboxPhishingFindingRow, error) {

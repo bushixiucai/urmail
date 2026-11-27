@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -34,7 +36,7 @@ CREATE CONSTRAINT TRIGGER audit_fixture_commit_failure AFTER INSERT ON settings 
 	engine.Use(middleware.Audit(store.New(p.Pool), zap.NewNop()), middleware.RequireTenantTx(app, zap.NewNop()))
 	engine.POST("/sql-error", func(c *gin.Context) {
 		raw, _ := middleware.QueriesFromCtx(c)
-		_, sqlErr := raw.(*store.Queries).UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: "locale", Value: []byte("not-json")})
+		_, sqlErr := raw.(*store.Queries).UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tid, Key: "locale", Value: []byte("not-json")})
 		if sqlErr == nil {
 			t.Error("expected SQL failure")
 		}
@@ -42,7 +44,7 @@ CREATE CONSTRAINT TRIGGER audit_fixture_commit_failure AFTER INSERT ON settings 
 	})
 	engine.POST("/commit-error", func(c *gin.Context) {
 		raw, _ := middleware.QueriesFromCtx(c)
-		if _, insertErr := raw.(*store.Queries).UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: "theme", Value: []byte(`{"primary":"#123456"}`)}); insertErr != nil {
+		if _, insertErr := raw.(*store.Queries).UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tid, Key: "theme", Value: []byte(`{"primary":"#123456"}`)}); insertErr != nil {
 			t.Error(insertErr)
 		}
 		c.JSON(201, gin.H{"ok": true})
@@ -129,8 +131,11 @@ func TestAuditCompositeCursorDoesNotSkipIDTimeInversion(t *testing.T) {
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, httptest.NewRequestWithContext(ctx, http.MethodGet, "/audit?limit=1", nil))
 	var page struct {
-		Logs []store.AuditLogs `json:"logs"`
-		Next string            `json:"next_cursor"`
+		Logs []struct {
+			Action    string    `json:"action"`
+			CreatedAt time.Time `json:"created_at"`
+		} `json:"logs"`
+		Next string `json:"next_cursor"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil || len(page.Logs) != 1 || page.Logs[0].Action != "newer-time" || page.Next == "" {
 		t.Fatalf("first page: %s %v", response.Body, err)
@@ -159,7 +164,7 @@ func TestContentGrantOwnerOnlyAndLegacyConfirmation(t *testing.T) {
 	if _, err := p.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'admin')", admin, tid); err != nil {
 		t.Fatal(err)
 	}
-	attempt := func(actor int64, reason string, expires pgtype.Timestamptz) error {
+	attempt := func(actor int64, reason string, expires int64) error {
 		tx, err := app.UserTx(ctx, tid, actor)
 		if err != nil {
 			return err
@@ -171,14 +176,14 @@ func TestContentGrantOwnerOnlyAndLegacyConfirmation(t *testing.T) {
 		}
 		return tx.Commit(ctx)
 	}
-	future := pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
+	future := timeutil.Micro(time.Now().Add(time.Hour))
 	if err := attempt(admin, "self authorization", future); err == nil {
 		t.Fatal("admin self-authorized content")
 	}
 	if err := attempt(owner, "", future); err == nil {
 		t.Fatal("empty reason accepted")
 	}
-	if err := attempt(owner, "investigation", pgtype.Timestamptz{}); err == nil {
+	if err := attempt(owner, "investigation", 0); err == nil {
 		t.Fatal("unlimited expiry accepted")
 	}
 	if err := attempt(owner, "investigation", future); err != nil {
@@ -192,7 +197,7 @@ func TestContentGrantOwnerOnlyAndLegacyConfirmation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !grant.OwnerConfirmedAt.Valid {
+	if grant.OwnerConfirmedAt == 0 {
 		t.Fatal("owner confirmation not recorded")
 	}
 	if _, err = store.New(tx).GetComplianceGrant(ctx, store.GetComplianceGrantParams{TenantID: tid, UserID: admin, RequiredScope: "export"}); !errors.Is(err, pgx.ErrNoRows) {
@@ -227,7 +232,7 @@ func TestAuditKeepsBusinessCommitAndAfterCommitFailure(t *testing.T) {
 	engine.Use(middleware.Audit(store.New(p.Pool), zap.NewNop()), middleware.RequireTenantTx(app, zap.NewNop()))
 	engine.POST("/provider", func(c *gin.Context) {
 		raw, _ := middleware.QueriesFromCtx(c)
-		if _, err := raw.(*store.Queries).UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: "locale", Value: []byte(`"en"`)}); err != nil {
+		if _, err := raw.(*store.Queries).UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tid, Key: "locale", Value: []byte(`"en"`)}); err != nil {
 			t.Fatal(err)
 		}
 		middleware.AfterCommit(c, func() { c.JSON(502, gin.H{"error": gin.H{"code": "PAYMENT_PROVIDER_ERROR"}}) })
@@ -275,7 +280,7 @@ func TestComplianceGrantManagementAPIAndMetadataExport(t *testing.T) {
 	var grant struct {
 		Grant store.ComplianceGrants `json:"grant"`
 	}
-	if response.Code != 201 || json.Unmarshal(response.Body.Bytes(), &grant) != nil || !grant.Grant.OwnerConfirmedAt.Valid {
+	if response.Code != 201 || json.Unmarshal(response.Body.Bytes(), &grant) != nil || grant.Grant.OwnerConfirmedAt == 0 {
 		t.Fatalf("owner grant=%d %s", response.Code, response.Body)
 	}
 	for range 2 {

@@ -14,12 +14,12 @@ func normalMessage() Message {
 			{Name: "Message-ID", Value: "<q3-notes@partner.example>"},
 			{Name: "Authentication-Results", Value: "mx.urmail.cn; spf=pass smtp.mailfrom=partner.example; dkim=pass header.d=partner.example; dmarc=pass header.from=partner.example"},
 		},
-		BodySample: []byte("Hi, attaching the planning notes for Thursday. Regards, Wei"),
+		BodySample: []byte("Hi, attaching the planning notes for Thursday. Regards, Alex"),
 	}
 }
 
 func trustedAuth() AuthContext {
-	return AuthContext{LocalDomains: []string{"urmail.cn"}}
+	return AuthContext{LocalDomains: []string{"example.test"}}
 }
 
 func TestClassifyNormalMailIsHam(t *testing.T) {
@@ -184,14 +184,14 @@ func TestTokenCapAndMinimumObservations(t *testing.T) {
 
 func TestSASLLocalDomainSignal(t *testing.T) {
 	msg := Message{
-		EnvelopeFrom: "wei@urmail.cn",
+		EnvelopeFrom: "wei@example.test",
 		Headers: []Header{
-			{Name: "From", Value: "Wei <wei@urmail.cn>"},
+			{Name: "From", Value: "Alex <wei@example.test>"},
 			{Name: "Subject", Value: "Lunch tomorrow"},
 		},
 		BodySample: []byte("see you at noon"),
 	}
-	auth := AuthContext{SASLUser: "wei@urmail.cn", LocalDomains: []string{"urmail.cn"}}
+	auth := AuthContext{SASLUser: "wei@example.test", LocalDomains: []string{"example.test"}}
 	verdict := Classify(msg, auth, ListSnapshot{})
 	if !containsReason(verdict.Reasons, reasonSASLLocalDomain) {
 		t.Fatalf("sasl local domain signal missing: %v", verdict.Reasons)

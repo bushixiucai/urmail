@@ -23,7 +23,7 @@ func (h *AuthHandler) ListSessions(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	rows, err := h.Store.ListSessionsForUser(c, userID)
+	rows, err := h.Store.ListSessionsForUser(authScopeContext(c), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -52,7 +52,7 @@ func (h *AuthHandler) RevokeSession(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	deleted, err := h.Store.DeleteUserSession(c, store.DeleteUserSessionParams{
+	deleted, err := h.Store.DeleteUserSession(authScopeContext(c), store.DeleteUserSessionParams{
 		UserID: userID,
 		ID:     c.Param("id"),
 	})

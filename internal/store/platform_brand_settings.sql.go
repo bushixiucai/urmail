@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformDeleteBrandSetting = `-- name: PlatformDeleteBrandSetting :exec
@@ -30,9 +28,9 @@ SELECT key,value,updated_at FROM settings WHERE scope='brand' AND scope_id=$1 AN
 `
 
 type PlatformListBrandSettingsRow struct {
-	Key       string             `json:"key"`
-	Value     []byte             `json:"value"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Key       string `json:"key"`
+	Value     []byte `json:"value"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 func (q *Queries) PlatformListBrandSettings(ctx context.Context, scopeID int64) ([]PlatformListBrandSettingsRow, error) {

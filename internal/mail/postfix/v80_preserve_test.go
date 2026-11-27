@@ -44,8 +44,11 @@ func TestV80PreserveGoldenAndPolicyOrder(t *testing.T) {
 			t.Fatal("reviewed SMTP restriction or mandatory SaaS gate missing")
 		}
 	}
-	if strings.Count(files[postfix.FileMasterCF], "-o smtpd_data_restrictions=check_policy_service,unix:private/policy") != 2 {
-		t.Fatal("submission/smtps lost DATA policy")
+	// The per-service DATA policy override is gone by design: master.cf -o
+	// values cannot carry spaces, so submission/smtps inherit the main.cf
+	// global smtpd_data_restrictions (asserted above).
+	if strings.Contains(files[postfix.FileMasterCF], "smtpd_data_restrictions") {
+		t.Fatal("master.cf still carries a data-restrictions override")
 	}
 	// MAIL-03: the MX listener must never offer AUTH; only submission and
 	// smtps do, both under forced TLS.

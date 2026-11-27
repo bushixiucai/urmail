@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -46,19 +48,19 @@ func NewPlatformHandler(s PlatformStore) *PlatformHandler {
 
 // PlatformTenant exposes the tenant fields used by the platform console.
 type PlatformTenant struct {
-	ID           int64              `json:"id"`
-	BrandID      int64              `json:"brand_id"`
-	Name         string             `json:"name"`
-	Slug         string             `json:"slug"`
-	Status       string             `json:"status"`
-	DomainCount  int64              `json:"domain_count"`
-	MailboxCount int64              `json:"mailbox_count"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID           int64     `json:"id"`
+	BrandID      int64     `json:"brand_id"`
+	Name         string    `json:"name"`
+	Slug         string    `json:"slug"`
+	Status       string    `json:"status"`
+	DomainCount  int64     `json:"domain_count"`
+	MailboxCount int64     `json:"mailbox_count"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Overview returns aggregate platform resource counts.
 func (h *PlatformHandler) Overview(c *gin.Context) {
-	row, err := requestStore(c, h.Store).PlatformOverview(c)
+	row, err := requestStore(c, h.Store).PlatformOverview(platformCtx(c))
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -71,7 +73,7 @@ func (h *PlatformHandler) Overview(c *gin.Context) {
 
 // ListTenants lists tenants with resource counts.
 func (h *PlatformHandler) ListTenants(c *gin.Context) {
-	rows, err := requestStore(c, h.Store).PlatformListTenants(c)
+	rows, err := requestStore(c, h.Store).PlatformListTenants(platformCtx(c))
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -89,7 +91,7 @@ func (h *PlatformHandler) ListTenants(c *gin.Context) {
 			Status:       row.Status,
 			DomainCount:  row.DomainCount,
 			MailboxCount: row.MailboxCount,
-			CreatedAt:    row.CreatedAt,
+			CreatedAt:    timeutil.FromMicro(row.CreatedAt),
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"tenants": out})
@@ -122,12 +124,12 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 	if lock, ok := requestStore(c, h.Store).(interface {
 		PlatformLockBillingTenant(context.Context, int64) error
 	}); ok {
-		if err := lock.PlatformLockBillingTenant(c, id); err != nil {
+		if err := lock.PlatformLockBillingTenant(c.Request.Context(), id); err != nil {
 			authError(c, 500, "DB_ERROR")
 			return
 		}
 	}
-	row, err := requestStore(c, h.Store).PlatformUpdateTenantStatus(c, store.PlatformUpdateTenantStatusParams{
+	row, err := requestStore(c, h.Store).PlatformUpdateTenantStatus(platformCtx(c), store.PlatformUpdateTenantStatusParams{
 		ID:     id,
 		Status: status,
 	})
@@ -147,13 +149,13 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 		Name:      row.Name,
 		Slug:      row.Slug,
 		Status:    row.Status,
-		CreatedAt: row.CreatedAt,
+		CreatedAt: timeutil.FromMicro(row.CreatedAt),
 	}})
 }
 
 // Brands lists the compatibility brand administration view.
 func (h *PlatformHandler) Brands(c *gin.Context) {
-	rows, err := requestStore(c, h.Store).PlatformListBrands(c)
+	rows, err := requestStore(c, h.Store).PlatformListBrands(platformCtx(c))
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -205,7 +207,7 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 		return
 	}
 	status := "pending"
-	freeEnd := pgtype.Timestamptz{}
+	var freeEnd time.Time
 	if req.FreeUntil != "" {
 		until, e := time.Parse(time.RFC3339, req.FreeUntil)
 		if e != nil || !until.After(time.Now()) || strings.TrimSpace(req.FreeReason) == "" || len(req.FreeReason) > 2000 {
@@ -213,7 +215,7 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 			return
 		}
 		status = "active"
-		freeEnd = pgtype.Timestamptz{Time: until.UTC(), Valid: true}
+		freeEnd = until.UTC()
 	} else if strings.TrimSpace(req.FreeReason) != "" {
 		authError(c, 400, "INVALID_PARAMS")
 		return
@@ -233,34 +235,34 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 		return
 	}
 	defer rollback()
-	brandID, err := q.PlatformEnsureManagedBrand(c, store.PlatformEnsureManagedBrandParams{Slug: brandSlug, Name: req.Name})
+	brandID, err := q.PlatformEnsureManagedBrand(c.Request.Context(), store.PlatformEnsureManagedBrandParams{Slug: brandSlug, Name: req.Name})
 	if supportError(c, err) {
 		return
 	}
-	tenantID, err := q.PlatformCreateManagedTenant(c, store.PlatformCreateManagedTenantParams{BrandID: brandID, Name: name, Slug: slug, Status: status})
+	tenantID, err := q.PlatformCreateManagedTenant(c.Request.Context(), store.PlatformCreateManagedTenantParams{BrandID: brandID, Name: name, Slug: slug, Status: status})
 	if err != nil {
 		if !respondConstraintError(c, err) {
 			authError(c, 409, "TENANT_EXISTS")
 		}
 		return
 	}
-	userID, err := q.PlatformFindManagedUser(c, owner)
+	userID, err := q.PlatformFindManagedUser(c.Request.Context(), owner)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		userID, err = q.PlatformCreateManagedUser(c, store.PlatformCreateManagedUserParams{Email: owner, PasswordHash: hash, DisplayName: pgtype.Text{String: name, Valid: true}})
+		userID, err = q.PlatformCreateManagedUser(c.Request.Context(), store.PlatformCreateManagedUserParams{Email: owner, PasswordHash: hash, DisplayName: pgtype.Text{String: name, Valid: true}})
 	case err != nil:
 	}
 	if supportError(c, err) {
 		return
 	}
-	if supportError(c, q.PlatformGrantTenantOwner(c, store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: tenantID})) {
+	if supportError(c, q.PlatformGrantTenantOwner(c.Request.Context(), store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: tenantID})) {
 		return
 	}
-	if _, err = q.PlatformSetTenantOwner(c, store.PlatformSetTenantOwnerParams{ID: tenantID, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
+	if _, err = q.PlatformSetTenantOwner(c.Request.Context(), store.PlatformSetTenantOwnerParams{ID: tenantID, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
 		return
 	}
-	if freeEnd.Valid {
-		middleware.SetPlatformAuditDetail(c, map[string]any{"free_until": freeEnd.Time.Format(time.RFC3339), "grant_reason": strings.TrimSpace(req.FreeReason)})
+	if !freeEnd.IsZero() {
+		middleware.SetPlatformAuditDetail(c, map[string]any{"free_until": freeEnd.Format(time.RFC3339), "grant_reason": strings.TrimSpace(req.FreeReason)})
 	}
 	middleware.SetPlatformAuditTenant(c, tenantID)
 	if supportError(c, finish()) {
@@ -296,7 +298,7 @@ func (h *PlatformHandler) UpsertBrand(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	brand, err := requestStore(c, h.Store).PlatformUpsertBrand(c, store.PlatformUpsertBrandParams{
+	brand, err := requestStore(c, h.Store).PlatformUpsertBrand(platformCtx(c), store.PlatformUpsertBrandParams{
 		Slug: in.Slug, Name: in.Name, Theme: theme,
 		LogoUrl: textOrNull(in.LogoURL), FaviconUrl: textOrNull(in.FaviconURL),
 		PrimaryColor: textOrNull(in.PrimaryColor),
@@ -333,7 +335,7 @@ type ChannelInput struct {
 
 // Channels lists platform-managed distribution channels.
 func (h *PlatformHandler) Channels(c *gin.Context) {
-	rows, err := requestStore(c, h.Store).PlatformListChannels(c)
+	rows, err := requestStore(c, h.Store).PlatformListChannels(platformCtx(c))
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -382,7 +384,7 @@ func (h *PlatformHandler) UpsertChannel(c *gin.Context) {
 	if in.Active != nil {
 		active = *in.Active
 	}
-	row, err := requestStore(c, h.Store).PlatformUpsertChannel(c, store.PlatformUpsertChannelParams{
+	row, err := requestStore(c, h.Store).PlatformUpsertChannel(platformCtx(c), store.PlatformUpsertChannelParams{
 		BrandID: brandID, Code: in.Code, Name: in.Name, Kind: kind,
 		CommissionBps: in.CommissionBps, ParentID: parentID,
 		Contact: contact, Active: active,
@@ -421,7 +423,7 @@ func (h *PlatformHandler) UpdateTenant(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	if _, err := requestStore(c, store.New(h.Pool.Pool)).PlatformRenameTenant(c, store.PlatformRenameTenantParams{ID: id, Name: strings.TrimSpace(req.Name)}); err != nil {
+	if _, err := requestStore(c, db.Queries(h.Pool.Pool)).PlatformRenameTenant(c.Request.Context(), store.PlatformRenameTenantParams{ID: id, Name: strings.TrimSpace(req.Name)}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
@@ -458,21 +460,21 @@ func (h *PlatformHandler) TransferOwner(c *gin.Context) {
 		return
 	}
 	defer rollback()
-	if supportError(c, q.PlatformLockBillingTenant(c, id)) {
+	if supportError(c, q.PlatformLockBillingTenant(c.Request.Context(), id)) {
 		return
 	}
-	userID, err := q.PlatformFindManagedUser(c, email)
+	userID, err := q.PlatformFindManagedUser(c.Request.Context(), email)
 	if err != nil {
 		authError(c, 404, "USER_NOT_FOUND")
 		return
 	}
-	if supportError(c, q.PlatformDemotePreviousOwners(c, store.PlatformDemotePreviousOwnersParams{TenantID: id, UserID: userID})) {
+	if supportError(c, q.PlatformDemotePreviousOwners(c.Request.Context(), store.PlatformDemotePreviousOwnersParams{TenantID: id, UserID: userID})) {
 		return
 	}
-	if supportError(c, q.PlatformGrantTenantOwner(c, store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: id})) {
+	if supportError(c, q.PlatformGrantTenantOwner(c.Request.Context(), store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: id})) {
 		return
 	}
-	if _, err = q.PlatformSetTenantOwner(c, store.PlatformSetTenantOwnerParams{ID: id, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
+	if _, err = q.PlatformSetTenantOwner(c.Request.Context(), store.PlatformSetTenantOwnerParams{ID: id, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
 		return
 	}
 	if supportError(c, finish()) {
@@ -489,7 +491,7 @@ func (h *PlatformHandler) AuditLogs(c *gin.Context) {
 			limit = int32(v)
 		}
 	}
-	logs, err := requestStore(c, h.Store).PlatformListAuditLogs(c, limit)
+	logs, err := requestStore(c, h.Store).PlatformListAuditLogs(platformCtx(c), limit)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return

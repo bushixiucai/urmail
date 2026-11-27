@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
@@ -21,9 +24,9 @@ func (h *MailboxNativeHandler) sendReceiptService() mailboxsend.Service {
 	return mailboxsend.Service{Pool: h.Pool, Secrets: h.Secrets, Dialer: h.Dialer, Submitter: h.Submitter}
 }
 func receiptJSON(row store.MailboxSendReceipts) gin.H {
-	out := gin.H{"id": row.ID, "request_key": row.RequestKey, "status": row.Status, "sent_copy_state": row.SentCopyState, "message_id": row.MessageID, "created_at": row.CreatedAt.Time, "last_error": row.LastError, "draft_released": row.DraftReleased}
-	if row.AcceptedAt.Valid {
-		out["accepted_at"] = row.AcceptedAt.Time
+	out := gin.H{"id": row.ID, "request_key": row.RequestKey, "status": row.Status, "sent_copy_state": row.SentCopyState, "message_id": row.MessageID, "created_at": timeutil.FromMicro(row.CreatedAt), "last_error": row.LastError, "draft_released": row.DraftReleased}
+	if row.AcceptedAt != 0 {
+		out["accepted_at"] = timeutil.FromMicro(row.AcceptedAt)
 	}
 	if row.DraftUid > 0 && !row.DraftReleased {
 		out["draft_source"] = gin.H{"folder_enc": webmail.EncodeFolderName(row.DraftFolder), "uid": row.DraftUid, "uid_validity": row.DraftUidvalidity}
@@ -55,10 +58,10 @@ func (h *MailboxNativeHandler) ListSendReceipts(c *gin.Context) {
 		authError(c, 503, "WEBMAIL_DISABLED")
 		return
 	}
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	items := []gin.H{}
 	if key := strings.TrimSpace(c.Query("request_key")); key != "" {
-		row, e := q.PlatformGetSendReceiptByKey(c.Request.Context(), store.PlatformGetSendReceiptByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, RequestKey: key})
+		row, e := q.PlatformGetSendReceiptByKey(platformCtx(c), store.PlatformGetSendReceiptByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, RequestKey: key})
 		if e == nil {
 			items = append(items, receiptJSON(row))
 		} else if !errors.Is(e, pgx.ErrNoRows) {
@@ -73,7 +76,7 @@ func (h *MailboxNativeHandler) ListSendReceipts(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		rows, e := q.PlatformGetSendReceiptsForDraft(c.Request.Context(), store.PlatformGetSendReceiptsForDraftParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
+		rows, e := q.PlatformGetSendReceiptsForDraft(platformCtx(c), store.PlatformGetSendReceiptsForDraftParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
 		if e != nil {
 			authError(c, 503, "DB_ERROR")
 			return
@@ -93,7 +96,7 @@ func (h *MailboxNativeHandler) ListSendReceipts(c *gin.Context) {
 		if offset > 100000 {
 			offset = 100000
 		}
-		rows, e := q.PlatformListSendReceipts(c.Request.Context(), store.PlatformListSendReceiptsParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PageLimit: int32(limit), PageOffset: int32(offset)})
+		rows, e := q.PlatformListSendReceipts(platformCtx(c), store.PlatformListSendReceiptsParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PageLimit: int32(limit), PageOffset: int32(offset)})
 		if e != nil {
 			authError(c, 503, "DB_ERROR")
 			return
@@ -124,7 +127,7 @@ func (h *MailboxNativeHandler) GetSendReceipt(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	row, e := store.New(h.Pool.Pool).PlatformGetSendReceipt(c.Request.Context(), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	row, e := db.Queries(h.Pool.Pool).PlatformGetSendReceipt(platformCtx(c), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(e, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -170,7 +173,7 @@ func (h *MailboxNativeHandler) RepairSendReceiptCopy(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	row, e = store.New(h.Pool.Pool).PlatformGetSendReceipt(c.Request.Context(), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	row, e = db.Queries(h.Pool.Pool).PlatformGetSendReceipt(platformCtx(c), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(e, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -192,11 +195,11 @@ func (h *MailboxNativeHandler) draftSubmissionLocked(c *gin.Context, folder stri
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
 		return true
 	}
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	if len(queries) > 0 && queries[0] != nil {
 		q = queries[0]
 	}
-	locked, e := q.PlatformDraftSendLocked(c.Request.Context(), store.PlatformDraftSendLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
+	locked, e := q.PlatformDraftSendLocked(platformCtx(c), store.PlatformDraftSendLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
 	if e != nil {
 		authError(c, 503, "DB_ERROR")
 		return true
@@ -218,11 +221,11 @@ func (h *MailboxNativeHandler) draftDeletionLocked(c *gin.Context, folder string
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
 		return true
 	}
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	if len(queries) > 0 && queries[0] != nil {
 		q = queries[0]
 	}
-	locked, e := q.PlatformDraftDeleteLocked(c.Request.Context(), store.PlatformDraftDeleteLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
+	locked, e := q.PlatformDraftDeleteLocked(platformCtx(c), store.PlatformDraftDeleteLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
 	if e != nil {
 		authError(c, 503, "DB_ERROR")
 		return true

@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -44,6 +45,11 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 		userID, _ := GetUserID(c)
+		c.Request = c.Request.WithContext(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{
+			Scope:    isolation.ScopeTenant,
+			TenantID: tenantID,
+			ActorID:  userID,
+		}))
 
 		tx, err := pool.UserTx(c.Request.Context(), tenantID, userID)
 		if err != nil {
@@ -80,13 +86,15 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 
 		// A writer can wait behind another tenant operation. Resolve current
 		// membership only after that wait, so revocation is never cached across it.
-		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		// SQLite uses single-writer BEGIN IMMEDIATE transactions (_txlock=immediate)
+		// and does not implement PostgreSQL pg_advisory_xact_lock.
+		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead && !isSQLiteHandle(pool, tx) {
 			if _, err := tx.Exec(c.Request.Context(), "SELECT pg_advisory_xact_lock($1)", tenantID); err != nil {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 				return
 			}
 		}
-		queries := store.New(tx)
+		queries := db.Queries(tx)
 		role, err := queries.GetUserRoleForTenant(c.Request.Context(), store.GetUserRoleForTenantParams{
 			UserID:   userID,
 			TenantID: tenantID,
@@ -169,6 +177,16 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 func QueriesFromCtx(c *gin.Context) (any, bool) {
 	v, ok := c.Get(ContextQueries)
 	return v, ok
+}
+
+func isSQLiteHandle(pool *db.Pool, tx any) bool {
+	if pool != nil && pool.IsSQLite() {
+		return true
+	}
+	if marker, ok := tx.(interface{ IsSQLite() bool }); ok && marker.IsSQLite() {
+		return true
+	}
+	return false
 }
 
 // GetRole returns the authenticated user's role within the tenant.

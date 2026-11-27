@@ -17,7 +17,7 @@ var update = flag.Bool("update", false, "update golden files")
 func defaultNodeConfig() nsd.NodeConfig {
 	return nsd.NodeConfig{
 		ListenAddresses: []string{"127.0.0.1", "192.0.2.10", "2001:db8::10"},
-		Hostname:        "box.urmail.cn",
+		Hostname:        "mail.example.test",
 		PrimaryDomain:   "urmail.cn",
 		PublicIPv4:      "1.2.3.4",
 		PublicIPv6:      "2001:db8::1",
@@ -83,7 +83,7 @@ func TestGoldenCases(t *testing.T) {
 						Mode:   "delegated",
 						Serial: 2026102201,
 						Records: []nsd.Record{
-							{Name: "@", Type: "MX", Prio: 10, Value: "box.urmail.cn."},
+							{Name: "@", Type: "MX", Prio: 10, Value: "mail.example.test."},
 							{Name: "mail._domainkey", Type: "TXT", Value: "v=DKIM1; k=rsa; p=MIGf..."},
 						},
 					},
@@ -219,7 +219,7 @@ func TestRecordValidationAcceptsValidRecords(t *testing.T) {
 				{Name: "@", Type: "A", Value: "192.0.2.1"},
 				{Name: "@", Type: "AAAA", Value: "2001:db8::1"},
 				{Name: "www", Type: "CNAME", Value: "example.com."},
-				{Name: "@", Type: "MX", Prio: 10, Value: "box.urmail.cn."},
+				{Name: "@", Type: "MX", Prio: 10, Value: "mail.example.test."},
 				{Name: "ns2", Type: "NS", Value: "ns2.example.com."},
 				{Name: "_dmarc", Type: "TXT", Value: "v=DMARC1; p=quarantine"},
 				{Name: "@", Type: "SPF", Value: "v=spf1 mx -all"},

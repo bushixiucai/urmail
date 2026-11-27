@@ -1,4 +1,6 @@
 -- name: PlatformListDomains :many
+-- scope: platform
+
 -- Platform query for Postfix configuration generator.
 -- Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 SELECT d.fqdn, d.status, d.mode, d.updated_at,d.provisioning_state,d.dns_explicit
@@ -8,6 +10,8 @@ WHERE d.status = 'active' AND t.status = 'active'
 ORDER BY d.fqdn ASC;
 
 -- name: PlatformListMailboxes :many
+-- scope: platform
+
 -- Platform query for Postfix configuration generator.
 -- Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 SELECT m.id, m.tenant_id, m.address, m.status
@@ -18,12 +22,14 @@ WHERE m.status = 'active' AND t.status = 'active'
 ORDER BY m.address ASC;
 
 -- name: PlatformListAliases :many
+-- scope: platform
+
 -- Platform query for Postfix configuration generator.
 -- Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 SELECT d.fqdn AS domain, a.local_part, a.target, a.kind,
  ARRAY(SELECT m.address FROM mailboxes m JOIN domains md ON md.id=m.domain_id AND md.tenant_id=m.tenant_id
-       WHERE m.tenant_id=a.tenant_id AND m.address=ANY(a.sender_logins) AND m.status='active' AND m.send_enabled
-       AND md.status='active' AND md.provisioning_state='ready' ORDER BY m.address)::text[] AS sender_logins
+       WHERE m.tenant_id=a.tenant_id AND EXISTS(SELECT 1 FROM json_each(a.sender_logins) je WHERE je.value = m.address) AND m.status='active' AND m.send_enabled
+       AND md.status='active' AND md.provisioning_state='ready' ORDER BY m.address) AS sender_logins
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
 JOIN tenants t ON t.id = a.tenant_id
@@ -31,8 +37,25 @@ WHERE a.active = true AND d.status = 'active' AND d.provisioning_state='ready' A
 ORDER BY d.fqdn ASC, a.local_part ASC;
 
 -- name: AliasWouldCycle :one
+-- scope: platform
+
 -- MAIL-02: global routing-cycle preflight for a candidate alias. Returns a
 -- boolean only; no cross-tenant rows or graph structure are exposed. Exempt
 -- from tenant_id predicate per AGENTS.md (platform_*.sql): the cycle lives in
 -- the platform-wide graph by definition.
-SELECT urmail_alias_would_cycle(sqlc.arg('domain'), sqlc.arg('local_part'), sqlc.arg('target')) AS would_cycle;
+WITH RECURSIVE edges(src,dst) AS (
+  SELECT lower(a.local_part) || '@' || lower(d.fqdn), lower(a.target)
+  FROM mailbox_aliases a
+  JOIN domains d ON d.id=a.domain_id
+  JOIN tenants t ON t.id=a.tenant_id
+  WHERE a.kind<>'catchall' AND a.active AND d.status='active' AND d.provisioning_state='ready' AND t.status='active'
+),
+start_key(s) AS (
+  SELECT lower(sqlc.arg('local_part')) || '@' || (SELECT lower(fqdn) FROM domains WHERE fqdn=sqlc.arg('domain'))
+),
+walk(cur) AS (
+  SELECT lower(sqlc.arg('target'))
+  UNION
+  SELECT e.dst FROM walk w JOIN edges e ON e.src=w.cur
+)
+SELECT EXISTS(SELECT 1 FROM walk w JOIN start_key s ON w.cur=s.s) AS would_cycle;

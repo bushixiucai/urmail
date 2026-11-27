@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -47,15 +50,15 @@ func NewMailboxHandler(s MailboxStore, r ReconcileTrigger) *MailboxHandler {
 // hash and the Sieve script stay server-side; display_name is flattened from
 // the nullable column into a plain string or null.
 type MailboxResponse struct {
-	ID          int64              `json:"id"`
-	DomainID    int64              `json:"domain_id"`
-	LocalPart   string             `json:"local_part"`
-	Address     string             `json:"address"`
-	DisplayName *string            `json:"display_name"`
-	QuotaBytes  int64              `json:"quota_bytes"`
-	Status      string             `json:"status"`
-	SendEnabled bool               `json:"send_enabled"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID          int64     `json:"id"`
+	DomainID    int64     `json:"domain_id"`
+	LocalPart   string    `json:"local_part"`
+	Address     string    `json:"address"`
+	DisplayName *string   `json:"display_name"`
+	QuotaBytes  int64     `json:"quota_bytes"`
+	Status      string    `json:"status"`
+	SendEnabled bool      `json:"send_enabled"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 func newMailboxResponse(m store.Mailboxes) MailboxResponse {
@@ -68,7 +71,7 @@ func newMailboxResponse(m store.Mailboxes) MailboxResponse {
 		QuotaBytes:  m.QuotaBytes,
 		Status:      m.Status,
 		SendEnabled: m.SendEnabled,
-		CreatedAt:   m.CreatedAt,
+		CreatedAt:   timeutil.FromMicro(m.CreatedAt),
 	}
 }
 
@@ -81,7 +84,7 @@ func (h *MailboxHandler) List(c *gin.Context) {
 		return
 	}
 
-	mailboxes, err := q.ListMailboxesByTenant(c, tenantID)
+	mailboxes, err := q.ListMailboxesByTenant(c.Request.Context(), tenantID)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -122,7 +125,7 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 		return
 	}
 
-	domain, err := q.GetDomainByID(c, store.GetDomainByIDParams{
+	domain, err := q.GetDomainByID(c.Request.Context(), store.GetDomainByIDParams{
 		TenantID: tenantID,
 		ID:       req.DomainID,
 	})
@@ -164,7 +167,7 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 		return
 	}
 
-	mailbox, err := q.CreateMailbox(c, store.CreateMailboxParams{
+	mailbox, err := q.CreateMailbox(c.Request.Context(), store.CreateMailboxParams{
 		TenantID:     tenantID,
 		DomainID:     domain.ID,
 		LocalPart:    local,
@@ -230,7 +233,7 @@ func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 		return
 	}
 
-	mailbox, err := q.UpdateMailboxPassword(c, store.UpdateMailboxPasswordParams{
+	mailbox, err := q.UpdateMailboxPassword(c.Request.Context(), store.UpdateMailboxPasswordParams{
 		TenantID:     tenantID,
 		ID:           id,
 		PasswordHash: hash,
@@ -278,7 +281,7 @@ func (h *MailboxHandler) UpdateQuota(c *gin.Context) {
 		return
 	}
 
-	mailbox, err := q.UpdateMailboxQuota(c, store.UpdateMailboxQuotaParams{
+	mailbox, err := q.UpdateMailboxQuota(c.Request.Context(), store.UpdateMailboxQuotaParams{
 		TenantID:   tenantID,
 		ID:         id,
 		QuotaBytes: req.QuotaBytes,
@@ -329,7 +332,7 @@ func (h *MailboxHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := q.DeleteMailbox(c, store.DeleteMailboxParams{
+	if err := q.DeleteMailbox(c.Request.Context(), store.DeleteMailboxParams{
 		TenantID: tenantID,
 		ID:       id,
 	}); err != nil {
@@ -370,7 +373,7 @@ func (h *MailboxHandler) UpdateSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
-	current, err := q.GetMailboxByID(c, store.GetMailboxByIDParams{TenantID: tenantID, ID: id})
+	current, err := q.GetMailboxByID(c.Request.Context(), store.GetMailboxByIDParams{TenantID: tenantID, ID: id})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -408,7 +411,7 @@ func (h *MailboxHandler) UpdateSettings(c *gin.Context) {
 	if req.SendEnabled != nil {
 		sendEnabled = *req.SendEnabled
 	}
-	updated, err := q.UpdateMailboxSettings(c, store.UpdateMailboxSettingsParams{
+	updated, err := q.UpdateMailboxSettings(c.Request.Context(), store.UpdateMailboxSettingsParams{
 		TenantID: tenantID, ID: id, DisplayName: display, Status: status, SendEnabled: sendEnabled,
 	})
 	if err != nil {
@@ -425,6 +428,6 @@ func (h *MailboxHandler) UpdateSettings(c *gin.Context) {
 		ID: updated.ID, DomainID: updated.DomainID, LocalPart: updated.LocalPart,
 		Address: updated.Address, DisplayName: textPtr(updated.DisplayName),
 		QuotaBytes: updated.QuotaBytes, Status: updated.Status,
-		SendEnabled: updated.SendEnabled, CreatedAt: updated.CreatedAt,
+		SendEnabled: updated.SendEnabled, CreatedAt: timeutil.FromMicro(updated.CreatedAt),
 	}})
 }

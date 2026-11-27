@@ -10,12 +10,13 @@ import (
 )
 
 const mailboxSpamApplyTokenDelta = `-- name: MailboxSpamApplyTokenDelta :execrows
+
 INSERT INTO mailbox_spam_tokens(tenant_id,mailbox_id,token,spam_count,ham_count,updated_at)
-VALUES($1::bigint,$2::bigint,$3,$4::integer,$5::integer,now())
+VALUES(?1,?2,?3,?4,?5,(CAST(strftime('%s','now') AS INTEGER)*1000000))
 ON CONFLICT (tenant_id,mailbox_id,token) DO UPDATE SET
- spam_count=GREATEST(0,LEAST(1000000000,mailbox_spam_tokens.spam_count+EXCLUDED.spam_count)),
- ham_count=GREATEST(0,LEAST(1000000000,mailbox_spam_tokens.ham_count+EXCLUDED.ham_count)),
- updated_at=now()
+ spam_count=max(0,min(1000000000,mailbox_spam_tokens.spam_count+EXCLUDED.spam_count)),
+ ham_count=max(0,min(1000000000,mailbox_spam_tokens.ham_count+EXCLUDED.ham_count)),
+ updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 `
 
 type MailboxSpamApplyTokenDeltaParams struct {
@@ -26,6 +27,7 @@ type MailboxSpamApplyTokenDeltaParams struct {
 	HamDelta  int32  `json:"ham_delta"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxSpamApplyTokenDelta(ctx context.Context, arg MailboxSpamApplyTokenDeltaParams) (int64, error) {
 	result, err := q.db.Exec(ctx, mailboxSpamApplyTokenDelta,
 		arg.TenantID,
@@ -41,8 +43,9 @@ func (q *Queries) MailboxSpamApplyTokenDelta(ctx context.Context, arg MailboxSpa
 }
 
 const mailboxSpamCountFeedback = `-- name: MailboxSpamCountFeedback :one
+
 SELECT count(*) AS total FROM mailbox_spam_feedback
-WHERE tenant_id=$1::bigint AND mailbox_id=$2::bigint
+WHERE tenant_id=?1 AND mailbox_id=?2
 `
 
 type MailboxSpamCountFeedbackParams struct {
@@ -50,6 +53,7 @@ type MailboxSpamCountFeedbackParams struct {
 	MailboxID int64 `json:"mailbox_id"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxSpamCountFeedback(ctx context.Context, arg MailboxSpamCountFeedbackParams) (int64, error) {
 	row := q.db.QueryRow(ctx, mailboxSpamCountFeedback, arg.TenantID, arg.MailboxID)
 	var total int64
@@ -59,8 +63,9 @@ func (q *Queries) MailboxSpamCountFeedback(ctx context.Context, arg MailboxSpamC
 
 const mailboxSpamInsertFeedback = `-- name: MailboxSpamInsertFeedback :execrows
 
+
 INSERT INTO mailbox_spam_feedback(tenant_id,mailbox_id,message_id,folder,verdict,sender_address,sender_domain)
-VALUES($1::bigint,$2::bigint,$3,$4,$5,$6,$7)
+VALUES(?1,?2,?3,?4,?5,?6,?7)
 ON CONFLICT (tenant_id,mailbox_id,message_id,verdict) DO NOTHING
 `
 
@@ -80,6 +85,7 @@ type MailboxSpamInsertFeedbackParams struct {
 // and runs inside a MailboxTx so RLS additionally fails closed on a missing
 // urmail.tenant_id / urmail.mailbox_id context. Cross-mailbox rows are
 // unreachable by construction.
+// scope: tenant
 func (q *Queries) MailboxSpamInsertFeedback(ctx context.Context, arg MailboxSpamInsertFeedbackParams) (int64, error) {
 	result, err := q.db.Exec(ctx, mailboxSpamInsertFeedback,
 		arg.TenantID,
@@ -97,11 +103,12 @@ func (q *Queries) MailboxSpamInsertFeedback(ctx context.Context, arg MailboxSpam
 }
 
 const mailboxSpamListSenderRules = `-- name: MailboxSpamListSenderRules :many
+
 SELECT scope,address,domain,list FROM mailbox_spam_senders
-WHERE tenant_id=$1::bigint
-  AND (mailbox_id=0 OR mailbox_id=$2::bigint)
-  AND (address=$3 OR (address='' AND domain=$4))
-  AND ($3<>'' OR $4<> '')
+WHERE tenant_id=?1
+  AND (mailbox_id=0 OR mailbox_id=?2)
+  AND (address=?3 OR (address='' AND domain=?4))
+  AND (?3<>'' OR ?4<> '')
 `
 
 type MailboxSpamListSenderRulesParams struct {
@@ -118,6 +125,7 @@ type MailboxSpamListSenderRulesRow struct {
 	List    string `json:"list"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxSpamListSenderRules(ctx context.Context, arg MailboxSpamListSenderRulesParams) ([]MailboxSpamListSenderRulesRow, error) {
 	rows, err := q.db.Query(ctx, mailboxSpamListSenderRules,
 		arg.TenantID,
@@ -149,9 +157,10 @@ func (q *Queries) MailboxSpamListSenderRules(ctx context.Context, arg MailboxSpa
 }
 
 const mailboxSpamRemoveSenderList = `-- name: MailboxSpamRemoveSenderList :execrows
+
 DELETE FROM mailbox_spam_senders
-WHERE tenant_id=$1::bigint AND mailbox_id=$2::bigint
-  AND address=$3 AND domain=$4 AND list=$5
+WHERE tenant_id=?1 AND mailbox_id=?2
+  AND address=?3 AND domain=?4 AND list=?5
 `
 
 type MailboxSpamRemoveSenderListParams struct {
@@ -162,6 +171,7 @@ type MailboxSpamRemoveSenderListParams struct {
 	List      string `json:"list"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxSpamRemoveSenderList(ctx context.Context, arg MailboxSpamRemoveSenderListParams) (int64, error) {
 	result, err := q.db.Exec(ctx, mailboxSpamRemoveSenderList,
 		arg.TenantID,
@@ -177,9 +187,10 @@ func (q *Queries) MailboxSpamRemoveSenderList(ctx context.Context, arg MailboxSp
 }
 
 const mailboxSpamSetSenderList = `-- name: MailboxSpamSetSenderList :execrows
+
 INSERT INTO mailbox_spam_senders(tenant_id,mailbox_id,scope,address,domain,list)
-VALUES($1::bigint,$2::bigint,'mailbox',$3,$4,$5)
-ON CONFLICT (tenant_id,mailbox_id,address,domain,list) DO UPDATE SET scope='mailbox',updated_at=now()
+VALUES(?1,?2,'mailbox',?3,?4,?5)
+ON CONFLICT (tenant_id,mailbox_id,address,domain,list) DO UPDATE SET scope='mailbox',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 `
 
 type MailboxSpamSetSenderListParams struct {
@@ -190,6 +201,7 @@ type MailboxSpamSetSenderListParams struct {
 	List      string `json:"list"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxSpamSetSenderList(ctx context.Context, arg MailboxSpamSetSenderListParams) (int64, error) {
 	result, err := q.db.Exec(ctx, mailboxSpamSetSenderList,
 		arg.TenantID,
@@ -205,8 +217,9 @@ func (q *Queries) MailboxSpamSetSenderList(ctx context.Context, arg MailboxSpamS
 }
 
 const mailboxSpamTokenStats = `-- name: MailboxSpamTokenStats :many
+
 SELECT token,spam_count,ham_count FROM mailbox_spam_tokens
-WHERE tenant_id=$1::bigint AND mailbox_id=$2::bigint
+WHERE tenant_id=?1 AND mailbox_id=?2
 `
 
 type MailboxSpamTokenStatsParams struct {
@@ -220,6 +233,7 @@ type MailboxSpamTokenStatsRow struct {
 	HamCount  int32  `json:"ham_count"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxSpamTokenStats(ctx context.Context, arg MailboxSpamTokenStatsParams) ([]MailboxSpamTokenStatsRow, error) {
 	rows, err := q.db.Query(ctx, mailboxSpamTokenStats, arg.TenantID, arg.MailboxID)
 	if err != nil {

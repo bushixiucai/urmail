@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -215,9 +215,12 @@ function WebmailRoute() {
 }
 
 function WebmailInboxRoute() {
-  // Session check includes expires_at: a dead token is cleared here, so the
-  // inbox never mounts to fire a burst of doomed 401s.
-  if (!hasMailboxSession()) {
+  // Mount-time gate only (REVIEW-UX-001): a session dying while the tree is
+  // already loaded is owned by the in-place recovery banner — route-tree
+  // re-renders must not hard-bounce it to /webmail/login. Fresh navigations
+  // with no live session still land on the login page via the fresh ref.
+  const mountedWithSessionRef = useRef(hasMailboxSession());
+  if (!mountedWithSessionRef.current) {
     return <Navigate to="/webmail/login" replace />;
   }
   if (isWebmailNextEnabled()) {

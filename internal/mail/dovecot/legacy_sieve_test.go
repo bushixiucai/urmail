@@ -4,12 +4,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bushixiucai/urmail/internal/dovecotauth"
 	"github.com/bushixiucai/urmail/internal/mail/dovecot"
 )
 
 func TestLegacySieveLocationsArePerMailboxUserDBOverrides(t *testing.T) {
 	node := defaultNodeConfig()
 	node.StorageRoot = "/home/user-data"
+	node.AuthEngine = "sqlite"
 	files, err := dovecot.Generate(node)
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +23,11 @@ func TestLegacySieveLocationsArePerMailboxUserDBOverrides(t *testing.T) {
 		"THEN '/home/user-data/mail/sieve/global_before' ELSE NULL END AS sieve_before2",
 		"THEN '/home/user-data/mail/sieve/global_after' ELSE NULL END AS sieve_after",
 		"THEN 'recipient' ELSE NULL END AS sieve_redirect_envelope_from",
-		"urmail_domain_mail_ready(m.tenant_id,m.domain_id)",
+		// §5.3: in SQLite mode the readiness predicate comes from
+		// dovecotauth.ReadyJoin — the single source shared with the
+		// snapshot schema (cutover-blockers Blocker 1; hand-copying it
+		// drifted against the snapshot columns once).
+		dovecotauth.ReadyJoin,
 	} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("missing constrained userdb field %s", required)

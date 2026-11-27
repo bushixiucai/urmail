@@ -39,11 +39,11 @@ func TestIDNDomainRendersDNSZoneInALabel(t *testing.T) {
 
 func TestIDNDomainRendersPostfixMapsInALabel(t *testing.T) {
 	node := postfix.NodeConfig{
-		Hostname:      "box.urmail.cn",
+		Hostname:      "mail.example.test",
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
-		TLSCertFile:   "/var/mail/ssl/box.urmail.cn.cert",
-		TLSKeyFile:    "/var/mail/ssl/box.urmail.cn.key",
+		TLSCertFile:   "/var/mail/ssl/mail.example.test.cert",
+		TLSKeyFile:    "/var/mail/ssl/mail.example.test.key",
 	}
 	mailbox, err := validation.NormalizeEmail("tanaka@" + idnUnicode)
 	if err != nil {
@@ -86,11 +86,11 @@ func TestIDNDomainRendersPostfixMapsInALabel(t *testing.T) {
 // whole render must fail closed, not emit a broken map.
 func TestPostfixRejectsEAIRawUnicode(t *testing.T) {
 	node := postfix.NodeConfig{
-		Hostname:      "box.urmail.cn",
+		Hostname:      "mail.example.test",
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
-		TLSCertFile:   "/var/mail/ssl/box.urmail.cn.cert",
-		TLSKeyFile:    "/var/mail/ssl/box.urmail.cn.key",
+		TLSCertFile:   "/var/mail/ssl/mail.example.test.cert",
+		TLSKeyFile:    "/var/mail/ssl/mail.example.test.key",
 	}
 	snap := postfix.Snapshot{
 		Domains:   []postfix.Domain{{FQDN: "example.com", Status: "active"}},

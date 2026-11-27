@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/net/html"
@@ -107,7 +110,10 @@ func (h *NativeMailboxAI) getUserAI(ctx context.Context, sess webmail.Session) (
 	if h.Service == nil || h.Service.Pool == nil {
 		return nil, false, nil
 	}
-	row, err := store.New(h.Service.Pool).PlatformGetMailboxSettings(ctx, store.PlatformGetMailboxSettingsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	// This helper lives on the platform pool and only reads the mailbox's own
+	// AI preference; callers may hold a mailbox/tenant context.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	row, err := db.Queries(h.Service.Pool).PlatformGetMailboxSettings(ctx, store.PlatformGetMailboxSettingsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -149,7 +155,9 @@ func (h *NativeMailboxAI) customProvider(cfg *userAICustomConfig) (ai.Provider, 
 }
 
 func (h *NativeMailboxAI) customGovernance(c *gin.Context, sess webmail.Session, cfg *userAICustomConfig) bool {
-	governance, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+	// This check owns the platform pool and reads only the tenant's own
+	// governance row; callers may be a mailbox handler or a direct check.
+	governance, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return false
@@ -214,6 +222,7 @@ func (h *NativeMailboxAI) principal(c *gin.Context) (webmail.Session, bool) {
 
 // Target describes the current provider without exposing credentials.
 func (h *NativeMailboxAI) Target(c *gin.Context) {
+	bindPlatformScope(c)
 	sess, ok := h.principal(c)
 	if !ok {
 		return
@@ -245,7 +254,7 @@ func (h *NativeMailboxAI) Target(c *gin.Context) {
 		})
 		return
 	}
-	cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+	cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"enabled": false, "allowed": false})
 		return
@@ -254,7 +263,7 @@ func (h *NativeMailboxAI) Target(c *gin.Context) {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return
 	}
-	target, err := aiTargetPolicy(c, store.New(h.Service.Pool), cfg)
+	target, err := aiTargetPolicy(platformCtx(c), db.Queries(h.Service.Pool), cfg)
 	if err != nil {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return
@@ -297,7 +306,7 @@ func (h *NativeMailboxAI) requireTarget(c *gin.Context, sess webmail.Session, di
 		}
 		return true
 	}
-	cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+	cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 	if err != nil || !cfg.Enabled {
 		authError(c, 503, "AI_DISABLED")
 		return false
@@ -306,7 +315,7 @@ func (h *NativeMailboxAI) requireTarget(c *gin.Context, sess webmail.Session, di
 		authError(c, 409, "AI_CLOUD_CONSENT_STALE")
 		return false
 	}
-	target, err := aiTargetPolicy(c, store.New(h.Service.Pool), cfg)
+	target, err := aiTargetPolicy(platformCtx(c), db.Queries(h.Service.Pool), cfg)
 	if err != nil {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return false
@@ -375,6 +384,7 @@ func (h *NativeMailboxAI) readContext(c *gin.Context, folderEnc string, uid, val
 
 // Context previews canonical message text before processing.
 func (h *NativeMailboxAI) Context(c *gin.Context) {
+	bindPlatformScope(c)
 	if _, ok := h.principal(c); !ok {
 		return
 	}
@@ -397,6 +407,7 @@ func (h *NativeMailboxAI) Context(c *gin.Context) {
 
 // Assist generates a suggestion after explicit owner consent.
 func (h *NativeMailboxAI) Assist(c *gin.Context) {
+	bindPlatformScope(c)
 	sess, ok := h.principal(c)
 	if !ok {
 		return
@@ -487,7 +498,7 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 		if custom {
 			provider, model, endpoint = userAI.Provider, userAI.Model, userAI.Endpoint
 		} else {
-			cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+			cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 			if err != nil {
 				authError(c, 503, "AI_UNAVAILABLE")
 				return
@@ -600,6 +611,7 @@ func nativeAIError(c *gin.Context, err error) {
 
 // Citation resolves a currently authorized live source.
 func (h *NativeMailboxAI) Citation(c *gin.Context) {
+	bindPlatformScope(c)
 	sess, ok := h.principal(c)
 	if !ok {
 		return
@@ -654,6 +666,7 @@ func (h *NativeMailboxAI) Citation(c *gin.Context) {
 
 // Models tests provider connectivity and retrieves available models for mailbox users.
 func (h *NativeMailboxAI) Models(c *gin.Context) {
+	bindPlatformScope(c)
 	sess, ok := h.principal(c)
 	if !ok {
 		return
@@ -676,7 +689,7 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 		if input.Model == "" {
 			input.Model = "gpt-4o"
 		}
-		governance, gErr := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+		governance, gErr := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 		if gErr == nil {
 			switch governance.PersonalMode {
 			case "disabled":
@@ -739,7 +752,7 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 			return
 		}
 	} else {
-		cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+		cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(platformCtx(c), sess.TenantID)
 		if err != nil || !cfg.Enabled {
 			authError(c, 409, "AI_DISABLED")
 			return

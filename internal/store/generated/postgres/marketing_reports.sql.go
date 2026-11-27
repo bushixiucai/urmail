@@ -3,7 +3,7 @@
 //   sqlc v1.30.0
 // source: marketing_reports.sql
 
-package store
+package storepg
 
 import (
 	"context"

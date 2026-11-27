@@ -42,7 +42,7 @@ func TestDeferredStreamRequiresRealTransactionCommit(t *testing.T) {
 			c.Request = c.Request.WithContext(ctx)
 			raw, _ := middleware.QueriesFromCtx(c)
 			q := raw.(*store.Queries)
-			if _, err := q.UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tenant, Key: "locale", Value: []byte(`"en"`)}); err != nil {
+			if _, err := q.UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tenant, Key: "locale", Value: []byte(`"en"`)}); err != nil {
 				t.Fatal(err)
 			}
 			source = &guardedTransactionStream{reader: bytes.NewReader(make([]byte, 9<<20)), beforeRead: func() {

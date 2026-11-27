@@ -12,19 +12,21 @@ import (
 )
 
 const tenantDeliveryOutcomeCounts = `-- name: TenantDeliveryOutcomeCounts :many
-SELECT status,count(*)::bigint AS count FROM (
- SELECT DISTINCT ON(instance,lifecycle_id,recipient) status
+
+SELECT status,count(*) AS count FROM (
+ SELECT status, ROW_NUMBER() OVER (
+   PARTITION BY instance,lifecycle_id,recipient
+   ORDER BY occurred_at DESC,id DESC) AS rn
  FROM delivery_events
- WHERE tenant_id=$1 AND occurred_at >= $2 AND occurred_at <= $3::timestamptz
+ WHERE tenant_id=?1 AND occurred_at >= ?2 AND occurred_at <= ?3
    AND recipient IS NOT NULL AND status IN('sent','bounced','expired','deferred')
- ORDER BY instance,lifecycle_id,recipient,occurred_at DESC,id DESC
-) AS latest GROUP BY status ORDER BY status
+) AS latest WHERE rn=1 GROUP BY status ORDER BY status
 `
 
 type TenantDeliveryOutcomeCountsParams struct {
-	TenantID   pgtype.Int8        `json:"tenant_id"`
-	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
-	WindowEnd  pgtype.Timestamptz `json:"window_end"`
+	TenantID   pgtype.Int8 `json:"tenant_id"`
+	OccurredAt int64       `json:"occurred_at"`
+	WindowEnd  int64       `json:"window_end"`
 }
 
 type TenantDeliveryOutcomeCountsRow struct {
@@ -34,6 +36,7 @@ type TenantDeliveryOutcomeCountsRow struct {
 
 // Tenant outcomes use the last observation per queue lifecycle/recipient,
 // not the number of log lines or deferred retries.
+// scope: tenant
 func (q *Queries) TenantDeliveryOutcomeCounts(ctx context.Context, arg TenantDeliveryOutcomeCountsParams) ([]TenantDeliveryOutcomeCountsRow, error) {
 	rows, err := q.db.Query(ctx, tenantDeliveryOutcomeCounts, arg.TenantID, arg.OccurredAt, arg.WindowEnd)
 	if err != nil {

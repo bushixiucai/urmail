@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/mailboxsend"
@@ -41,9 +43,9 @@ func (h *MailboxNativeHandler) guardDraftMutation(c *gin.Context, client webmail
 	release = func() { _ = tx.Rollback(context.Background()) }
 	ordered := append([]uint32(nil), uids...)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
-	q := store.New(tx)
+	q := db.Queries(tx)
 	for _, uid := range ordered {
-		if err = mailboxsend.LockDraft(c.Request.Context(), q, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
+		if err = mailboxsend.LockDraft(platformCtx(c), q, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
 			release()
 			authError(c, 503, "DB_ERROR")
 			return func() {}, false
@@ -54,7 +56,7 @@ func (h *MailboxNativeHandler) guardDraftMutation(c *gin.Context, client webmail
 			release()
 			return func() {}, false
 		}
-		pending, pendingErr := q.PlatformDraftReplacementPending(c.Request.Context(), store.PlatformDraftReplacementPendingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PreviousUid: strconv.FormatUint(uint64(uid), 10), PreviousValidity: strconv.FormatUint(uint64(validity), 10)})
+		pending, pendingErr := q.PlatformDraftReplacementPending(platformCtx(c), store.PlatformDraftReplacementPendingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PreviousUid: strconv.FormatUint(uint64(uid), 10), PreviousValidity: strconv.FormatUint(uint64(validity), 10)})
 		if pendingErr != nil {
 			release()
 			authError(c, 503, "DB_ERROR")

@@ -20,11 +20,11 @@ func (m *ApplyManager) prepareMailStorage() error {
 	}
 	uid, gid := os.Geteuid(), os.Getegid()
 	if m.targetRoot == "" {
-		account, err := user.Lookup("mail")
+		account, err := user.Lookup(mailIdentityName(m.cfg.MailUser))
 		if err != nil {
 			return fmt.Errorf("mail storage user: %w", err)
 		}
-		group, err := user.LookupGroup("mail")
+		group, err := user.LookupGroup(mailIdentityName(m.cfg.MailGroup))
 		if err != nil {
 			return fmt.Errorf("mail storage group: %w", err)
 		}
@@ -131,4 +131,12 @@ func syncMailStorageFD(fd int) error {
 		return nil
 	}
 	return err
+}
+
+// mailIdentityName keeps an unset identity on the historical default.
+func mailIdentityName(name string) string {
+	if trimmed := strings.TrimSpace(name); trimmed != "" {
+		return trimmed
+	}
+	return "mail"
 }

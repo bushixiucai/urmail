@@ -66,3 +66,51 @@ func TestBackupUnitStateStillFailsClosedOnStuckTransitional(t *testing.T) {
 		t.Fatalf("settle window unbounded: %v", elapsed)
 	}
 }
+
+// TestBackupUnitStateMaskedIsExpectedRetirement covers the six deliberately
+// retired legacy backup writer units: a masked unit cannot start, which is
+// the not-active posture the fence requires — it must not fail the fence
+// with an unknown load state (cutover-blockers Blocker 3).
+func TestBackupUnitStateMaskedIsExpectedRetirement(t *testing.T) {
+	writeSystemctlStub(t, []string{
+		"LoadState=masked\nActiveState=inactive\n",
+	})
+	active, err := systemBackupUnit(context.Background(), "state", "legacy-backup.service")
+	if err != nil {
+		t.Fatalf("masked unit treated as unknown state: %v", err)
+	}
+	if active {
+		t.Fatal("masked unit reported active")
+	}
+}
+
+// Masking only blocks future starts: a masked unit that is still active
+// must be reported active so the fence blocks (QA blockers2 CB-2
+// fail-closed negative), and a deactivating one settles like any other
+// transitional state instead of being waved through.
+func TestBackupUnitStateMaskedStillRunningBlocksTheFence(t *testing.T) {
+	writeSystemctlStub(t, []string{
+		"LoadState=masked\nActiveState=active\n",
+	})
+	active, err := systemBackupUnit(context.Background(), "state", "legacy-backup.service")
+	if err != nil {
+		t.Fatalf("masked active unit: %v", err)
+	}
+	if !active {
+		t.Fatal("masked+active unit must be reported active (fence blocks)")
+	}
+}
+
+func TestBackupUnitStateMaskedDeactivatingSettles(t *testing.T) {
+	writeSystemctlStub(t, []string{
+		"LoadState=masked\nActiveState=deactivating\n",
+		"LoadState=masked\nActiveState=inactive\n",
+	})
+	active, err := systemBackupUnit(context.Background(), "state", "legacy-backup.service")
+	if err != nil {
+		t.Fatalf("masked deactivating settle: %v", err)
+	}
+	if active {
+		t.Fatal("settled masked unit reported active")
+	}
+}

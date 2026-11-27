@@ -1,0 +1,111 @@
+# LOCAL-ONLY TEST override — never use on a host that owns real mail ports.
+#
+# ARCH-PLAN-SQLITE-COMPOSE-20261119 §1.1 asks for postfix/dovecot/caddy on the
+# host network with 25/80/443/465/587/993.  This workstation already has 25
+# and 80 occupied, so the evidence run remaps every public port onto a
+# non-privileged host port and moves those three services onto a bridge
+# network.  Nothing in this file is part of the production distribution:
+#
+#   25  -> 2025     80  -> 8080     443 -> 8443
+#   465 -> 2465     587 -> 2587     993 -> 1993     143 -> 1143
+#
+# Milter ports 12301/11339 stay container-internal (never published).
+name: urmail-phase2-local
+
+networks:
+  default:
+    name: urmail-phase2-local-net
+
+services:
+  postfix:
+    # Base declares network_mode: host; reset it so `ports` works.
+    network_mode: !reset null
+    networks: [default]
+    ports:
+      - "2025:25"
+      - "2465:465"
+      - "2587:587"
+    command:
+      - /bin/sh
+      - /opt/urmail-test/watch-postfix.sh
+      - postfix
+      - -c
+      - /srv/urmail/config/postfix
+      - start-fg
+    volumes:
+      # Rendered/test config volume (writable so the harness can simulate an
+      # agent atomic write).  Replaces the read-only placeholder mount.
+      - ${URMAIL_DATA_ROOT:-./data}/config/postfix:/srv/urmail/config/postfix
+      - ${URMAIL_DATA_ROOT:-./data}/config/tls:/etc/urmail/tls:ro
+      - ${URMAIL_DATA_ROOT:-./data}/spool:/var/spool/postfix
+      - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
+      - ./compose/test-local/postfix/watch-postfix.sh:/opt/urmail-test/watch-postfix.sh:ro
+      - ./compose/test-local/postfix/vmailbox:/etc/postfix/vmailbox:ro
+
+  dovecot:
+    network_mode: !reset null
+    networks: [default]
+    ports:
+      - "1143:143"
+      - "1993:993"
+    command:
+      - /bin/sh
+      - /opt/urmail-test/watch-dovecot.sh
+      - dovecot
+      - -F
+      - -c
+      - /srv/urmail/config/dovecot/dovecot.conf
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/config/dovecot:/srv/urmail/config/dovecot
+      - ${URMAIL_DATA_ROOT:-./data}/config/tls:/etc/urmail/tls:ro
+      - ${URMAIL_DATA_ROOT:-./data}/mail:/srv/urmail/data/mail
+      - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
+      - ./compose/test-local/dovecot/watch-dovecot.sh:/opt/urmail-test/watch-dovecot.sh:ro
+      - ./compose/test-local/dovecot/users:/etc/dovecot/users:ro
+
+  caddy:
+    network_mode: !reset null
+    networks: [default]
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./compose/test-local/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${URMAIL_DATA_ROOT:-./data}/certs:/srv/urmail/data/certs
+      - ${URMAIL_DATA_ROOT:-./data}/config/caddy:/srv/urmail/data/config/caddy
+
+  # LOCAL TEST DKIM signer (OpenDKIM stand-in for the unbuilt urmail-milter).
+  # Milter port 12301 is container-internal and never published.
+  urmail-signer-test:
+    build:
+      context: ./compose/test-local/opendkim
+      args:
+        https_proxy: ${COMPOSE_BUILD_https_proxy:-}
+        http_proxy: ${COMPOSE_BUILD_http_proxy:-}
+    image: urmail-test-opendkim:local
+    restart: unless-stopped
+    environment:
+      URMAIL_PRIMARY_DOMAIN: ${URMAIL_PRIMARY_DOMAIN:-local.test}
+      URMAIL_DKIM_SELECTOR: ${URMAIL_DKIM_SELECTOR:-mail}
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/config/dkim:/etc/dkimkeys
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/12301'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  # §1.1 litestream, local-directory replica instead of S3 for this run.
+  # No host port.  The base compose.yaml gates this service behind
+  # `profiles: ["sqlite"]` (SQLite is not the default data plane yet).  A plain
+  # `docker compose up -d` on the local test stack therefore skipped the backup
+  # sidecar on every restart (observed 2026-11-24: litestream stayed Exited(0)
+  # while the other 8 containers came back).  `!reset []` removes the profile in
+  # this LOCAL-ONLY override so the recreate/up path always includes 9/9.
+  litestream:
+    profiles: !reset []
+    image: litestream/litestream:0.3.13
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+      - ${URMAIL_DATA_ROOT:-./data}/litestream:/srv/urmail/data/litestream
+      - ./compose/test-local/litestream-local.yml:/etc/litestream.yml:ro

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
@@ -82,8 +84,8 @@ func formatCorporateContact(c store.TenantDirectoryContacts) corporateContactJSO
 		Phones:       json.RawMessage(phones),
 		Addresses:    json.RawMessage(addresses),
 		Note:         c.Note,
-		CreatedAt:    c.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
-		UpdatedAt:    c.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		CreatedAt:    timeutil.FromMicro(c.CreatedAt).UTC().Format(time.RFC3339Nano),
+		UpdatedAt:    timeutil.FromMicro(c.UpdatedAt).UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -107,7 +109,7 @@ func (h *MailboxCorporateDirectoryHandler) List(c *gin.Context) {
 			return
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		q = store.New(tx)
+		q = db.Queries(tx)
 	case h.Store != nil:
 		q = h.Store
 	default:
@@ -160,7 +162,7 @@ func (h *MailboxCorporateDirectoryHandler) Search(c *gin.Context) {
 			return
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		q = store.New(tx)
+		q = db.Queries(tx)
 	case h.Store != nil:
 		q = h.Store
 	default:
@@ -213,7 +215,7 @@ func (h *MailboxCorporateDirectoryHandler) getAdminQueries(c *gin.Context, tenan
 		if err != nil {
 			return nil, nil, err
 		}
-		return store.New(tx), func() { _ = tx.Rollback(c.Request.Context()) }, nil
+		return db.Queries(tx), func() { _ = tx.Rollback(c.Request.Context()) }, nil
 	}
 	if h.Store != nil {
 		return h.Store, func() {}, nil
@@ -245,7 +247,7 @@ func (h *MailboxCorporateDirectoryHandler) GetSettings(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"enabled":    settings.Enabled,
-		"updated_at": settings.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		"updated_at": timeutil.FromMicro(settings.UpdatedAt).UTC().Format(time.RFC3339Nano),
 	})
 }
 
@@ -277,7 +279,7 @@ func (h *MailboxCorporateDirectoryHandler) UpdateSettings(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"enabled":    res.Enabled,
-		"updated_at": res.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		"updated_at": timeutil.FromMicro(res.UpdatedAt).UTC().Format(time.RFC3339Nano),
 	})
 }
 

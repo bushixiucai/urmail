@@ -126,7 +126,7 @@ func TestBrandHostActiveTransitionRejectsRevokedActorPG(t *testing.T) {
 		t.Fatalf("disabled admin activated host: %d %v", n, e)
 	}
 	current, e := q.PlatformGetBrandHostLifecycle(t.Context(), row.Hostname)
-	if e != nil || current.Status != "cert-issued" || current.ActivatedAt.Valid {
+	if e != nil || current.Status != "cert-issued" || current.ActivatedAt != 0 {
 		t.Fatal("denial changed issuance/activation facts", current, e)
 	}
 	exec("UPDATE users SET status='active' WHERE id=$1", actor)

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -47,12 +49,13 @@ func (h *AuthHandler) approveFreshMFA(c *gin.Context, code string) (store.GetUse
 		return store.GetUserByIDRow{}, false
 	}
 	defer reservation.Discard()
-	user, err := h.Store.GetUserByID(c, userID)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByID(authCtx, userID)
 	if err != nil {
 		authError(c, http.StatusUnauthorized, "UNAUTHORIZED")
 		return user, false
 	}
-	admin, err := h.Store.CheckPlatformAdmin(c, userID)
+	admin, err := h.Store.CheckPlatformAdmin(authCtx, userID)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return user, false
@@ -72,7 +75,7 @@ func (h *AuthHandler) approveFreshMFA(c *gin.Context, code string) (store.GetUse
 	}
 	verified := user.MfaSecret.Valid && validateTOTP(code, secret)
 	if !verified {
-		n, consumeErr := h.Store.ConsumeRecoveryCode(c, store.ConsumeRecoveryCodeParams{ID: userID, Column2: hashRecoveryCode(code)})
+		n, consumeErr := h.Store.ConsumeRecoveryCode(authCtx, store.ConsumeRecoveryCodeParams{ID: userID, Column2: hashRecoveryCode(code)})
 		verified = consumeErr == nil && n > 0
 	}
 	if !verified {
@@ -117,14 +120,15 @@ func (h *AuthHandler) CreateLegacySession(c *gin.Context) {
 			tenantID = current.TenantID
 		}
 	}
+	authCtx := authScopeContext(c)
 	expires := time.Now().Add(legacyMFALifetime)
-	session, err := h.Store.CreateSession(c, store.CreateSessionParams{ID: middleware.HashSessionToken(token), OriginHost: middleware.OriginHost(c.Request.Host), UserID: user.ID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, TenantID: tenantID, CsrfToken: csrf, UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true}, ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true}})
+	session, err := h.Store.CreateSession(authCtx, store.CreateSessionParams{ID: middleware.HashSessionToken(token), OriginHost: middleware.OriginHost(c.Request.Host), UserID: user.ID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, TenantID: tenantID, CsrfToken: csrf, UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true}, ExpiresAt: timeutil.Micro(expires)})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "SESSION_CREATE_FAILED")
 		return
 	}
-	if err = h.Store.MarkSessionLegacyOnly(c, session.ID); err != nil {
-		_ = h.Store.DeleteSession(c, session.ID)
+	if err = h.Store.MarkSessionLegacyOnly(authCtx, session.ID); err != nil {
+		_ = h.Store.DeleteSession(authCtx, session.ID)
 		authError(c, http.StatusInternalServerError, "SESSION_CREATE_FAILED")
 		return
 	}
@@ -170,7 +174,7 @@ func (h *AuthHandler) CreateApplicationCredential(c *gin.Context) {
 		return
 	}
 	token := applicationTokenPrefix + random
-	credential, err := h.Credentials.CreateApplicationCredential(c, store.CreateApplicationCredentialParams{UserID: user.ID, ExpectedVersion: user.CredentialVersion, Name: req.Name, TokenHash: middleware.HashSessionToken(token), Scopes: req.Scopes, ExpiresAt: pgtype.Timestamptz{Time: req.ExpiresAt, Valid: true}})
+	credential, err := h.Credentials.CreateApplicationCredential(c.Request.Context(), store.CreateApplicationCredentialParams{UserID: user.ID, ExpectedVersion: user.CredentialVersion, Name: req.Name, TokenHash: middleware.HashSessionToken(token), Scopes: req.Scopes, ExpiresAt: timeutil.Micro(req.ExpiresAt)})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -190,7 +194,7 @@ func (h *AuthHandler) ListApplicationCredentials(c *gin.Context) {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
 	}
-	credentials, err := h.Credentials.ListApplicationCredentials(c, userID)
+	credentials, err := h.Credentials.ListApplicationCredentials(authScopeContext(c), userID)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -214,7 +218,7 @@ func (h *AuthHandler) RevokeApplicationCredential(c *gin.Context) {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
 	}
-	if _, err = h.Credentials.RevokeApplicationCredential(c, store.RevokeApplicationCredentialParams{ID: id, UserID: userID}); err != nil {
+	if _, err = h.Credentials.RevokeApplicationCredential(c.Request.Context(), store.RevokeApplicationCredentialParams{ID: id, UserID: userID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			authError(c, http.StatusNotFound, "NOT_FOUND")
 		} else {

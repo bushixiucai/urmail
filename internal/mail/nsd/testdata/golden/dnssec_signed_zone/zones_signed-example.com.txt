@@ -16,11 +16,11 @@ $TTL 86400
 ; Standard Mail Server Records
 @ IN A 1.2.3.4
 @ IN AAAA 2001:db8::1
-@ IN MX 10 box.urmail.cn.
+@ IN MX 10 mail.example.test.
 @ IN TXT "v=spf1 mx -all"
 _dmarc IN TXT "v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@urmail.cn"
 mail IN A 1.2.3.4
 mail IN AAAA 2001:db8::1
-autoconfig IN CNAME box.urmail.cn.
-autodiscover IN CNAME box.urmail.cn.
+autoconfig IN CNAME mail.example.test.
+autodiscover IN CNAME mail.example.test.
 

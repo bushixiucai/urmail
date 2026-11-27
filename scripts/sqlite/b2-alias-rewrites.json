@@ -1,0 +1,381 @@
+{
+ "count": 47,
+ "changes": [
+  {
+   "file": "archive_case_product.sql",
+   "method": "ArchiveCasesRemoveMember",
+   "table": "archive_investigation_members",
+   "alias": "m",
+   "before": "-- name: ArchiveCasesRemoveMember :execrows\n-- scope: tenant\n\nUPDATE archive_investigation_members m SET removed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nFROM archive_investigations i WHERE m.tenant_id=?1 AND m.investigation_id=?2 AND m.user_id=?3 AND m.removed_at IS NULL\nAND i.tenant_id=m.tenant_id AND i.id=m.investigation_id AND i.created_by=?4 AND i.created_by<>m.user_id AND i.status=",
+   "after": "-- name: ArchiveCasesRemoveMember :execrows\n-- scope: tenant\n\nUPDATE archive_investigation_members SET removed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\n WHERE tenant_id=?1 AND investigation_id=?2 AND user_id=?3 AND removed_at IS NULL AND EXISTS(SELECT 1 FROM archive_investigations i WHERE i.tenant_id=tenant_id AND i.id=investigation_id AND i.created_by=?4 AND i.created_by<>user_id AND i."
+  },
+  {
+   "file": "archive_lifecycle.sql",
+   "method": "RestoreArchiveCopy",
+   "table": "archive_entries",
+   "alias": "a",
+   "before": "-- name: RestoreArchiveCopy :execrows\n-- scope: tenant\n\nUPDATE archive_entries a SET deleted_at=NULL\nWHERE a.tenant_id= @tenant_id AND a.id= @id AND a.deleted_at IS NOT NULL\n AND EXISTS(SELECT 1 FROM archive_content c WHERE c.entry_id=a.id AND c.tenant_id=a.tenant_id AND c.purge_started_at IS NULL AND c.purged_at IS NULL);",
+   "after": "-- name: RestoreArchiveCopy :execrows\n-- scope: tenant\n\nUPDATE archive_entries SET deleted_at=NULL\nWHERE tenant_id= @tenant_id AND id= @id AND deleted_at IS NOT NULL\n AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM archive_content c WHERE c.entry_id=id AND c.tenant_id=tenant_id AND c.purge_started_at IS NULL AND c.purged_at IS NULL));"
+  },
+  {
+   "file": "mailbox_import.sql",
+   "method": "ClearExpiredMailboxImportPayloads",
+   "table": "mailbox_import_items",
+   "alias": "i",
+   "before": "-- name: ClearExpiredMailboxImportPayloads :exec\n-- scope: tenant\n\nUPDATE mailbox_import_items i SET raw_secret='' FROM mailbox_import_jobs j\nWHERE i.tenant_id=sqlc.arg(tenant_id) AND j.tenant_id=i.tenant_id AND j.mailbox_id=i.mailbox_id AND j.id=i.job_id\nAND j.payload_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000);",
+   "after": "-- name: ClearExpiredMailboxImportPayloads :exec\n-- scope: tenant\n\nUPDATE mailbox_import_items SET raw_secret=''  WHERE tenant_id=sqlc.arg(tenant_id) AND EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=tenant_id AND j.mailbox_id=mailbox_id AND j.id=job_id AND j.payload_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000));"
+  },
+  {
+   "file": "mailbox_import.sql",
+   "method": "MailboxImportRecoverExpiredLeases",
+   "table": "mailbox_import_items",
+   "alias": "i",
+   "before": "-- name: MailboxImportRecoverExpiredLeases :exec\n-- scope: tenant\n\nUPDATE mailbox_import_items i SET status='unknown',error_code='MAIL_IMPORT_ACK_UNKNOWN',reconciled_at=NULL,reconcile_absent=false,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nFROM mailbox_import_jobs j WHERE i.tenant_id=?1 AND i.mailbox_id=?2 AND j.tenant_id=i.tenant_id AND j.mailbox_id=i.mailbox_id AND j.id=i.job_id\n",
+   "after": "-- name: MailboxImportRecoverExpiredLeases :exec\n-- scope: tenant\n\nUPDATE mailbox_import_items SET status='unknown',error_code='MAIL_IMPORT_ACK_UNKNOWN',reconciled_at=NULL,reconcile_absent=false,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\n WHERE tenant_id=?1 AND mailbox_id=?2 AND status='importing' AND EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=tenant_id AND j.mail"
+  },
+  {
+   "file": "marketing_flow_authoring.sql",
+   "method": "PauseMarketingRuntimeFlows",
+   "table": "marketing_flows",
+   "alias": "f",
+   "before": "-- name: PauseMarketingRuntimeFlows :exec\n-- scope: tenant\n\nUPDATE marketing_flows f SET status='paused' WHERE f.tenant_id=?1 AND f.id IN(SELECT v.runtime_flow_id FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.definition_id=?2);",
+   "after": "-- name: PauseMarketingRuntimeFlows :exec\n-- scope: tenant\n\nUPDATE marketing_flows SET status='paused' WHERE tenant_id=?1 AND id IN(SELECT v.runtime_flow_id  WHERE EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.definition_id=?2));"
+  },
+  {
+   "file": "marketing_flow_authoring.sql",
+   "method": "StopMarketingFlowInstance",
+   "table": "marketing_flow_positions",
+   "alias": "p",
+   "before": "-- name: StopMarketingFlowInstance :execrows\n-- scope: tenant\n\nUPDATE marketing_flow_positions p SET stopped_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),lease_fence=lease_fence+1,lease_owner=NULL,lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE p.tenant_id=?1 AND p.id=?3 AND p.stopped_at IS NULL\nAND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tena",
+   "after": "-- name: StopMarketingFlowInstance :execrows\n-- scope: tenant\n\nUPDATE marketing_flow_positions SET stopped_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),lease_fence=lease_fence+1,lease_owner=NULL,lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE tenant_id=?1 AND id=?3 AND stopped_at IS NULL\nAND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_flow_versions"
+  },
+  {
+   "file": "platform_archive_activity.sql",
+   "method": "PlatformExpireArchiveApprovals",
+   "table": "archive_approval_requests",
+   "alias": "r",
+   "before": "-- name: PlatformExpireArchiveApprovals :execrows\n-- scope: platform\n\nWITH due AS (\n SELECT id,tenant_id FROM archive_approval_requests WHERE case_version>0\n AND state IN('pending','approved') AND expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)\n ORDER BY id LIMIT 100\n)\nUPDATE archive_approval_requests r SET state='expired',decided_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),deci",
+   "after": "-- name: PlatformExpireArchiveApprovals :execrows\n-- scope: platform\n\nWITH due AS (\n SELECT id,tenant_id FROM archive_approval_requests WHERE case_version>0\n AND state IN('pending','approved') AND expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)\n ORDER BY id LIMIT 100\n)\nUPDATE archive_approval_requests SET state='expired',decided_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),decisi"
+  },
+  {
+   "file": "platform_archive_lifecycle.sql",
+   "method": "PlatformSetArchiveOriginalHash",
+   "table": "archive_entries",
+   "alias": "a",
+   "before": "-- name: PlatformSetArchiveOriginalHash :exec\n-- scope: platform\n\nUPDATE archive_entries a SET raw_sha256= @raw_sha256\nWHERE a.tenant_id= @tenant_id AND a.id= @id AND a.raw_sha256=''\n AND NOT EXISTS(SELECT 1 FROM archive_entries b WHERE b.tenant_id=a.tenant_id AND b.mailbox_id IS NOT DISTINCT FROM a.mailbox_id AND b.message_id=a.message_id AND b.raw_sha256= @raw_sha256 AND b.id<>a.id);",
+   "after": "-- name: PlatformSetArchiveOriginalHash :exec\n-- scope: platform\n\nUPDATE archive_entries SET raw_sha256= @raw_sha256\nWHERE tenant_id= @tenant_id AND id= @id AND raw_sha256=''\n AND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM archive_entries b WHERE b.tenant_id=tenant_id AND b.mailbox_id IS NOT DISTINCT FROM mailbox_id AND b.message_id=message_id AND b.raw_sha256= @raw_sha256 AND b.id<>id));"
+  },
+  {
+   "file": "platform_brand_host_verify.sql",
+   "method": "PlatformVerifyBrandHostConsumeChallenge",
+   "table": "brand_host_challenges",
+   "alias": "c",
+   "before": "-- name: PlatformVerifyBrandHostConsumeChallenge :one\n-- scope: platform\n\nUPDATE brand_host_challenges c SET consumed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE c.hostname=sqlc.arg(hostname) AND c.token_digest=sqlc.arg(token_digest)\n AND c.consumed_at IS NULL AND c.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)\nRETURNING c.hostname;",
+   "after": "-- name: PlatformVerifyBrandHostConsumeChallenge :one\n-- scope: platform\n\nUPDATE brand_host_challenges SET consumed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE hostname=sqlc.arg(hostname) AND token_digest=sqlc.arg(token_digest)\n AND consumed_at IS NULL AND expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)\nRETURNING hostname;"
+  },
+  {
+   "file": "platform_brand_host_verify.sql",
+   "method": "PlatformVerifyBrandHostMark",
+   "table": "brand_hosts",
+   "alias": "h",
+   "before": "-- name: PlatformVerifyBrandHostMark :exec\n-- scope: platform\n\nUPDATE brand_hosts h SET status='verified', verified_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), cert_issued_at=NULL,\n activated_at=NULL, failure_reason=NULL, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE h.hostname=sqlc.arg(hostname) AND h.brand_id=sqlc.arg(brand_id)\n AND h.updated_at=sqlc.arg(expected_updat",
+   "after": "-- name: PlatformVerifyBrandHostMark :exec\n-- scope: platform\n\nUPDATE brand_hosts SET status='verified', verified_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), cert_issued_at=NULL,\n activated_at=NULL, failure_reason=NULL, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE hostname=sqlc.arg(hostname) AND brand_id=sqlc.arg(brand_id)\n AND updated_at=sqlc.arg(expected_updated_at)\n "
+  },
+  {
+   "file": "platform_brand_host_verify.sql",
+   "method": "PlatformBrandHostCertificateTransition",
+   "table": "brand_hosts",
+   "alias": "h",
+   "before": "-- name: PlatformBrandHostCertificateTransition :execrows\n-- scope: platform\n\nUPDATE brand_hosts h SET status=sqlc.arg(next_status),failure_reason=sqlc.narg(failure_reason),\n cert_issued_at=CASE WHEN sqlc.arg(next_status) IN ('cert-issued','active') THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE h.cert_issued_at END,\n activated_at=CASE WHEN sqlc.arg(next_status)='active' THEN (CAST(strf",
+   "after": "-- name: PlatformBrandHostCertificateTransition :execrows\n-- scope: platform\n\nUPDATE brand_hosts SET status=sqlc.arg(next_status),failure_reason=sqlc.narg(failure_reason),\n cert_issued_at=CASE WHEN sqlc.arg(next_status) IN ('cert-issued','active') THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE cert_issued_at END,\n activated_at=CASE WHEN sqlc.arg(next_status)='active' THEN (CAST(strftime"
+  },
+  {
+   "file": "platform_brand_public.sql",
+   "method": "PlatformUnbindBrandHostMark",
+   "table": "brand_hosts",
+   "alias": "h",
+   "before": "-- name: PlatformUnbindBrandHostMark :exec\n-- scope: platform\n\nUPDATE brand_hosts h SET status='failed', failure_reason='revoked', verified_at=NULL,\n cert_issued_at=NULL, activated_at=NULL, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE h.hostname=sqlc.arg(hostname);",
+   "after": "-- name: PlatformUnbindBrandHostMark :exec\n-- scope: platform\n\nUPDATE brand_hosts SET status='failed', failure_reason='revoked', verified_at=NULL,\n cert_issued_at=NULL, activated_at=NULL, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE hostname=sqlc.arg(hostname);"
+  },
+  {
+   "file": "platform_calendar_scheduling.sql",
+   "method": "PlatformTakeReminderScan",
+   "table": "mailbox_events",
+   "alias": "e",
+   "before": "-- name: PlatformTakeReminderScan :many\n-- scope: platform\n\nWITH candidate AS (\n SELECT id FROM mailbox_events WHERE deleted_at IS NULL AND status<>'cancelled' AND reminders<>'[]'\n ORDER BY reminder_scanned_at,id LIMIT 50\n)\nUPDATE mailbox_events e SET reminder_scanned_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE e.id=(SELECT id FROM candidate) AND e.reminder_scanned_at IS NULL\nRETURNIN",
+   "after": "-- name: PlatformTakeReminderScan :many\n-- scope: platform\n\nWITH candidate AS (\n SELECT id FROM mailbox_events WHERE deleted_at IS NULL AND status<>'cancelled' AND reminders<>'[]'\n ORDER BY reminder_scanned_at,id LIMIT 50\n)\nUPDATE mailbox_events SET reminder_scanned_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE id=(SELECT id FROM candidate) AND reminder_scanned_at IS NULL\nRETURNING *;"
+  },
+  {
+   "file": "platform_calendar_scheduling.sql",
+   "method": "PlatformDiscardStaleCalendarReminders",
+   "table": "mailbox_jobs",
+   "alias": "j",
+   "before": "-- name: PlatformDiscardStaleCalendarReminders :exec\n-- scope: platform\n\nUPDATE mailbox_jobs j SET status='failed',last_error='EVENT_CHANGED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE j.kind='calendar_reminder' AND j.status='pending' AND NOT EXISTS(\n SELECT 1 FROM mailbox_events e WHERE e.tenant_id=j.tenant_id AND e.mailbox_id=j.mailbox_id AND e.id=(json_extract(j.payload, '",
+   "after": "-- name: PlatformDiscardStaleCalendarReminders :exec\n-- scope: platform\n\nUPDATE mailbox_jobs SET status='failed',last_error='EVENT_CHANGED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE kind='calendar_reminder' AND status='pending' AND NOT EXISTS(\n SELECT 1  WHERE EXISTS(SELECT 1 FROM mailbox_events e WHERE e.tenant_id=tenant_id AND e.mailbox_id=mailbox_id AND e.id=(json_extract"
+  },
+  {
+   "file": "platform_calendar_scheduling.sql",
+   "method": "PlatformPublishDueCalendarReminders",
+   "table": "mailbox_jobs",
+   "alias": "j",
+   "before": "-- name: PlatformPublishDueCalendarReminders :execrows\n-- scope: platform\n\nWITH candidate AS (\n SELECT j.id FROM mailbox_jobs j JOIN mailbox_events e ON e.tenant_id=j.tenant_id AND e.mailbox_id=j.mailbox_id AND e.id=(json_extract(j.payload, '$.event_id'))\n WHERE j.kind='calendar_reminder' AND j.status='pending' AND j.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND e.version=(json_",
+   "after": "-- name: PlatformPublishDueCalendarReminders :execrows\n-- scope: platform\n\nWITH candidate AS (\n SELECT id FROM mailbox_jobs j JOIN mailbox_events e ON e.tenant_id=tenant_id AND e.mailbox_id=mailbox_id AND e.id=(json_extract(payload, '$.event_id'))\n WHERE kind='calendar_reminder' AND status='pending' AND lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND e.version=(json_extract(payloa"
+  },
+  {
+   "file": "platform_calendar_scheduling.sql",
+   "method": "PlatformBindOwnedCalendarOrganizer",
+   "table": "mailbox_events",
+   "alias": "e",
+   "before": "-- name: PlatformBindOwnedCalendarOrganizer :execrows\n-- scope: platform\n\nUPDATE mailbox_events e SET organizer=m.address,invitation_sequence=e.sequence\nFROM mailboxes m WHERE e.tenant_id=?1 AND e.mailbox_id=?2 AND e.id=?3 AND m.tenant_id=e.tenant_id AND m.id=e.mailbox_id AND (e.organizer='' OR e.organizer=m.address);",
+   "after": "-- name: PlatformBindOwnedCalendarOrganizer :execrows\n-- scope: platform\n\nUPDATE mailbox_events SET organizer=m.address,invitation_sequence=sequence\n WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND EXISTS(SELECT 1 FROM mailboxes m WHERE m.tenant_id=tenant_id AND m.id=mailbox_id AND (organizer='' OR organizer=m.address));"
+  },
+  {
+   "file": "platform_calendar_scheduling.sql",
+   "method": "PlatformRecordSchedulingReply",
+   "table": "mailbox_events",
+   "alias": "e",
+   "before": "-- name: PlatformRecordSchedulingReply :one\n-- scope: platform\n\nUPDATE mailbox_events e SET attendees=?4,version=e.version+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE e.tenant_id=?1 AND e.mailbox_id=?2 AND e.id=?3 AND e.version=?5 AND e.deleted_at IS NULL RETURNING *;",
+   "after": "-- name: PlatformRecordSchedulingReply :one\n-- scope: platform\n\nUPDATE mailbox_events SET attendees=?4,version=version+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND version=?5 AND deleted_at IS NULL RETURNING *;"
+  },
+  {
+   "file": "platform_collaboration.sql",
+   "method": "PlatformGetContact",
+   "table": "mailbox_contacts",
+   "alias": "c",
+   "before": "-- name: PlatformGetContact :one\n-- scope: platform\n\nSELECT * FROM mailbox_contacts\nWHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND deleted_at IS NULL;\n\n-- scope: platform\n\nINSERT INTO mailbox_contacts(tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name, emails, phones, note)\nVALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc.arg(display_na",
+   "after": "-- name: PlatformGetContact :one\n-- scope: platform\n\nSELECT * FROM mailbox_contacts\nWHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND deleted_at IS NULL;\n\n-- scope: platform\n\nINSERT INTO mailbox_contacts(tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name, emails, phones, note)\nVALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc.arg(display_na"
+  },
+  {
+   "file": "platform_collaboration.sql",
+   "method": "PlatformGetEvent",
+   "table": "mailbox_events",
+   "alias": "e",
+   "before": "-- name: PlatformGetEvent :one\n-- scope: platform\n\nSELECT * FROM mailbox_events\nWHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND deleted_at IS NULL;\n\n-- scope: platform\n\nINSERT INTO mailbox_events(tenant_id, mailbox_id, calendar_id, uid, summary, description, location,\n starts_at, ends_at, all_day, timezone, rrule, status, attendees, recurrence_overrides, reminders)\nVALUES(sqlc.arg(tenant_id), s",
+   "after": "-- name: PlatformGetEvent :one\n-- scope: platform\n\nSELECT * FROM mailbox_events\nWHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND deleted_at IS NULL;\n\n-- scope: platform\n\nINSERT INTO mailbox_events(tenant_id, mailbox_id, calendar_id, uid, summary, description, location,\n starts_at, ends_at, all_day, timezone, rrule, status, attendees, recurrence_overrides, reminders)\nVALUES(sqlc.arg(tenant_id), s"
+  },
+  {
+   "file": "platform_collaboration.sql",
+   "method": "PlatformClaimMailboxJob",
+   "table": "mailbox_jobs",
+   "alias": "j",
+   "before": "-- name: PlatformClaimMailboxJob :one\n-- scope: platform\n\nWITH candidate AS (\n SELECT id FROM mailbox_jobs\n WHERE status='pending' AND kind<>'calendar_reminder' AND (lease_until IS NULL OR lease_until <= (CAST(strftime('%s','now') AS INTEGER)*1000000))\n ORDER BY id\n LIMIT 1\n)\nUPDATE mailbox_jobs j\nSET status='leased', attempts=j.attempts+1, claim_token=j.claim_token+1,\n lease_until=(CAST(strftime(",
+   "after": "-- name: PlatformClaimMailboxJob :one\n-- scope: platform\n\nWITH candidate AS (\n SELECT id FROM mailbox_jobs\n WHERE status='pending' AND kind<>'calendar_reminder' AND (lease_until IS NULL OR lease_until <= (CAST(strftime('%s','now') AS INTEGER)*1000000))\n ORDER BY id\n LIMIT 1\n)\nUPDATE mailbox_jobs SET status='leased', attempts=attempts+1, claim_token=claim_token+1,\n lease_until=(CAST(strftime('%s','"
+  },
+  {
+   "file": "platform_dns_onboarding.sql",
+   "method": "PlatformClaimDNSPlan",
+   "table": "dns_change_plans",
+   "alias": "p",
+   "before": "-- name: PlatformClaimDNSPlan :one\n-- scope: platform\n\nUPDATE dns_change_plans p SET status=CASE WHEN status='rollback_pending' THEN status ELSE 'applying' END,lease_owner=?1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE p.id=(SELECT id FROM dns_change_plans WHERE status IN('confirmed','rollback_pending') ",
+   "after": "-- name: PlatformClaimDNSPlan :one\n-- scope: platform\n\nUPDATE dns_change_plans SET status=CASE WHEN status='rollback_pending' THEN status ELSE 'applying' END,lease_owner=?1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE id=(SELECT id FROM dns_change_plans WHERE status IN('confirmed','rollback_pending') AND "
+  },
+  {
+   "file": "platform_dns_onboarding.sql",
+   "method": "PlatformSubmitDNSAction",
+   "table": "dns_record_actions",
+   "alias": "a",
+   "before": "-- name: PlatformSubmitDNSAction :execrows\n-- scope: platform\n\nUPDATE dns_record_actions a SET status='submitted',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) FROM dns_change_plans p WHERE p.id=a.plan_id AND a.id=?1 AND p.fence=?2 AND p.lease_owner=?3 AND p.status='applying' AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND a.status='pending';",
+   "after": "-- name: PlatformSubmitDNSAction :execrows\n-- scope: platform\n\nUPDATE dns_record_actions SET status='submitted',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE id=?1 AND status='pending' AND EXISTS(SELECT 1 FROM dns_change_plans p WHERE p.id=plan_id AND p.fence=?2 AND p.lease_owner=?3 AND p.status='applying' AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000));"
+  },
+  {
+   "file": "platform_dns_onboarding.sql",
+   "method": "PlatformCompleteDNSAction",
+   "table": "dns_record_actions",
+   "alias": "a",
+   "before": "-- name: PlatformCompleteDNSAction :execrows\n-- scope: platform\n\nUPDATE dns_record_actions a SET status=?4,provider_record_id=?5,owned=?6,last_error_code=?7,observed_record=sqlc.narg(observed_record),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) FROM dns_change_plans p WHERE p.id=a.plan_id AND a.id=?1 AND p.fence=?2 AND p.lease_owner=?3 AND p.status IN('applying','rollback_pending') A",
+   "after": "-- name: PlatformCompleteDNSAction :execrows\n-- scope: platform\n\nUPDATE dns_record_actions SET status=?4,provider_record_id=?5,owned=?6,last_error_code=?7,observed_record=sqlc.narg(observed_record),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE id=?1 AND status='submitted' AND EXISTS(SELECT 1 FROM dns_change_plans p WHERE p.id=plan_id AND p.fence=?2 AND p.lease_owner=?3 AND p.st"
+  },
+  {
+   "file": "platform_dns_onboarding.sql",
+   "method": "PlatformClaimOnboarding",
+   "table": "onboarding_tasks",
+   "alias": "t",
+   "before": "-- name: PlatformClaimOnboarding :one\n-- scope: platform\n\nUPDATE onboarding_tasks t SET status='running',leased_by=?1,leased_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,attempts=attempts+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE t.id=(SELECT task.id FROM onboarding_tasks task JOIN domains d ON d.id=task.domain_id AND d.tenant_id=task.tenant_id\nWHERE",
+   "after": "-- name: PlatformClaimOnboarding :one\n-- scope: platform\n\nUPDATE onboarding_tasks SET status='running',leased_by=?1,leased_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,attempts=attempts+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE id=(SELECT task.id FROM onboarding_tasks task JOIN domains d ON d.id=task.domain_id AND d.tenant_id=task.tenant_id\nWHERE tas"
+  },
+  {
+   "file": "platform_dns_onboarding.sql",
+   "method": "PlatformMarkDomainReady",
+   "table": "domains",
+   "alias": "d",
+   "before": "-- name: PlatformMarkDomainReady :execrows\n-- scope: platform\n\nUPDATE domains d SET provisioning_state='ready',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) FROM onboarding_tasks task WHERE d.tenant_id=?1 AND d.id=?2 AND task.tenant_id=d.tenant_id AND task.domain_id=d.id AND task.id=?3 AND task.fence=?4 AND task.leased_by=?5 AND task.leased_until>(CAST(strftime('%s','now') AS INTEGER)",
+   "after": "-- name: PlatformMarkDomainReady :execrows\n-- scope: platform\n\nUPDATE domains SET provisioning_state='ready',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE tenant_id=?1 AND id=?2 AND status='active' AND EXISTS(SELECT 1 FROM onboarding_tasks task WHERE task.tenant_id=tenant_id AND task.domain_id=id AND task.id=?3 AND task.fence=?4 AND task.leased_by=?5 AND task.leased_until>(CAST"
+  },
+  {
+   "file": "platform_dns_onboarding.sql",
+   "method": "PlatformSubmitDNSRollback",
+   "table": "dns_record_actions",
+   "alias": "a",
+   "before": "-- name: PlatformSubmitDNSRollback :execrows\n-- scope: platform\n\nUPDATE dns_record_actions a SET status='submitted',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) FROM dns_change_plans p WHERE p.id=a.plan_id AND a.id=?1 AND p.fence=?2 AND p.lease_owner=?3 AND p.status='rollback_pending' AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND a.status='applied' AND (a.owne",
+   "after": "-- name: PlatformSubmitDNSRollback :execrows\n-- scope: platform\n\nUPDATE dns_record_actions SET status='submitted',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE id=?1 AND status='applied' AND (owned OR kind='update') AND EXISTS(SELECT 1 FROM dns_change_plans p WHERE p.id=plan_id AND p.fence=?2 AND p.lease_owner=?3 AND p.status='rollback_pending' AND p.lease_until>(CAST(strftime("
+  },
+  {
+   "file": "platform_dns_onboarding.sql",
+   "method": "PlatformResolveDNSOnboardingAlerts",
+   "table": "operational_alerts",
+   "alias": "a",
+   "before": "-- name: PlatformResolveDNSOnboardingAlerts :execrows\n-- scope: platform\n\nWITH sources AS (\n SELECT 'dns:'||id AS key FROM dns_change_plans\n  WHERE status='uncertain' OR (status IN('confirmed','applying','rollback_pending') AND created_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-900000000)\n UNION ALL\n SELECT 'onboarding:'||id FROM onboarding_tasks\n  WHERE status IN('failed','blocked') OR (s",
+   "after": "-- name: PlatformResolveDNSOnboardingAlerts :execrows\n-- scope: platform\n\nWITH sources AS (\n SELECT 'dns:'||id AS key FROM dns_change_plans\n  WHERE status='uncertain' OR (status IN('confirmed','applying','rollback_pending') AND created_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-900000000)\n UNION ALL\n SELECT 'onboarding:'||id FROM onboarding_tasks\n  WHERE status IN('failed','blocked') OR (s"
+  },
+  {
+   "file": "platform_mailbox_principal.sql",
+   "method": "PlatformConsumeMailboxTicket",
+   "table": "mailbox_operation_tickets",
+   "alias": "ticket",
+   "before": "-- name: PlatformConsumeMailboxTicket :one\n-- scope: platform\n\nUPDATE mailbox_operation_tickets ticket SET consumed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nFROM mailbox_sessions s JOIN mailboxes m ON m.tenant_id=s.tenant_id AND m.id=s.mailbox_id\nJOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id\nWHERE ticket.token_hash=sqlc.arg(token_hash) ",
+   "after": "-- name: PlatformConsumeMailboxTicket :one\n-- scope: platform\n\nUPDATE mailbox_operation_tickets SET consumed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nFROM mailbox_sessions s JOIN mailboxes m ON m.tenant_id=s.tenant_id AND m.id=s.mailbox_id\nJOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id\nWHERE token_hash=sqlc.arg(token_hash) AND scope=sqlc"
+  },
+  {
+   "file": "platform_mailbox_scheduled_sends.sql",
+   "method": "PlatformClaimMailboxScheduledSend",
+   "table": "mailbox_scheduled_sends",
+   "alias": "s",
+   "before": "-- name: PlatformClaimMailboxScheduledSend :one\n-- scope: platform\n\nWITH candidate AS (\n SELECT s.id FROM mailbox_scheduled_sends s\n JOIN mailboxes m ON m.tenant_id=s.tenant_id AND m.id=s.mailbox_id\n JOIN tenants t ON t.id=s.tenant_id\n JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id\n WHERE s.status='pending' AND s.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND ",
+   "after": "-- name: PlatformClaimMailboxScheduledSend :one\n-- scope: platform\n\nWITH candidate AS (\n SELECT id FROM mailbox_scheduled_sends s\n JOIN mailboxes m ON m.tenant_id=tenant_id AND m.id=mailbox_id\n JOIN tenants t ON t.id=tenant_id\n JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id\n WHERE status='pending' AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND draft_uidval"
+  },
+  {
+   "file": "platform_mailbox_scheduled_sends.sql",
+   "method": "PlatformBeginMailboxScheduledSendSubmission",
+   "table": "mailbox_scheduled_sends",
+   "alias": "s",
+   "before": "-- name: PlatformBeginMailboxScheduledSendSubmission :one\n-- scope: platform\n\nUPDATE mailbox_scheduled_sends s SET status='submitting',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE s.id=sqlc.arg(id) AND s.claim_token=sqlc.arg(claim_token)\n AND s.status='preparing' AND s.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)\n AND EXISTS(SELECT 1 FROM mailboxes m JOIN tenants",
+   "after": "-- name: PlatformBeginMailboxScheduledSendSubmission :one\n-- scope: platform\n\nUPDATE mailbox_scheduled_sends SET status='submitting',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE id=sqlc.arg(id) AND claim_token=sqlc.arg(claim_token)\n AND status='preparing' AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)\n AND EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id"
+  },
+  {
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformBeginSendReceipt",
+   "table": "mailbox_send_receipts",
+   "alias": "r",
+   "before": "-- name: PlatformBeginSendReceipt :one\n-- scope: platform\n\nUPDATE mailbox_send_receipts r SET status='submitting',claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND r.tenant_id=sqlc.arg(tenant_id) AND r.mailbox_id=sqlc.arg(mailbox_id) AND ",
+   "after": "-- name: PlatformBeginSendReceipt :one\n-- scope: platform\n\nUPDATE mailbox_send_receipts SET status='submitting',claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sql"
+  },
+  {
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformClaimSendCopy",
+   "table": "mailbox_send_receipts",
+   "alias": "r",
+   "before": "-- name: PlatformClaimSendCopy :one\n-- scope: platform\n\nWITH candidate AS (SELECT id FROM mailbox_send_receipts WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accepted' AND sent_copy_state IN('pending','unknown') AND raw_secret<>'' AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEG",
+   "after": "-- name: PlatformClaimSendCopy :one\n-- scope: platform\n\nWITH candidate AS (SELECT id FROM mailbox_send_receipts WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accepted' AND sent_copy_state IN('pending','unknown') AND raw_secret<>'' AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEG"
+  },
+  {
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformHoldUnauthorizedSendCopies",
+   "table": "mailbox_send_receipts",
+   "alias": "r",
+   "before": "-- name: PlatformHoldUnauthorizedSendCopies :execrows\n-- scope: platform\n\nUPDATE mailbox_send_receipts r SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND r.status='accepted' AND r.sent_copy_state IN(",
+   "after": "-- name: PlatformHoldUnauthorizedSendCopies :execrows\n-- scope: platform\n\nUPDATE mailbox_send_receipts SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accepted' AND sent_copy_state IN('pendi"
+  },
+  {
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformClaimScheduledSentCopy",
+   "table": "mailbox_scheduled_sends",
+   "alias": "s",
+   "before": "-- name: PlatformClaimScheduledSentCopy :one\n-- scope: platform\n\nWITH candidate AS (\n SELECT id FROM mailbox_scheduled_sends\n WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'') AND sent_copy_state IN('pending','unknown')\n AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attem",
+   "after": "-- name: PlatformClaimScheduledSentCopy :one\n-- scope: platform\n\nWITH candidate AS (\n SELECT id FROM mailbox_scheduled_sends\n WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'') AND sent_copy_state IN('pending','unknown')\n AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attem"
+  },
+  {
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformHoldUnauthorizedScheduledCopies",
+   "table": "mailbox_scheduled_sends",
+   "alias": "r",
+   "before": "-- name: PlatformHoldUnauthorizedScheduledCopies :execrows\n-- scope: platform\n\nUPDATE mailbox_scheduled_sends r SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND r.status='sent' AND r.sent_copy_state ",
+   "after": "-- name: PlatformHoldUnauthorizedScheduledCopies :execrows\n-- scope: platform\n\nUPDATE mailbox_scheduled_sends SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='sent' AND sent_copy_state IN('pe"
+  },
+  {
+   "file": "platform_marketing.sql",
+   "method": "PlatformAdvanceMarketingTurn",
+   "table": "platform_marketing_dispatch",
+   "alias": "d",
+   "before": "-- name: PlatformAdvanceMarketingTurn :execrows\n-- scope: platform\n\nUPDATE platform_marketing_dispatch d\nSET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)\nWHERE EXISTS(\n SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id\n WHERE r.tenant_id=d.tenant_id AND r.status='queued'\n  AND r.next_attempt_at<=",
+   "after": "-- name: PlatformAdvanceMarketingTurn :execrows\n-- scope: platform\n\nUPDATE platform_marketing_dispatch SET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)\nWHERE EXISTS(\n SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id\n WHERE r.tenant_id=tenant_id AND r.status='queued'\n  AND r.next_attempt_at<=(CAS"
+  },
+  {
+   "file": "platform_marketing.sql",
+   "method": "PlatformClaimMarketingRecipient",
+   "table": "marketing_recipients",
+   "alias": "r",
+   "before": "-- name: PlatformClaimMarketingRecipient :one\n-- scope: platform\n\nUPDATE marketing_recipients r\nSET status='sending', attempts=r.attempts+1, last_turn=(SELECT last_turn FROM platform_marketing_dispatch d WHERE d.tenant_id=r.tenant_id)\nWHERE r.status='queued'\n AND r.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)\n AND EXISTS(SELECT 1 FROM marketing_campaigns c WHERE c.tenant_id=r.t",
+   "after": "-- name: PlatformClaimMarketingRecipient :one\n-- scope: platform\n\nUPDATE marketing_recipients SET status='sending', attempts=attempts+1, last_turn=(SELECT last_turn  WHERE next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND EXISTS(SELECT 1 FROM marketing_campaigns c WHERE c.tenant_id=tenant_id AND c.id=campaign_id AND c.status IN('scheduled','running') AND c.scheduled_at<=(CAST(st"
+  },
+  {
+   "file": "platform_marketing.sql",
+   "method": "PlatformCompleteMarketingCampaigns",
+   "table": "marketing_campaigns",
+   "alias": "c",
+   "before": "-- name: PlatformCompleteMarketingCampaigns :execrows\n-- scope: platform\n\nUPDATE marketing_campaigns c SET status='completed' WHERE c.status IN('scheduled','running')\nAND NOT EXISTS(SELECT 1 FROM marketing_recipients r WHERE r.campaign_id=c.id AND r.status IN('queued','leased','submitting','uncertain'));",
+   "after": "-- name: PlatformCompleteMarketingCampaigns :execrows\n-- scope: platform\n\nUPDATE marketing_campaigns SET status='completed' WHERE status IN('scheduled','running')\nAND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_recipients r WHERE r.campaign_id=id AND r.status IN('queued','leased','submitting','uncertain')));"
+  },
+  {
+   "file": "platform_marketing_flows.sql",
+   "method": "PlatformAdvanceMarketingFlowDueTenant",
+   "table": "platform_marketing_dispatch",
+   "alias": "d",
+   "before": "-- name: PlatformAdvanceMarketingFlowDueTenant :execrows\n-- scope: platform\n\nUPDATE platform_marketing_dispatch d\nSET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)\nWHERE EXISTS(\n SELECT 1 FROM marketing_flow_positions p\n JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id\n JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.",
+   "after": "-- name: PlatformAdvanceMarketingFlowDueTenant :execrows\n-- scope: platform\n\nUPDATE platform_marketing_dispatch SET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)\nWHERE EXISTS(\n SELECT 1 FROM marketing_flow_positions p\n JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id\n JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.fl"
+  },
+  {
+   "file": "platform_marketing_flows.sql",
+   "method": "PlatformClaimMarketingFlowPositions",
+   "table": "marketing_flow_positions",
+   "alias": "p",
+   "before": "-- name: PlatformClaimMarketingFlowPositions :many\n-- scope: platform\n\nUPDATE marketing_flow_positions p\nSET lease_owner=sqlc.arg(lease_owner),\n lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000) + sqlc.arg(lease_seconds)*1000000,\n lease_fence=p.lease_fence+1\nWHERE p.tenant_id=sqlc.arg(tenant_id)\n AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runti",
+   "after": "-- name: PlatformClaimMarketingFlowPositions :many\n-- scope: platform\n\nUPDATE marketing_flow_positions SET lease_owner=sqlc.arg(lease_owner),\n lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000) + sqlc.arg(lease_seconds)*1000000,\n lease_fence=lease_fence+1\nWHERE tenant_id=sqlc.arg(tenant_id)\n AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_flow_steps s WHERE s.tenant_id=tenant_id"
+  },
+  {
+   "file": "platform_marketing_flows.sql",
+   "method": "PlatformArmMarketingFlowWait",
+   "table": "marketing_flow_positions",
+   "alias": "p",
+   "before": "-- name: PlatformArmMarketingFlowWait :execrows\n-- scope: platform\n\nUPDATE marketing_flow_positions p\nSET wait_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(\n  SELECT s.wait_seconds*1000000 FROM marketing_flow_steps s\n  WHERE s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key AND s.kind='wait' AND s.wait_seconds>0)\nWHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?",
+   "after": "-- name: PlatformArmMarketingFlowWait :execrows\n-- scope: platform\n\nUPDATE marketing_flow_positions SET wait_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(\n  SELECT s.wait_seconds*1000000  WHERE flow_id=?2 AND email=?3 AND wait_until IS NULL AND lease_owner=?4 AND lease_fence=?5 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND EXISTS(SELECT 1 FROM marketing_flow_steps s"
+  },
+  {
+   "file": "platform_notifications.sql",
+   "method": "PlatformClaimEmailNotification",
+   "table": "notification_outbox",
+   "alias": "n",
+   "before": "-- name: PlatformClaimEmailNotification :one\n-- scope: platform\n\n-- OPS-103: claims one due email notification with a SKIP LOCKED lease. The\n-- row stays 'pending' while leased, so a crashed worker's lease expiry makes\n-- it reclaimable (at-least-once delivery); only a confirmed-ambiguous SMTP\n-- submission later moves it to the unreplayable 'uncertain' state.\nUPDATE notification_outbox n SET leas",
+   "after": "-- name: PlatformClaimEmailNotification :one\n-- scope: platform\n\n-- OPS-103: claims one due email notification with a SKIP LOCKED lease. The\n-- row stays 'pending' while leased, so a crashed worker's lease expiry makes\n-- it reclaimable (at-least-once delivery); only a confirmed-ambiguous SMTP\n-- submission later moves it to the unreplayable 'uncertain' state.\nUPDATE notification_outbox SET lease_"
+  },
+  {
+   "file": "platform_notifications.sql",
+   "method": "PlatformResolveStaleAIAlerts",
+   "table": "operational_alerts",
+   "alias": "a",
+   "before": "-- name: PlatformResolveStaleAIAlerts :execrows\n-- scope: platform\n\nUPDATE operational_alerts a SET state='resolved',\n resolved_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),\n last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE a.kind IN('ai_requires_review','ai_budget_exhausted') AND a.state='firing'\n AND NOT EXISTS(\n  SELECT 1 FROM ai_usage_requests u WHERE u.status='uncertai",
+   "after": "-- name: PlatformResolveStaleAIAlerts :execrows\n-- scope: platform\n\nUPDATE operational_alerts SET state='resolved',\n resolved_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),\n last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)\nWHERE kind IN('ai_requires_review','ai_budget_exhausted') AND state='firing'\n AND NOT EXISTS(\n  SELECT 1  WHERE EXISTS(SELECT 1 FROM ai_usage_requests u WHERE u"
+  },
+  {
+   "file": "platform_parity_enhancements.sql",
+   "method": "PlatformDeleteTenantDirectoryContact",
+   "table": "mailbox_contacts",
+   "alias": "c",
+   "before": "-- name: PlatformDeleteTenantDirectoryContact :execrows\n-- scope: platform\n\nDELETE FROM tenant_directory_contacts\nWHERE tenant_id = ?1 AND id = ?2;\n\n-- scope: platform\n\nINSERT INTO mailbox_contacts(tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name,\n emails, phones, note, organization, job_title, addresses, birthday, photo, vcard_extra)\nVALUES(sqlc.arg(tenant_id), sqlc.ar",
+   "after": "-- name: PlatformDeleteTenantDirectoryContact :execrows\n-- scope: platform\n\nDELETE FROM tenant_directory_contacts\nWHERE tenant_id = ?1 AND id = ?2;\n\n-- scope: platform\n\nINSERT INTO mailbox_contacts(tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name,\n emails, phones, note, organization, job_title, addresses, birthday, photo, vcard_extra)\nVALUES(sqlc.arg(tenant_id), sqlc.ar"
+  },
+  {
+   "file": "platform_recall_product.sql",
+   "method": "PlatformLockRecallMailbox",
+   "table": "recall_requests",
+   "alias": "r",
+   "before": "-- name: PlatformLockRecallMailbox :one\n-- scope: platform\n\nSELECT m.address FROM mailboxes m JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id\nWHERE m.tenant_id=?1 AND m.id=?2 AND m.status='active' AND d.status='active';\n\n-- scope: platform\n\nUPDATE recall_requests r SET status= @status, reason= @reason, local_result= @result, completed_at=(CAST(strftime('%s','now') AS INTEGER)*100000",
+   "after": "-- name: PlatformLockRecallMailbox :one\n-- scope: platform\n\nSELECT m.address FROM mailboxes m JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id\nWHERE m.tenant_id=?1 AND m.id=?2 AND m.status='active' AND d.status='active';\n\n-- scope: platform\n\nUPDATE recall_requests SET status= @status, reason= @reason, local_result= @result, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)"
+  },
+  {
+   "file": "platform_support.sql",
+   "method": "PlatformChangeSupportTicket",
+   "table": "tickets",
+   "alias": "t",
+   "before": "-- name: PlatformChangeSupportTicket :one\n-- scope: platform\n\nUPDATE tickets t SET status=?3,assigned_to=?4,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE t.tenant_id=?1 AND t.id=?2 AND (?4 IS NULL OR EXISTS(SELECT 1 FROM platform_admins p JOIN users u ON u.id=p.user_id WHERE p.user_id=?4 AND u.status='active')) RETURNING *;",
+   "after": "-- name: PlatformChangeSupportTicket :one\n-- scope: platform\n\nUPDATE tickets SET status=?3,assigned_to=?4,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE tenant_id=?1 AND id=?2 AND (?4 IS NULL OR EXISTS(SELECT 1 FROM platform_admins p JOIN users u ON u.id=p.user_id WHERE p.user_id=?4 AND u.status='active')) RETURNING *;"
+  },
+  {
+   "file": "recall_product.sql",
+   "method": "ConfirmRecallReview",
+   "table": "recall_requests",
+   "alias": "r",
+   "before": "-- name: ConfirmRecallReview :one\n-- scope: tenant\n\nUPDATE recall_requests r SET status='pending', confirmed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), selected_copy_keys= @selected\nWHERE r.tenant_id= @tenant_id AND r.id= @recall_id AND r.preview_actor_id= @actor_id AND r.preview_token= @token AND r.preview_digest= @digest\n AND r.preview_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1",
+   "after": "-- name: ConfirmRecallReview :one\n-- scope: tenant\n\nUPDATE recall_requests SET status='pending', confirmed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), selected_copy_keys= @selected\nWHERE tenant_id= @tenant_id AND id= @recall_id AND preview_actor_id= @actor_id AND preview_token= @token AND preview_digest= @digest\n AND preview_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND st"
+  }
+ ]
+}

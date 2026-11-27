@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/ai"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -143,7 +144,7 @@ func (f *blockedDomainProbe) CompleteVerification(ctx context.Context, a ProbeAc
 }
 func TestDomainVerifyRejectsConcurrentVersionOrAuthorizationChange(t *testing.T) {
 	for _, change := range []error{nil, ErrProbeChanged, ErrProbeForbidden} {
-		fake := &shapeFakeDomainStore{byID: store.GetDomainByIDRow{ID: 1, TenantID: 1, Fqdn: "example.test", VerificationToken: "proof", Status: "pending_dns", VerificationIssuedAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}, VerificationExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}}
+		fake := &shapeFakeDomainStore{byID: store.GetDomainByIDRow{ID: 1, TenantID: 1, Fqdn: "example.test", VerificationToken: "proof", Status: "pending_dns", VerificationIssuedAt: timeutil.Micro(time.Now().Add(-time.Minute)), VerificationExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}}
 		repo := &blockedDomainProbe{domainStoreProbeFake: domainStoreProbeFake{fake}}
 		entered, release := make(chan struct{}), make(chan struct{})
 		h := &DomainHandler{Verification: repo, LookupTXT: func(ctx context.Context, _ string) ([]string, error) {

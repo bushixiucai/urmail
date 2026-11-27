@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
@@ -138,7 +141,7 @@ func schedulingActions(message appcollab.SchedulingMail, linked *store.MailboxEv
 		if message.Message.Method != collab.MethodReply && linked.Organizer != message.Message.Organizer {
 			return actions
 		}
-		if message.Message.Method != collab.MethodReply && (message.Message.Sequence < int(linked.InvitationSequence) || (message.Message.Sequence == int(linked.InvitationSequence) && linked.InvitationStamp.Valid && message.Message.Stamp.Before(linked.InvitationStamp.Time))) {
+		if message.Message.Method != collab.MethodReply && (message.Message.Sequence < int(linked.InvitationSequence) || (message.Message.Sequence == int(linked.InvitationSequence) && linked.InvitationStamp != 0 && message.Message.Stamp.Before(timeutil.FromMicro(linked.InvitationStamp)))) {
 			return actions
 		}
 	}
@@ -176,7 +179,7 @@ func (h MailboxCalendarHandler) previewMailInvitation(c *gin.Context) {
 	if !ok {
 		return
 	}
-	row, err := store.New(h.Pool).PlatformFindSchedulingEvent(c.Request.Context(), store.PlatformFindSchedulingEventParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Uid: message.Message.UID})
+	row, err := db.Queries(h.Pool).PlatformFindSchedulingEvent(platformCtx(c), store.PlatformFindSchedulingEventParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Uid: message.Message.UID})
 	var linked *store.MailboxEvents
 	if err == nil {
 		linked = &row
@@ -205,7 +208,7 @@ func (h MailboxCalendarHandler) previewMailInvitation(c *gin.Context) {
 	actions := schedulingActions(message, linked, recipient)
 	notificationStatus := "none"
 	for _, action := range []string{"accept", "decline", "tentative"} {
-		prior, e := store.New(h.Pool).PlatformGetDataImportReceipt(c.Request.Context(), store.PlatformGetDataImportReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Kind: "calendar_response", IdempotencyKey: calendarActionKey(message, action, recipient)})
+		prior, e := db.Queries(h.Pool).PlatformGetDataImportReceipt(platformCtx(c), store.PlatformGetDataImportReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Kind: "calendar_response", IdempotencyKey: calendarActionKey(message, action, recipient)})
 		if e == nil {
 			if prior.Status != "done" {
 				notificationStatus = "uncertain"

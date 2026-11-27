@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 )
 
 var openAlerts = prometheus.NewGauge(prometheus.GaugeOpts{Name: "urmail_payment_manual_reviews_open", Help: "Verified receipts requiring manual resolution; never contains payment or tenant identifiers."})
@@ -34,12 +34,13 @@ func init() {
 
 // Evaluate commits condition state and deduplicated notifications together.
 func Evaluate(ctx context.Context, pool *db.Pool) error {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	tx, err := pool.PlatformTx(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformRefreshDNSOnboardingAlerts(ctx); err != nil {
 		return err
 	}
@@ -73,7 +74,8 @@ func Evaluate(ctx context.Context, pool *db.Pool) error {
 // observeNotifications records the outbox watermark, monotonic enqueue counts
 // and the durable per-state depth after the evaluation transaction commits.
 func observeNotifications(ctx context.Context, pool *db.Pool) error {
-	queries := store.New(pool)
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	queries := db.Queries(pool)
 	maxID, err := queries.PlatformMaxNotificationID(ctx)
 	if err != nil {
 		return err

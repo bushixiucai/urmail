@@ -231,8 +231,19 @@ func TestMailboxNativeRuntime(t *testing.T) {
 		if status != 200 || json.Unmarshal(raw, &result) != nil || !result.Sent || result.Receipt.Status != "accepted" || result.Receipt.Copy == "complete" {
 			t.Fatalf("accepted copy failure returned invalid outcome: %d %s", status, raw)
 		}
-		// Only this isolated receipt is advanced past its copy backoff.
-		if _, err = p.Exec(ctx, `UPDATE mailbox_send_receipts SET next_attempt_at=now()-interval '1 second' WHERE tenant_id=$1 AND id=$2`, tenant, result.Receipt.ID); err != nil {
+		// The worker's lease is correct concurrency protection: while it is
+		// valid, a second copy must not run. Expire the lease explicitly (and
+		// keep the backoff in the past) before asking the worker to retry.
+		var leased bool
+		if err = p.QueryRow(ctx, `SELECT COALESCE(lease_until > now(), false) FROM mailbox_send_receipts WHERE tenant_id=$1 AND id=$2`, tenant, result.Receipt.ID).Scan(&leased); err != nil {
+			t.Fatal(err)
+		}
+		if leased {
+			if worked, err = worker.Step(ctx); err != nil || worked {
+				t.Fatalf("worker copied while the lease was still valid: worked=%v err=%v", worked, err)
+			}
+		}
+		if _, err = p.Exec(ctx, `UPDATE mailbox_send_receipts SET next_attempt_at=now()-interval '1 second', lease_until=now()-interval '1 second' WHERE tenant_id=$1 AND id=$2`, tenant, result.Receipt.ID); err != nil {
 			t.Fatal(err)
 		}
 		if worked, err = worker.Step(ctx); err != nil || !worked {

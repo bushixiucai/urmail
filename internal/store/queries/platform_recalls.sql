@@ -1,24 +1,29 @@
 -- name: PlatformCompleteRecall :one
-WITH completed AS (
- UPDATE recall_requests r SET status=$3,reason=$4,completed_at=now() WHERE r.tenant_id=$1 AND r.id=$2 AND r.status='pending' RETURNING r.*
-), audited AS (
- INSERT INTO audit_logs(tenant_id,actor_user_id,action,target_type,target_id,detail)
- SELECT c.tenant_id,c.requested_by,'compliance.recall.complete','recall',c.id::text,jsonb_build_object('status',c.status,'scope','local_mailbox') FROM completed c RETURNING id
-)
-SELECT completed.* FROM completed CROSS JOIN audited;
+-- scope: platform
 
+UPDATE recall_requests SET status=?3, reason=?4, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?1 AND id=?2 AND status='pending'
+RETURNING id, tenant_id, archive_entry_id, mailbox_id, message_id, requested_by, status, reason,
+ local_result, completed_at, created_at, updated_at, preview_actor_id, preview_token, preview_digest,
+ preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, result_history;
 -- name: PlatformLockRecallForExpunge :one
+-- scope: platform
+
 SELECT r.*,a.id AS archive_entry_id,a.legal_hold,a.deleted_at AS archive_deleted_at,a.message_id AS archive_message_id,a.mailbox_id AS archive_mailbox_id,m.address,m.status AS mailbox_status,t.status AS tenant_status,d.status AS domain_status
 FROM recall_requests r
 JOIN archive_entries a ON a.id=r.archive_entry_id AND a.tenant_id=r.tenant_id
 LEFT JOIN mailboxes m ON m.id=r.mailbox_id AND m.tenant_id=r.tenant_id
 JOIN tenants t ON t.id=r.tenant_id
 LEFT JOIN domains d ON d.id=m.domain_id AND d.tenant_id=r.tenant_id
-WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE OF r,a;
+WHERE r.tenant_id=?1 AND r.id=?2;
 
--- name: PlatformLockRecallTenant :exec
-SELECT pg_advisory_xact_lock($1::bigint);
+-- PlatformLockRecallTenant 在 S5 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- PG 用事务级 advisory lock 串行化租户召回；SQLite 改为单写者事务串行
+-- （BEGIN IMMEDIATE），详见 scripts/sqlite/lock-semantics.md。
+
 -- name: PlatformRecallHoldConflict :one
+-- scope: platform
+
 -- ARC-01: expunge matches on Message-ID, so recalling one archived copy of a
 -- message must be refused while another copy of the same Message-ID for the
 -- same mailbox is under legal hold -- the mailbox expunge would destroy the
@@ -26,10 +31,10 @@ SELECT pg_advisory_xact_lock($1::bigint);
 -- AGENTS.md (platform_*.sql); the agent is the caller.
 SELECT count(*) > 0 AS conflict
 FROM archive_entries
-WHERE tenant_id = $1
-  AND mailbox_id = $2
-  AND message_id = $3
-  AND id <> $4
+WHERE tenant_id = ?1
+  AND mailbox_id = ?2
+  AND message_id = ?3
+  AND id <> ?4
   AND legal_hold
   AND deleted_at IS NULL;
 

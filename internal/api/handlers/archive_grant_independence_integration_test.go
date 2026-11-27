@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
@@ -119,7 +121,7 @@ func TestArchiveExerciseRefusesLegacySelfGrant(t *testing.T) {
 	}
 	if _, err = store.New(gtx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{
 		TenantID: tenant, UserID: user, Scope: "full_content", Reason: "independent investigation approval",
-		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, GrantedBy: pgtype.Int8{Int64: grantor, Valid: true},
+		ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), GrantedBy: pgtype.Int8{Int64: grantor, Valid: true},
 	}); err != nil {
 		_ = gtx.Rollback(ctx)
 		t.Fatal(err)

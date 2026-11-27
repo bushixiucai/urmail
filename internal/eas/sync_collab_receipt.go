@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -37,7 +38,7 @@ func collabAddReceipt(ctx context.Context, q *store.Queries, req *SyncRequest, c
 	key := hex.EncodeToString(keyHash[:])
 	hash := sha256.Sum256(canonical)
 	digest := hex.EncodeToString(hash[:])
-	if err := q.PlatformLockDataImport(ctx, store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(req.Session.TenantID, 10), MailboxID: strconv.FormatInt(req.Session.MailboxID, 10), IdempotencyKey: kind + ":" + key}); err != nil {
+	if err := q.PlatformLockDataImport(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(req.Session.TenantID, 10), MailboxID: strconv.FormatInt(req.Session.MailboxID, 10), IdempotencyKey: kind + ":" + key}); err != nil {
 		return collabAddResult{}, err
 	}
 	row, err := q.PlatformGetDataImportReceipt(ctx, store.PlatformGetDataImportReceiptParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, Kind: kind, IdempotencyKey: key})

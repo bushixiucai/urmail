@@ -1,0 +1,28 @@
+# S6 应用层写集守卫（audit_logs INSERT 白名单）
+#
+# 背景：S1 的 4 张 append-only 表 no_insert 触发器与 0002 的审计 AFTER 触发器
+# 互斥——触发器内的 INSERT INTO audit_logs 会被 no_insert 拦截，导致主 DML
+# 回滚。S6 采纳方案①（PHASE1-S2-APPEND-ONLY-AUDIT-CONFLICT-20261120.md）：
+# 删掉 4 个 no_insert 触发器，保留 upd/del 与 0002 审计触发器；audit_logs 的
+# 写集改由本清单 + scope_lint 闭合校验。
+#
+# 规则：任何新增的 audit_logs 写入路径（SQL 语句、sqlite_methods.go 常量、
+# 0002 触发器）都必须登记在此；清单里的条目一旦没有对应写者也会失败。
+# 每条一行：stmt:<方法名> / const:<Go 常量名> / trigger:<触发器名>。
+
+# --- internal/store/queries/*.sql 中的直写语句
+stmt:AuditLegacyCredentialUse
+stmt:CreateAuditLog
+stmt:RecordMailboxImportAudit
+
+# --- internal/store/sqlite_methods.go 手写常量（S4 承接的审计写入）
+const:marketingFlowAuditInsertSQL
+const:panelCredentialAuditSQL
+const:recordTenantAuditInsertSQL
+
+# --- migrations_sqlite/0002_write_side_effects.sql 的 AFTER 触发器
+trigger:application_credentials_audit_create
+trigger:application_credentials_audit_revoke
+trigger:recall_requests_audit_complete
+trigger:recall_requests_audit_complete_direct
+const:marketingFlowAuditInsertPGSQL

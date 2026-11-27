@@ -20,7 +20,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 	"github.com/bushixiucai/urmail/internal/reconcile"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // withHTTPScheme prefixes a bare host:port address with http:// unless it
@@ -88,29 +87,34 @@ func runConfigRender(ctx context.Context, args []string) error {
 	}
 
 	// Assemble the full context (node config + tenant snapshot) from the
-	// database when a platform connection is configured. Without a database
-	// the render falls back to an empty skeleton, which is only useful for
-	// plumbing checks.
+	// Assemble from the platform store of either engine. SQLite has no
+	// DatabaseURLPlatform, so the old check rendered an empty skeleton there.
 	var mailCtx mail.ConfigContext
-	if cfg.DatabaseURLPlatform != "" {
-		pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	if cfg.IsSQLite() || cfg.DatabaseURLPlatform != "" {
+		pool, closePool, err := openPlatformStorePool(ctx, cfg)
 		if err != nil {
 			return fmt.Errorf("open platform database: %w", err)
 		}
-		defer pool.Close()
-		assembled, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: store.New(pool.Pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
+		defer closePool()
+		assembled, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(pool), DB: pool}, cfg.PublicIPv4, cfg.Nameservers)
 		if err != nil {
 			return fmt.Errorf("assemble config context: %w", err)
 		}
 		mailCtx = *assembled
 	} else {
+		stateRoot := "/var/lib/urmail-agent"
+		if cfg != nil && strings.TrimSpace(cfg.AgentStateRoot) != "" {
+			stateRoot = filepath.Clean(strings.TrimSpace(cfg.AgentStateRoot))
+		}
+		certFile := filepath.Join(stateRoot, "certs", "mail", hostname+".cert")
+		keyFile := filepath.Join(stateRoot, "certs", "mail", hostname+".key")
 		mailCtx = mail.ConfigContext{
 			PostfixNode: postfix.NodeConfig{
 				Hostname:                 hostname,
 				PrimaryDomain:            cfg.PrimaryDomain,
 				StorageRoot:              storageRoot,
-				TLSCertFile:              filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert"),
-				TLSKeyFile:               filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key"),
+				TLSCertFile:              certFile,
+				TLSKeyFile:               keyFile,
 				PolicyEnabled:            cfg.PolicyEnabled,
 				V80Preserve:              cfg.PostfixV80Preserve,
 				PreserveExternalOpenDKIM: cfg.PreserveExternalOpenDKIM,
@@ -120,8 +124,8 @@ func runConfigRender(ctx context.Context, args []string) error {
 				Hostname:      hostname,
 				PrimaryDomain: cfg.PrimaryDomain,
 				StorageRoot:   storageRoot,
-				TLSCertFile:   filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert"),
-				TLSKeyFile:    filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key"),
+				TLSCertFile:   certFile,
+				TLSKeyFile:    keyFile,
 				DatabaseURL:   dovecotDB,
 			},
 			NSDNode: nsd.NodeConfig{

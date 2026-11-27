@@ -23,6 +23,13 @@ export function useMessageThreading(
    * Single-box callers keep the legacy "assume browsing box" behavior. */
   unknownProvenanceIsStandalone = false,
 ) {
+  // Q3 final-state ratification (interview 2026-11-26): children start
+  // COLLAPSED by default (this in-memory Set fills only on an explicit
+  // pill click), including system-sender true-chain threads (Q1: grouping
+  // kept, children collapsed, bounce rows render a weakened reply
+  // prefix). The D-D conditional — fully loaded → inline expansion,
+  // missing members → reading stack — is the CONFIRMED terminal state;
+  // do NOT re-apply V0620 §7's original "remove inline entirely" draft.
   const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(
     new Set(),
   );
@@ -92,6 +99,7 @@ export function useMessageThreading(
         threadId: m.thread_id,
         threadCount: isChild ? undefined : m.thread_count,
         threadVerification: m.thread_verification,
+        weakAggregation: m.weak_aggregation,
         threadGroupKey: groupKeyOf(m, knownFolderEnc),
         isThreadChild: isChild || undefined,
         folder: m.folder,

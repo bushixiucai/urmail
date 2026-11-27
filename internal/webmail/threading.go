@@ -14,7 +14,7 @@ const SubjectFallbackWindow = 7 * 24 * time.Hour
 
 // WeakAggregationThreshold bounds hard thread aggregation. Threads with more
 // members are stamped WeakAggregation=true and EarlierCount carries how many
-// members fall outside the newest window the UI aggregates (Tiger decision
+// members fall outside the newest window the UI aggregates (产品决策
 // v0.6.20 C1: giant threads render as newest-20 plus an "earlier" summary
 // bar instead of one unbounded stack).
 const WeakAggregationThreshold = 20
@@ -152,7 +152,7 @@ func threadSenders(m MessageSummary) map[string]struct{} {
 
 // sharesNonSender reports whether m shares an address with the cluster that
 // is not merely the identical sender on both sides. Pure same-sender overlap
-// is not conversation evidence (Tiger decision v0.6.20 C1): broadcast mail
+// is not conversation evidence (产品决策 v0.6.20 C1): broadcast mail
 // from one automated or repetitive sender must not merge by subject, while a
 // shared recipient (a reply whose References were lost) still merges.
 func sharesNonSender(clusterParticipants, clusterSenders map[string]struct{}, m MessageSummary) bool {

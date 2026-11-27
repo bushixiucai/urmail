@@ -49,12 +49,12 @@ INSERT INTO announcements(brand_id,title,body,state,published_at,ends_at) VALUES
 `
 
 type PlatformCreateAnnouncementParams struct {
-	BrandID     pgtype.Int8        `json:"brand_id"`
-	Title       []byte             `json:"title"`
-	Body        []byte             `json:"body"`
-	State       string             `json:"state"`
-	PublishedAt pgtype.Timestamptz `json:"published_at"`
-	EndsAt      pgtype.Timestamptz `json:"ends_at"`
+	BrandID     pgtype.Int8 `json:"brand_id"`
+	Title       []byte      `json:"title"`
+	Body        []byte      `json:"body"`
+	State       string      `json:"state"`
+	PublishedAt int64       `json:"published_at"`
+	EndsAt      int64       `json:"ends_at"`
 }
 
 func (q *Queries) PlatformCreateAnnouncement(ctx context.Context, arg PlatformCreateAnnouncementParams) (Announcements, error) {
@@ -247,13 +247,13 @@ UPDATE announcements SET brand_id=$2,title=$3,body=$4,state=$5,published_at=$6,e
 `
 
 type PlatformUpdateAnnouncementParams struct {
-	ID          int64              `json:"id"`
-	BrandID     pgtype.Int8        `json:"brand_id"`
-	Title       []byte             `json:"title"`
-	Body        []byte             `json:"body"`
-	State       string             `json:"state"`
-	PublishedAt pgtype.Timestamptz `json:"published_at"`
-	EndsAt      pgtype.Timestamptz `json:"ends_at"`
+	ID          int64       `json:"id"`
+	BrandID     pgtype.Int8 `json:"brand_id"`
+	Title       []byte      `json:"title"`
+	Body        []byte      `json:"body"`
+	State       string      `json:"state"`
+	PublishedAt int64       `json:"published_at"`
+	EndsAt      int64       `json:"ends_at"`
 }
 
 func (q *Queries) PlatformUpdateAnnouncement(ctx context.Context, arg PlatformUpdateAnnouncementParams) (Announcements, error) {

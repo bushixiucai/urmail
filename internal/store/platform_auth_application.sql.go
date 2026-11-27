@@ -12,8 +12,9 @@ import (
 )
 
 const auditLegacyCredentialUse = `-- name: AuditLegacyCredentialUse :exec
+
 INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,detail)
-VALUES($1,$2,'legacy_auth',$3,'{}'::jsonb)
+VALUES(?1,?2,'legacy_auth',?3,'{}')
 `
 
 type AuditLegacyCredentialUseParams struct {
@@ -22,17 +23,19 @@ type AuditLegacyCredentialUseParams struct {
 	TargetID    pgtype.Text `json:"target_id"`
 }
 
+// scope: tenant
 func (q *Queries) AuditLegacyCredentialUse(ctx context.Context, arg AuditLegacyCredentialUseParams) error {
 	_, err := q.db.Exec(ctx, auditLegacyCredentialUse, arg.ActorUserID, arg.Action, arg.TargetID)
 	return err
 }
 
 const authenticateApplicationCredential = `-- name: AuthenticateApplicationCredential :one
+
 SELECT a.id,a.user_id,a.scopes
 FROM application_credentials a
 JOIN users u ON u.id=a.user_id AND u.status='active'
 JOIN platform_admins p ON p.user_id=u.id
-WHERE a.token_hash=$1 AND u.email=$2 AND a.revoked_at IS NULL AND a.expires_at>now() AND a.credential_version=u.credential_version
+WHERE a.token_hash=?1 AND u.email=?2 AND a.revoked_at IS NULL AND a.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND a.credential_version=u.credential_version
 `
 
 type AuthenticateApplicationCredentialParams struct {
@@ -46,6 +49,7 @@ type AuthenticateApplicationCredentialRow struct {
 	Scopes []string `json:"scopes"`
 }
 
+// scope: platform
 func (q *Queries) AuthenticateApplicationCredential(ctx context.Context, arg AuthenticateApplicationCredentialParams) (AuthenticateApplicationCredentialRow, error) {
 	row := q.db.QueryRow(ctx, authenticateApplicationCredential, arg.TokenHash, arg.Email)
 	var i AuthenticateApplicationCredentialRow
@@ -54,37 +58,32 @@ func (q *Queries) AuthenticateApplicationCredential(ctx context.Context, arg Aut
 }
 
 const createApplicationCredential = `-- name: CreateApplicationCredential :one
-WITH credential AS (
-  INSERT INTO application_credentials(user_id,name,token_hash,scopes,expires_at,credential_version)
-  SELECT u.id,$1,$2,$3,$4,u.credential_version FROM users u
-  WHERE u.id=$5 AND u.status='active' AND u.credential_version=$6 FOR UPDATE OF u
-  RETURNING id,user_id,name,scopes,expires_at,created_at
-), audit AS (
-  INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,detail)
-  SELECT user_id,'application_credential.create','application_credential',id::text,'{}'::jsonb FROM credential
-  RETURNING id
-)
-SELECT credential.id, credential.user_id, credential.name, credential.scopes, credential.expires_at, credential.created_at FROM credential CROSS JOIN audit
+
+INSERT INTO application_credentials(user_id, name, token_hash, scopes, expires_at, credential_version)
+SELECT u.id, ?1, ?2, ?3, ?4, u.credential_version FROM users u
+WHERE u.id=?5 AND u.status='active' AND u.credential_version=?6
+RETURNING id, user_id, name, scopes, coalesce(expires_at, 0) AS expires_at, created_at
 `
 
 type CreateApplicationCredentialParams struct {
-	Name            string             `json:"name"`
-	TokenHash       string             `json:"token_hash"`
-	Scopes          []string           `json:"scopes"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	UserID          int64              `json:"user_id"`
-	ExpectedVersion int64              `json:"expected_version"`
+	Name            string   `json:"name"`
+	TokenHash       string   `json:"token_hash"`
+	Scopes          []string `json:"scopes"`
+	ExpiresAt       int64    `json:"expires_at"`
+	UserID          int64    `json:"user_id"`
+	ExpectedVersion int64    `json:"expected_version"`
 }
 
 type CreateApplicationCredentialRow struct {
-	ID        int64              `json:"id"`
-	UserID    int64              `json:"user_id"`
-	Name      string             `json:"name"`
-	Scopes    []string           `json:"scopes"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64    `json:"id"`
+	UserID    int64    `json:"user_id"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes"`
+	ExpiresAt int64    `json:"expires_at"`
+	CreatedAt int64    `json:"created_at"`
 }
 
+// scope: tenant
 func (q *Queries) CreateApplicationCredential(ctx context.Context, arg CreateApplicationCredentialParams) (CreateApplicationCredentialRow, error) {
 	row := q.db.QueryRow(ctx, createApplicationCredential,
 		arg.Name,
@@ -107,24 +106,26 @@ func (q *Queries) CreateApplicationCredential(ctx context.Context, arg CreateApp
 }
 
 const getLegacySession = `-- name: GetLegacySession :one
-SELECT s.id, s.user_id, s.csrf_token, s.expires_at, s.mfa_verified_at
+
+SELECT s.id, s.user_id, s.csrf_token, coalesce(s.expires_at, 0) AS expires_at, coalesce(s.mfa_verified_at, 0) AS mfa_verified_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id AND u.status = 'active'
 JOIN platform_admins p ON p.user_id = u.id
 LEFT JOIN tenants t ON t.id = s.tenant_id
-WHERE s.id = $1 AND s.kind='legacy' AND s.expires_at > now() AND s.credential_version=u.credential_version
-  AND s.mfa_verified_at > now() - interval '15 minutes'
+WHERE s.id = ?1 AND s.kind='legacy' AND s.expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000) AND s.credential_version=u.credential_version
+  AND s.mfa_verified_at > (CAST(strftime('%s','now') AS INTEGER)*1000000) - 900000000
   AND (s.tenant_id IS NULL OR t.status IN ('active','pending'))
 `
 
 type GetLegacySessionRow struct {
-	ID            string             `json:"id"`
-	UserID        int64              `json:"user_id"`
-	CsrfToken     string             `json:"csrf_token"`
-	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
-	MfaVerifiedAt pgtype.Timestamptz `json:"mfa_verified_at"`
+	ID            string `json:"id"`
+	UserID        int64  `json:"user_id"`
+	CsrfToken     string `json:"csrf_token"`
+	ExpiresAt     int64  `json:"expires_at"`
+	MfaVerifiedAt int64  `json:"mfa_verified_at"`
 }
 
+// scope: tenant
 func (q *Queries) GetLegacySession(ctx context.Context, id string) (GetLegacySessionRow, error) {
 	row := q.db.QueryRow(ctx, getLegacySession, id)
 	var i GetLegacySessionRow
@@ -139,19 +140,21 @@ func (q *Queries) GetLegacySession(ctx context.Context, id string) (GetLegacySes
 }
 
 const listApplicationCredentials = `-- name: ListApplicationCredentials :many
-SELECT id,name,scopes,expires_at,revoked_at,created_at
-FROM application_credentials WHERE user_id=$1 ORDER BY id DESC
+
+SELECT id, name, scopes, coalesce(expires_at, 0) AS expires_at, coalesce(revoked_at, 0) AS revoked_at, created_at
+FROM application_credentials WHERE user_id=?1 ORDER BY id DESC
 `
 
 type ListApplicationCredentialsRow struct {
-	ID        int64              `json:"id"`
-	Name      string             `json:"name"`
-	Scopes    []string           `json:"scopes"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64    `json:"id"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes"`
+	ExpiresAt int64    `json:"expires_at"`
+	RevokedAt int64    `json:"revoked_at"`
+	CreatedAt int64    `json:"created_at"`
 }
 
+// scope: platform
 func (q *Queries) ListApplicationCredentials(ctx context.Context, userID int64) ([]ListApplicationCredentialsRow, error) {
 	rows, err := q.db.Query(ctx, listApplicationCredentials, userID)
 	if err != nil {
@@ -180,35 +183,33 @@ func (q *Queries) ListApplicationCredentials(ctx context.Context, userID int64) 
 }
 
 const markSessionLegacyOnly = `-- name: MarkSessionLegacyOnly :exec
-UPDATE sessions SET kind='legacy',mfa_verified_at=now() WHERE id=$1
+
+UPDATE sessions SET kind='legacy',mfa_verified_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE id=?1
 `
 
+// scope: platform
 func (q *Queries) MarkSessionLegacyOnly(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, markSessionLegacyOnly, id)
 	return err
 }
 
 const markSessionMFAVerified = `-- name: MarkSessionMFAVerified :exec
-UPDATE sessions SET mfa_verified_at = now() WHERE id = $1
+
+UPDATE sessions SET mfa_verified_at = (CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE id = ?1
 `
 
 // Platform-only authentication queries; never used as tenant-scoped stores.
+// scope: platform
 func (q *Queries) MarkSessionMFAVerified(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, markSessionMFAVerified, id)
 	return err
 }
 
 const revokeApplicationCredential = `-- name: RevokeApplicationCredential :one
-WITH revoked AS (
- UPDATE application_credentials SET revoked_at = COALESCE(revoked_at,now())
- WHERE application_credentials.id=$1 AND application_credentials.user_id=$2
- RETURNING id,user_id
-), audit AS (
- INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,detail)
- SELECT user_id,'application_credential.revoke','application_credential',id::text,'{}'::jsonb FROM revoked
- RETURNING id
-)
-SELECT revoked.id FROM revoked CROSS JOIN audit
+
+UPDATE application_credentials SET revoked_at = COALESCE(revoked_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
+WHERE application_credentials.id=?1 AND application_credentials.user_id=?2
+RETURNING id
 `
 
 type RevokeApplicationCredentialParams struct {
@@ -216,6 +217,7 @@ type RevokeApplicationCredentialParams struct {
 	UserID int64 `json:"user_id"`
 }
 
+// scope: tenant
 func (q *Queries) RevokeApplicationCredential(ctx context.Context, arg RevokeApplicationCredentialParams) (int64, error) {
 	row := q.db.QueryRow(ctx, revokeApplicationCredential, arg.ID, arg.UserID)
 	var id int64

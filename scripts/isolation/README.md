@@ -1,0 +1,62 @@
+# Phase 1 隔离工具链（S0 落仓件）
+
+本目录是 Phase 1（PG → SQLite）分类与移植面的**单一事实源**。全部数字钉死在
+`scripts/classify-tables.py` 的 PINNED（QA 2026-11-19 复审实测口径）：
+102 业务表 / 85 直接含 tenant_id / 101 RLS / 43 FORCE / 4 表 10 条 RESTRICTIVE
+策略 / **shared 15 + shared-multiscope 1（settings 改判，行谓词 scope/scope_id）**
+/ 60 触发器 / 119 业务函数条目（distinct 118，`urmail_record_audit` 双签名；
+pg_trgm 等 31 个扩展函数不计）。
+
+## 文件
+
+- `tables.golden.json`：分类 golden（102 表逐张类别/标签/urmail_app 授权；
+  含 registered_grant_revocations 登记撤销清单——app 写轴矩阵不得计入）。
+- `appendix.md`：同上的人类可读版。
+- `port-inventory.json` / `port-inventory.md`：119 函数条目 + 60 触发器的
+  三分类底表（**sqlite-trigger 30 / app-assume 70 / deprecated 18**），逐项带
+  调用证据（含 RLS 策略谓词显式证据、触发器宿主绑定交叉引用）与替代物。
+- `shared16-signoff.md`：shared 15 张签字 + settings 改判 + 2 张遗留 GRANT
+  登记撤销（platform_admins/restore_quarantine，S1 执行 REVOKE）。
+
+## 运行（干净检出）
+
+```bash
+# 1) 生成 catalog dump（需 URMAIL_TEST_DATABASE_URL 指向迁移到 HEAD 的 PG16）
+CATALOG_DUMP_PATH=/tmp/catalog.tsv \
+URMAIL_TEST_DATABASE_URL=postgres://... \
+  go test ./internal/testdb/ -run TestDumpCatalog -count=1
+
+# 2) 分类 + 钉子门 + golden diff（--check 全内存比较，不写任何文件）
+python3 -I scripts/classify-tables.py \
+  --catalog /tmp/catalog.tsv --migrations migrations \
+  --out-dir scripts/isolation --check
+
+# 3) 移植面三分类 + 设计门（119 条目全覆盖、60 触发器全映射）
+python3 -I scripts/classify-port-surface.py \
+  --catalog /tmp/catalog.tsv --repo . --out-dir scripts/isolation
+
+# 4) deprecated 函数代码零命中门（18 名；无需 --catalog/数据库）
+python3 -I scripts/classify-port-surface.py --repo . --check-deprecated
+
+# 5) 门自测：植入 decoy 并断言能被检出（防止排除规则把门挖空）
+python3 -I scripts/classify-port-surface.py --repo . --self-test-deprecated
+```
+
+`--out-dir` 默认即本目录（相对脚本位置解析，不污染 cwd）；无
+`CATALOG_DUMP_PATH` 时 `TestDumpCatalog` 自动 skip。
+
+## CI 接线（S0-d 已生效部分）
+
+- **已生效**：`ci.yaml` 的既有 `Go` 作业新增「Deprecated function gate」
+  step（零命中 + decoy 自测，无数据库依赖；只加 step 不加 job，不触碰
+  `verify-release-ci.py` 的 REQUIRED_JOBS 精确匹配）。
+- **S7 落地**：tables.json golden diff、移植面 119/60 门随 Integration/
+  隔离快集改造接线（需 PG catalog dump，进带库作业）。
+
+## 更新纪律
+
+- golden 漂移（新表/新函数/新策略）不是「跑一遍覆写」：先人工核对
+  schema 变更是否合理，更新 PINNED 与本目录 golden 需同 PR 且带 QA 复核。
+- `--check` 只读比较；播种（无 `--check` 生成）只允许发生在人工 review 流程。
+- `settings` 的 shared-multiscope 判定不得回退为 shared：它有租户行
+  （settings.sql Get/Upsert/DeleteTenantSetting），矩阵按行谓词覆盖。

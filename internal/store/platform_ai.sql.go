@@ -33,21 +33,21 @@ SELECT id,mailbox_id,request_key,period_start,period_end,mode,provider,model,cos
 `
 
 type PlatformAIUsageRow struct {
-	ID                 int64              `json:"id"`
-	MailboxID          int64              `json:"mailbox_id"`
-	RequestKey         string             `json:"request_key"`
-	PeriodStart        pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	Mode               string             `json:"mode"`
-	Provider           string             `json:"provider"`
-	Model              string             `json:"model"`
-	CostCurrency       string             `json:"cost_currency"`
-	Status             string             `json:"status"`
-	ReservedTokens     int64              `json:"reserved_tokens"`
-	ReservedCostMicros int64              `json:"reserved_cost_micros"`
-	ActualTokens       pgtype.Int8        `json:"actual_tokens"`
-	ActualCostMicros   pgtype.Int8        `json:"actual_cost_micros"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	ID                 int64       `json:"id"`
+	MailboxID          int64       `json:"mailbox_id"`
+	RequestKey         string      `json:"request_key"`
+	PeriodStart        int64       `json:"period_start"`
+	PeriodEnd          int64       `json:"period_end"`
+	Mode               string      `json:"mode"`
+	Provider           string      `json:"provider"`
+	Model              string      `json:"model"`
+	CostCurrency       string      `json:"cost_currency"`
+	Status             string      `json:"status"`
+	ReservedTokens     int64       `json:"reserved_tokens"`
+	ReservedCostMicros int64       `json:"reserved_cost_micros"`
+	ActualTokens       pgtype.Int8 `json:"actual_tokens"`
+	ActualCostMicros   pgtype.Int8 `json:"actual_cost_micros"`
+	CreatedAt          int64       `json:"created_at"`
 }
 
 func (q *Queries) PlatformAIUsage(ctx context.Context, tenantID int64) ([]PlatformAIUsageRow, error) {
@@ -86,10 +86,6 @@ func (q *Queries) PlatformAIUsage(ctx context.Context, tenantID int64) ([]Platfo
 	return items, nil
 }
 
-const platformConfigureTenantAI = `-- name: PlatformConfigureTenantAI :exec
-SELECT urmail_configure_tenant_ai($1::text,$2::text,$3::text,$4::text,$5::text,$6::boolean,$7::boolean)
-`
-
 type PlatformConfigureTenantAIParams struct {
 	Mode         string `json:"mode"`
 	Provider     string `json:"provider"`
@@ -100,31 +96,9 @@ type PlatformConfigureTenantAIParams struct {
 	LocalOnly    bool   `json:"local_only"`
 }
 
-func (q *Queries) PlatformConfigureTenantAI(ctx context.Context, arg PlatformConfigureTenantAIParams) error {
-	_, err := q.db.Exec(ctx, platformConfigureTenantAI,
-		arg.Mode,
-		arg.Provider,
-		arg.Endpoint,
-		arg.Model,
-		arg.EncryptedKey,
-		arg.Enabled,
-		arg.LocalOnly,
-	)
-	return err
-}
-
-const platformConfigureTenantAIGovernance = `-- name: PlatformConfigureTenantAIGovernance :exec
-SELECT urmail_configure_tenant_ai_governance($1::text, $2::text[])
-`
-
 type PlatformConfigureTenantAIGovernanceParams struct {
 	PersonalMode      string   `json:"personal_mode"`
 	ApprovedEndpoints []string `json:"approved_endpoints"`
-}
-
-func (q *Queries) PlatformConfigureTenantAIGovernance(ctx context.Context, arg PlatformConfigureTenantAIGovernanceParams) error {
-	_, err := q.db.Exec(ctx, platformConfigureTenantAIGovernance, arg.PersonalMode, arg.ApprovedEndpoints)
-	return err
 }
 
 const platformExpireAIReservations = `-- name: PlatformExpireAIReservations :exec
@@ -362,20 +336,20 @@ FROM ai_usage_requests WHERE tenant_id=$1 AND status IN('reserved','uncertain') 
 `
 
 type PlatformPendingAIUsageRow struct {
-	ID                 int64              `json:"id"`
-	MailboxID          int64              `json:"mailbox_id"`
-	Mode               string             `json:"mode"`
-	Provider           string             `json:"provider"`
-	Model              string             `json:"model"`
-	CostCurrency       string             `json:"cost_currency"`
-	Status             string             `json:"status"`
-	ReservedTokens     int64              `json:"reserved_tokens"`
-	ReservedCostMicros int64              `json:"reserved_cost_micros"`
-	ActualTokens       pgtype.Int8        `json:"actual_tokens"`
-	ActualCostMicros   pgtype.Int8        `json:"actual_cost_micros"`
-	PeriodStart        pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ID                 int64       `json:"id"`
+	MailboxID          int64       `json:"mailbox_id"`
+	Mode               string      `json:"mode"`
+	Provider           string      `json:"provider"`
+	Model              string      `json:"model"`
+	CostCurrency       string      `json:"cost_currency"`
+	Status             string      `json:"status"`
+	ReservedTokens     int64       `json:"reserved_tokens"`
+	ReservedCostMicros int64       `json:"reserved_cost_micros"`
+	ActualTokens       pgtype.Int8 `json:"actual_tokens"`
+	ActualCostMicros   pgtype.Int8 `json:"actual_cost_micros"`
+	PeriodStart        int64       `json:"period_start"`
+	PeriodEnd          int64       `json:"period_end"`
+	UpdatedAt          int64       `json:"updated_at"`
 }
 
 func (q *Queries) PlatformPendingAIUsage(ctx context.Context, tenantID int64) ([]PlatformPendingAIUsageRow, error) {
@@ -427,27 +401,27 @@ RETURNING id, tenant_id, mailbox_id, request_key, input_digest, period_start, pe
 `
 
 type PlatformReserveAIRequestParams struct {
-	TenantID           int64              `json:"tenant_id"`
-	MailboxID          int64              `json:"mailbox_id"`
-	RequestKey         string             `json:"request_key"`
-	InputDigest        string             `json:"input_digest"`
-	PeriodStart        pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	Mode               string             `json:"mode"`
-	ReservedTokens     int64              `json:"reserved_tokens"`
-	ReservedCostMicros int64              `json:"reserved_cost_micros"`
-	Provider           string             `json:"provider"`
-	Model              string             `json:"model"`
-	CostCurrency       string             `json:"cost_currency"`
-	InputRate          int64              `json:"input_rate"`
-	OutputRate         int64              `json:"output_rate"`
-	AccountedAt        pgtype.Timestamptz `json:"accounted_at"`
-	IndependentWindow  bool               `json:"independent_window"`
-	CallLimit          int64              `json:"call_limit"`
-	MailboxCallLimit   int64              `json:"mailbox_call_limit"`
-	ConcurrencyLimit   int64              `json:"concurrency_limit"`
-	TokenLimit         int64              `json:"token_limit"`
-	CostLimit          int64              `json:"cost_limit"`
+	TenantID           int64  `json:"tenant_id"`
+	MailboxID          int64  `json:"mailbox_id"`
+	RequestKey         string `json:"request_key"`
+	InputDigest        string `json:"input_digest"`
+	PeriodStart        int64  `json:"period_start"`
+	PeriodEnd          int64  `json:"period_end"`
+	Mode               string `json:"mode"`
+	ReservedTokens     int64  `json:"reserved_tokens"`
+	ReservedCostMicros int64  `json:"reserved_cost_micros"`
+	Provider           string `json:"provider"`
+	Model              string `json:"model"`
+	CostCurrency       string `json:"cost_currency"`
+	InputRate          int64  `json:"input_rate"`
+	OutputRate         int64  `json:"output_rate"`
+	AccountedAt        int64  `json:"accounted_at"`
+	IndependentWindow  bool   `json:"independent_window"`
+	CallLimit          int64  `json:"call_limit"`
+	MailboxCallLimit   int64  `json:"mailbox_call_limit"`
+	ConcurrencyLimit   int64  `json:"concurrency_limit"`
+	TokenLimit         int64  `json:"token_limit"`
+	CostLimit          int64  `json:"cost_limit"`
 }
 
 func (q *Queries) PlatformReserveAIRequest(ctx context.Context, arg PlatformReserveAIRequestParams) (AiUsageRequests, error) {
@@ -511,21 +485,21 @@ RETURNING id, tenant_id, mailbox_id, request_key, input_digest, period_start, pe
 `
 
 type PlatformReserveMailboxAIRequestParams struct {
-	TenantID           int64              `json:"tenant_id"`
-	MailboxID          int64              `json:"mailbox_id"`
-	RequestKey         string             `json:"request_key"`
-	InputDigest        string             `json:"input_digest"`
-	PeriodStart        pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	Mode               string             `json:"mode"`
-	Provider           string             `json:"provider"`
-	Model              string             `json:"model"`
-	CostCurrency       string             `json:"cost_currency"`
-	InputRate          int64              `json:"input_rate"`
-	OutputRate         int64              `json:"output_rate"`
-	ReservedTokens     int64              `json:"reserved_tokens"`
-	ReservedCostMicros int64              `json:"reserved_cost_micros"`
-	AccountedAt        pgtype.Timestamptz `json:"accounted_at"`
+	TenantID           int64  `json:"tenant_id"`
+	MailboxID          int64  `json:"mailbox_id"`
+	RequestKey         string `json:"request_key"`
+	InputDigest        string `json:"input_digest"`
+	PeriodStart        int64  `json:"period_start"`
+	PeriodEnd          int64  `json:"period_end"`
+	Mode               string `json:"mode"`
+	Provider           string `json:"provider"`
+	Model              string `json:"model"`
+	CostCurrency       string `json:"cost_currency"`
+	InputRate          int64  `json:"input_rate"`
+	OutputRate         int64  `json:"output_rate"`
+	ReservedTokens     int64  `json:"reserved_tokens"`
+	ReservedCostMicros int64  `json:"reserved_cost_micros"`
+	AccountedAt        int64  `json:"accounted_at"`
 }
 
 func (q *Queries) PlatformReserveMailboxAIRequest(ctx context.Context, arg PlatformReserveMailboxAIRequestParams) (AiUsageRequests, error) {
@@ -647,58 +621,6 @@ func (q *Queries) PlatformSetAIBudget(ctx context.Context, arg PlatformSetAIBudg
 	return err
 }
 
-const platformSetAIProvider = `-- name: PlatformSetAIProvider :one
-INSERT INTO ai_provider_configs(
-  tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,
-  platform_provider,platform_endpoint,platform_model,platform_encrypted_key,platform_enabled,
-  enterprise_mode,enterprise_provider,enterprise_endpoint,enterprise_model,enterprise_encrypted_key,enterprise_enabled,enterprise_local_only,
-  active_service,input_micros_per_million,output_micros_per_million,cost_currency
-)
-VALUES(
-  $1,$2,$3,$4,$5,$6,$7,$8,
-  CASE WHEN $2 = 'platform' THEN $3 ELSE 'openai' END,
-  CASE WHEN $2 = 'platform' THEN $4 ELSE '' END,
-  CASE WHEN $2 = 'platform' THEN $5 ELSE '' END,
-  CASE WHEN $2 = 'platform' THEN $6 ELSE '' END,
-  CASE WHEN $2 = 'platform' THEN $7 ELSE false END,
-  CASE WHEN $2 <> 'platform' THEN $2 ELSE 'byo' END,
-  CASE WHEN $2 <> 'platform' THEN $3 ELSE 'openai' END,
-  CASE WHEN $2 <> 'platform' THEN $4 ELSE '' END,
-  CASE WHEN $2 <> 'platform' THEN $5 ELSE '' END,
-  CASE WHEN $2 <> 'platform' THEN $6 ELSE '' END,
-  CASE WHEN $2 <> 'platform' THEN $7 ELSE false END,
-  CASE WHEN $2 <> 'platform' THEN $8 ELSE true END,
-  CASE WHEN $2 = 'platform' THEN 'platform' ELSE 'enterprise' END,
-  $9,$10,COALESCE(NULLIF($11::text,''),'CNY')
-)
-ON CONFLICT(tenant_id) DO UPDATE SET
-  platform_provider = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.provider ELSE ai_provider_configs.platform_provider END,
-  platform_endpoint = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.endpoint ELSE ai_provider_configs.platform_endpoint END,
-  platform_model = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.model ELSE ai_provider_configs.platform_model END,
-  platform_encrypted_key = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.encrypted_key ELSE ai_provider_configs.platform_encrypted_key END,
-  platform_enabled = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.enabled ELSE ai_provider_configs.platform_enabled END,
-  enterprise_mode = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.mode ELSE ai_provider_configs.enterprise_mode END,
-  enterprise_provider = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.provider ELSE ai_provider_configs.enterprise_provider END,
-  enterprise_endpoint = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.endpoint ELSE ai_provider_configs.enterprise_endpoint END,
-  enterprise_model = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.model ELSE ai_provider_configs.enterprise_model END,
-  enterprise_encrypted_key = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.encrypted_key ELSE ai_provider_configs.enterprise_encrypted_key END,
-  enterprise_enabled = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.enabled ELSE ai_provider_configs.enterprise_enabled END,
-  enterprise_local_only = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.local_only ELSE ai_provider_configs.enterprise_local_only END,
-  active_service = CASE WHEN EXCLUDED.mode = 'platform' THEN 'platform' ELSE 'enterprise' END,
-  mode = EXCLUDED.mode,
-  provider = EXCLUDED.provider,
-  endpoint = EXCLUDED.endpoint,
-  model = EXCLUDED.model,
-  encrypted_key = EXCLUDED.encrypted_key,
-  enabled = EXCLUDED.enabled,
-  local_only = EXCLUDED.local_only,
-  input_micros_per_million = EXCLUDED.input_micros_per_million,
-  output_micros_per_million = EXCLUDED.output_micros_per_million,
-  cost_currency = EXCLUDED.cost_currency,
-  updated_at = now()
-RETURNING tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros, nonplatform_call_limit, nonplatform_mailbox_call_limit, nonplatform_concurrency_limit, quota_timezone, platform_provider, platform_endpoint, platform_model, platform_encrypted_key, platform_enabled, enterprise_mode, enterprise_provider, enterprise_endpoint, enterprise_model, enterprise_encrypted_key, enterprise_enabled, enterprise_local_only, personal_mode, approved_endpoints, active_service
-`
-
 type PlatformSetAIProviderParams struct {
 	TenantID               int64  `json:"tenant_id"`
 	Mode                   string `json:"mode"`
@@ -713,92 +635,9 @@ type PlatformSetAIProviderParams struct {
 	CostCurrency           string `json:"cost_currency"`
 }
 
-func (q *Queries) PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIProviderParams) (AiProviderConfigs, error) {
-	row := q.db.QueryRow(ctx, platformSetAIProvider,
-		arg.TenantID,
-		arg.Mode,
-		arg.Provider,
-		arg.Endpoint,
-		arg.Model,
-		arg.EncryptedKey,
-		arg.Enabled,
-		arg.LocalOnly,
-		arg.InputMicrosPerMillion,
-		arg.OutputMicrosPerMillion,
-		arg.CostCurrency,
-	)
-	var i AiProviderConfigs
-	err := row.Scan(
-		&i.TenantID,
-		&i.Mode,
-		&i.Provider,
-		&i.Endpoint,
-		&i.Model,
-		&i.EncryptedKey,
-		&i.Enabled,
-		&i.LocalOnly,
-		&i.InputMicrosPerMillion,
-		&i.OutputMicrosPerMillion,
-		&i.CostCurrency,
-		&i.UpdatedAt,
-		&i.ConfigurationVersion,
-		&i.CloudScopeHash,
-		&i.ConfigurationDigest,
-		&i.TenantLocalOnly,
-		&i.CloudConsentDigest,
-		&i.CloudConsentScopeHash,
-		&i.CloudConsentBy,
-		&i.CloudConsentAt,
-		&i.CloudConsentRevokedAt,
-		&i.DailyTokenLimit,
-		&i.DailyCostMicros,
-		&i.MonthlyTokenLimit,
-		&i.MonthlyCostMicros,
-		&i.NonplatformCallLimit,
-		&i.NonplatformMailboxCallLimit,
-		&i.NonplatformConcurrencyLimit,
-		&i.QuotaTimezone,
-		&i.PlatformProvider,
-		&i.PlatformEndpoint,
-		&i.PlatformModel,
-		&i.PlatformEncryptedKey,
-		&i.PlatformEnabled,
-		&i.EnterpriseMode,
-		&i.EnterpriseProvider,
-		&i.EnterpriseEndpoint,
-		&i.EnterpriseModel,
-		&i.EnterpriseEncryptedKey,
-		&i.EnterpriseEnabled,
-		&i.EnterpriseLocalOnly,
-		&i.PersonalMode,
-		&i.ApprovedEndpoints,
-		&i.ActiveService,
-	)
-	return i, err
-}
-
-const platformSetActiveAIService = `-- name: PlatformSetActiveAIService :exec
-UPDATE ai_provider_configs SET
-  active_service = $1::text,
-  mode = CASE WHEN $1::text = 'platform' THEN 'platform' ELSE enterprise_mode END,
-  provider = CASE WHEN $1::text = 'platform' THEN platform_provider ELSE enterprise_provider END,
-  endpoint = CASE WHEN $1::text = 'platform' THEN platform_endpoint ELSE enterprise_endpoint END,
-  model = CASE WHEN $1::text = 'platform' THEN platform_model ELSE enterprise_model END,
-  encrypted_key = CASE WHEN $1::text = 'platform' THEN platform_encrypted_key ELSE enterprise_encrypted_key END,
-  enabled = CASE WHEN $1::text = 'platform' THEN platform_enabled ELSE enterprise_enabled END,
-  local_only = CASE WHEN $1::text = 'platform' THEN false ELSE enterprise_local_only END,
-  updated_at = now()
-WHERE tenant_id = $2
-`
-
 type PlatformSetActiveAIServiceParams struct {
 	ActiveService string `json:"active_service"`
 	TenantID      int64  `json:"tenant_id"`
-}
-
-func (q *Queries) PlatformSetActiveAIService(ctx context.Context, arg PlatformSetActiveAIServiceParams) error {
-	_, err := q.db.Exec(ctx, platformSetActiveAIService, arg.ActiveService, arg.TenantID)
-	return err
 }
 
 const platformSetMailboxSieve = `-- name: PlatformSetMailboxSieve :execrows
@@ -831,9 +670,9 @@ FROM ai_usage_requests WHERE tenant_id=$1 AND status<>'released' AND created_at>
 `
 
 type PlatformSumAIUsageBetweenParams struct {
-	TenantID    int64              `json:"tenant_id"`
-	WindowStart pgtype.Timestamptz `json:"window_start"`
-	WindowEnd   pgtype.Timestamptz `json:"window_end"`
+	TenantID    int64 `json:"tenant_id"`
+	WindowStart int64 `json:"window_start"`
+	WindowEnd   int64 `json:"window_end"`
 }
 
 type PlatformSumAIUsageBetweenRow struct {
@@ -848,17 +687,8 @@ func (q *Queries) PlatformSumAIUsageBetween(ctx context.Context, arg PlatformSum
 	return i, err
 }
 
-const tenantConsentAICloud = `-- name: TenantConsentAICloud :exec
-SELECT urmail_consent_tenant_ai($1::text,$2::text,$3::boolean)
-`
-
 type TenantConsentAICloudParams struct {
 	ConfigurationDigest string `json:"configuration_digest"`
 	ScopeHash           string `json:"scope_hash"`
 	AllowCloud          bool   `json:"allow_cloud"`
-}
-
-func (q *Queries) TenantConsentAICloud(ctx context.Context, arg TenantConsentAICloudParams) error {
-	_, err := q.db.Exec(ctx, tenantConsentAICloud, arg.ConfigurationDigest, arg.ScopeHash, arg.AllowCloud)
-	return err
 }

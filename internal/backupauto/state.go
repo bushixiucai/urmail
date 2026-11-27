@@ -6,12 +6,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/bushixiucai/urmail/internal/db"
+)
+
+// Offsite dispositions recorded in backup_runs.offsite_state (migration 0160).
+// Historical rows keep ""; gates treat empty or unknown values as unsatisfied.
+const (
+	OffsiteStateUploaded         = "uploaded"
+	OffsiteStatePendingLocalOnly = "pending_local_only"
 )
 
 // Run states recorded in backup_runs (migration 0120).
@@ -48,9 +56,15 @@ func (s *StateRecorder) StartRun(ctx context.Context, scope string, startedAt ti
 	if err != nil {
 		return "", err
 	}
-	_, err = s.Pool.Exec(ctx,
-		"INSERT INTO backup_runs(run_uid,state,scope,started_at) VALUES($1,$2,$3,$4)",
-		uid, StateRunning, scope, startedAt)
+	if s.Pool.IsSQLite() {
+		_, err = s.Pool.Exec(ctx,
+			"INSERT INTO backup_runs(run_uid,state,scope,started_at) VALUES($1,$2,$3,$4)",
+			uid, StateRunning, scope, startedAt.UTC().UnixMicro())
+	} else {
+		_, err = s.Pool.Exec(ctx,
+			"INSERT INTO backup_runs(run_uid,state,scope,started_at) VALUES($1,$2,$3,$4)",
+			uid, StateRunning, scope, startedAt)
+	}
 	if err != nil {
 		return "", fmt.Errorf("record backup run start: %w", err)
 	}
@@ -79,6 +93,16 @@ func (s *StateRecorder) FailureStreak(ctx context.Context) (int, error) {
 		streak++
 	}
 	return streak, rows.Err()
+}
+
+// SetOffsiteState records the destination disposition of a run. Historical
+// rows stay empty; gates must treat empty or invalid values as unsatisfied.
+func (s *StateRecorder) SetOffsiteState(ctx context.Context, runUID, state string) error {
+	_, err := s.Pool.Exec(ctx, "UPDATE backup_runs SET offsite_state=$2 WHERE run_uid=$1", runUID, state)
+	if err != nil {
+		return fmt.Errorf("record backup offsite state: %w", err)
+	}
+	return nil
 }
 
 // MarkVerifying moves a run into the verify stage.
@@ -113,12 +137,23 @@ func (s *StateRecorder) FinishRun(ctx context.Context, runUID string, success bo
 	if retentionDeleted < 0 {
 		retentionDeleted = 0
 	}
-	tag, err := s.Pool.Exec(ctx, `UPDATE backup_runs SET
-		state=$2, finished_at=statement_timestamp(), bytes=$3,
-		duration_ms=$4, error=$5, manifest_name=$6, offsite_uri=$7,
-		retention_deleted=$8
-		WHERE run_uid=$1`,
-		runUID, state, bytes, duration.Milliseconds(), errorText, manifestName, offsiteURI, retentionDeleted)
+	var tag pgconn.CommandTag
+	var err error
+	if s.Pool.IsSQLite() {
+		tag, err = s.Pool.Exec(ctx, `UPDATE backup_runs SET
+			state=$2, finished_at=$9, bytes=$3,
+			duration_ms=$4, error=$5, manifest_name=$6, offsite_uri=$7,
+			retention_deleted=$8
+			WHERE run_uid=$1`,
+			runUID, state, bytes, duration.Milliseconds(), errorText, manifestName, offsiteURI, retentionDeleted, time.Now().UTC().UnixMicro())
+	} else {
+		tag, err = s.Pool.Exec(ctx, `UPDATE backup_runs SET
+			state=$2, finished_at=statement_timestamp(), bytes=$3,
+			duration_ms=$4, error=$5, manifest_name=$6, offsite_uri=$7,
+			retention_deleted=$8
+			WHERE run_uid=$1`,
+			runUID, state, bytes, duration.Milliseconds(), errorText, manifestName, offsiteURI, retentionDeleted)
+	}
 	if err != nil {
 		return fmt.Errorf("record backup run finish: %w", err)
 	}
@@ -157,11 +192,22 @@ func (s *StateRecorder) LastRun(ctx context.Context) (*RunRow, error) {
 // failed row keeps the error trail observable and prevents a stale run from
 // suppressing the next attempt; no backup artifact is touched.
 func (s *StateRecorder) StaleRunning(ctx context.Context, olderThan time.Duration, now time.Time) (int64, error) {
-	tag, err := s.Pool.Exec(ctx, `UPDATE backup_runs SET state=$2,
-		finished_at=statement_timestamp(),
-		duration_ms=GREATEST(0, (extract(epoch FROM statement_timestamp()-started_at)*1000)::bigint),
-		error=$3 WHERE state IN($4,$5) AND started_at < $1`,
-		now.Add(-olderThan), StateFailed, "run abandoned by restart", StateRunning, StateVerifying)
+	var tag pgconn.CommandTag
+	var err error
+	if s.Pool.IsSQLite() {
+		stamp := now.UTC().UnixMicro()
+		tag, err = s.Pool.Exec(ctx, `UPDATE backup_runs SET state=$2,
+			finished_at=$1,
+			duration_ms=MAX(0, ($1-started_at)/1000),
+			error=$3 WHERE state IN($4,$5) AND started_at < $1`,
+			stamp, StateFailed, "run abandoned by restart", StateRunning, StateVerifying)
+	} else {
+		tag, err = s.Pool.Exec(ctx, `UPDATE backup_runs SET state=$2,
+			finished_at=statement_timestamp(),
+			duration_ms=GREATEST(0, (extract(epoch FROM statement_timestamp()-started_at)*1000)::bigint),
+			error=$3 WHERE state IN($4,$5) AND started_at < $1`,
+			now.Add(-olderThan), StateFailed, "run abandoned by restart", StateRunning, StateVerifying)
+	}
 	return tag.RowsAffected(), err
 }
 
@@ -180,6 +226,12 @@ type RunHealth struct {
 	// ManifestName is the offsite manifest object of the run; its stamp is
 	// the generation's own clock, which freshness gates must honor.
 	ManifestName string
+	// OffsiteState is '' for historical/unknown rows, 'uploaded' for an
+	// offsite copy, or 'pending_local_only' for an explicitly approved local
+	// complete backup whose offsite copy is owed after the cut.
+	OffsiteState string
+	// OffsiteURI must be non-empty for an uploaded run.
+	OffsiteURI string
 }
 
 // StaleRun reports whether a run has been in running/verifying for longer
@@ -204,14 +256,29 @@ func (h *RunHealth) StaleRun(now time.Time) bool {
 // the writers; backup_runs denies tenant contexts by policy.
 func (s *StateRecorder) LastRunHealth(ctx context.Context) (*RunHealth, error) {
 	var h RunHealth
-	err := s.Pool.QueryRow(ctx,
-		"SELECT run_uid,state,scope,started_at,error,manifest_name FROM backup_runs ORDER BY id DESC LIMIT 1").
-		Scan(&h.RunUID, &h.State, &h.Scope, &h.StartedAt, &h.Error, &h.ManifestName)
-	if err == nil {
-		return &h, nil
+	var err error
+	if s.Pool.IsSQLite() {
+		var startedMicros int64
+		err = s.Pool.QueryRow(ctx,
+			"SELECT run_uid,state,scope,started_at,error,manifest_name,offsite_state,offsite_uri FROM backup_runs ORDER BY id DESC LIMIT 1").
+			Scan(&h.RunUID, &h.State, &h.Scope, &startedMicros, &h.Error, &h.ManifestName, &h.OffsiteState, &h.OffsiteURI)
+		if err == nil {
+			h.StartedAt = time.UnixMicro(startedMicros).UTC()
+			return &h, nil
+		}
+	} else {
+		err = s.Pool.QueryRow(ctx,
+			"SELECT run_uid,state,scope,started_at,error,manifest_name,offsite_state,offsite_uri FROM backup_runs ORDER BY id DESC LIMIT 1").
+			Scan(&h.RunUID, &h.State, &h.Scope, &h.StartedAt, &h.Error, &h.ManifestName, &h.OffsiteState, &h.OffsiteURI)
+		if err == nil {
+			return &h, nil
+		}
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+		return nil, ErrBackupOffsiteDisabled
+	}
+	if s.Pool.IsSQLite() && strings.Contains(err.Error(), "no such table: backup_runs") {
 		return nil, ErrBackupOffsiteDisabled
 	}
 	if errors.Is(err, pgx.ErrNoRows) {

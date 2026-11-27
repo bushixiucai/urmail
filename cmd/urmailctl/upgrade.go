@@ -894,8 +894,11 @@ func runUpgradeRollback(ctx context.Context, args []string) error {
 			return fmt.Errorf("checkpoint missing database.dump: %w", err)
 		}
 		fmt.Printf("Integrity-verified checkpoint at %s; NO restore has been performed.\n", *checkpoint)
-		fmt.Println("To restore database dump, execute:")
-		fmt.Printf("  runuser -u postgres -- pg_restore --clean --if-exists -d urmail %s\n", dumpFile)
+		fmt.Println("To restore the database generation, execute the command for its engine:")
+		fmt.Println("  PostgreSQL archive:  runuser -u postgres -- pg_restore --clean --if-exists -d urmail <dump>")
+		fmt.Println("  SQLite snapshot:     urmailctl restore --dump <snapshot.sqlite> --manifest <manifest>")
+		fmt.Println("                       (the restore replaces the live file, folds the WAL sidecars and rebuilds the dovecot auth snapshot before release)")
+		fmt.Printf("  checkpoint artifact: %s\n", dumpFile)
 		envFile := filepath.Join(*checkpoint, "urmaild.env")
 		if _, err = os.Stat(envFile); err == nil {
 			fmt.Printf("  install -o root -g mailinabox -m 0640 %s /etc/urmail/urmaild.env\n", envFile)
@@ -938,19 +941,29 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 	}
 	cfg, err := config.Load()
 	if err != nil {
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("URMAIL_DB_ENGINE")), "sqlite") {
+			return "", fmt.Errorf("fresh-backup pre-flight: single-engine configuration is invalid: %w; fix it or pass --skip-preflight to record an explicit operator override", err)
+		}
 		return degraded("configuration error: %v", err)
 	}
-	if cfg.DatabaseURLPlatform == "" {
-		return degraded("no platform database URL configured")
-	}
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	// The ledger lives on the configured engine. PostgreSQL keeps the legacy
+	// "degraded" escape (repairing that database is often why the upgrade
+	// runs); the single engine must fail closed, because a SQLite deployment
+	// has no separate platform DSN and would otherwise never read backup_runs.
+	pool, err := openBackupPlatformPool(ctx, cfg)
 	if err != nil {
+		if cfg.IsSQLite() {
+			return "", fmt.Errorf("fresh-backup pre-flight: cannot open the SQLite backup ledger: %w; fix the database path or pass --skip-preflight to record an explicit operator override", err)
+		}
 		return degraded("open: %v", err)
 	}
 	defer pool.Close()
 	health, err := (&backupauto.StateRecorder{Pool: pool}).LastRunHealth(ctx)
 	switch {
 	case errors.Is(err, backupauto.ErrBackupOffsiteDisabled):
+		if cfg.IsSQLite() {
+			return "", errors.New("fresh-backup pre-flight: the SQLite database has no backup_runs table, so no complete backup can be proven; run a complete backup first, or pass --skip-preflight to record an explicit operator override")
+		}
 		fmt.Println("Fresh-backup pre-flight: offsite backup not provisioned on this installation; proceeding.")
 		return "", nil
 	case errors.Is(err, backupauto.ErrNoRuns):
@@ -966,6 +979,17 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 		return "", fmt.Errorf("fresh-backup pre-flight: newest successful backup run %s is a %q backup; a complete maintenance backup is required, or pass --skip-preflight to record an explicit operator override",
 			health.RunUID, health.Scope)
 	}
+	// The destination disposition must be explicit. Historical rows carry '',
+	// which is NOT satisfied; an uploaded run must name its offsite object.
+	switch health.OffsiteState {
+	case backupauto.OffsiteStateUploaded:
+		if health.OffsiteURI == "" {
+			return "", fmt.Errorf("fresh-backup pre-flight: newest successful backup run %s claims offsite_state=uploaded without an offsite_uri; run a complete backup first, or pass --skip-preflight to record an explicit operator override", health.RunUID)
+		}
+	case backupauto.OffsiteStatePendingLocalOnly:
+	default:
+		return "", fmt.Errorf("fresh-backup pre-flight: newest successful backup run %s has offsite_state %q (want uploaded or pending_local_only); run a complete backup first, or pass --skip-preflight to record an explicit operator override", health.RunUID, health.OffsiteState)
+	}
 	// The generation's own clock is the stamp in the manifest name: a
 	// freshly re-uploaded old manifest must not count as a fresh backup.
 	age := time.Since(health.StartedAt)
@@ -976,7 +1000,17 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 		return "", fmt.Errorf("fresh-backup pre-flight: newest complete backup generation %s is %s old (window %s); run a complete backup first, or pass --skip-preflight to record an explicit operator override",
 			health.ManifestName, age.Round(time.Minute), window)
 	}
-	fmt.Printf("Fresh-backup pre-flight: newest complete successful run %s, generation %s (age %s).\n",
-		health.RunUID, health.ManifestName, age.Round(time.Minute))
+	// The run row is metadata; the generation must still exist on disk with the
+	// hashes its manifest names, and the spool filesystem must have room for the
+	// next generation. Both checks fail closed.
+	spool := backupSpoolDir()
+	if err := verifyBackupArtifacts(spool, health.ManifestName, cfg.IsSQLite()); err != nil {
+		return "", fmt.Errorf("fresh-backup pre-flight: %w; run a complete backup first, or pass --skip-preflight to record an explicit operator override", err)
+	}
+	if err := verifyFreeSpace(spool); err != nil {
+		return "", fmt.Errorf("fresh-backup pre-flight: %w", err)
+	}
+	fmt.Printf("Fresh-backup pre-flight: newest complete successful run %s, generation %s (age %s; offsite=%s).\n",
+		health.RunUID, health.ManifestName, age.Round(time.Minute), health.OffsiteState)
 	return "", nil
 }

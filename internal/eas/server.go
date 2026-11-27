@@ -216,6 +216,7 @@ func (s *Server) HandleCommand(c *gin.Context) {
 		return
 	}
 	if resp == nil {
+		s.logError(c, "nil response for command "+cmd, nil)
 		c.Status(http.StatusInternalServerError)
 		return
 	}
@@ -250,7 +251,13 @@ func (s *Server) logWarn(msg string, args ...any) {
 }
 
 func (s *Server) logError(c *gin.Context, msg string, err error) {
+	println("EAS_500:", msg, func() string {
+		if err != nil {
+			return err.Error()
+		}
+		return "nil"
+	}())
 	if s.Logger != nil {
-		s.Logger.Error(msg, "err", err, "path", c.FullPath())
+		s.Logger.Error(msg, "err", err, "method", c.Request.Method, "path", c.FullPath(), "status", http.StatusInternalServerError)
 	}
 }

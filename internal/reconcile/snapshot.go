@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/bushixiucai/urmail/internal/certs"
 	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/mail"
 	"github.com/bushixiucai/urmail/internal/mail/dovecot"
@@ -37,6 +40,9 @@ type StoreQuerier interface {
 // AssembleConfigContext builds the complete ConfigContext for all mail services
 // by querying the database store and combining it with node-level runtime config.
 func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQuerier, publicIPv4 string, nameservers []string) (*mail.ConfigContext, error) {
+	// Configuration assembly is a trusted background/operator path over
+	// platform-owned rows; user HTTP requests never call it.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	domains, err := q.PlatformListDomains(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list domains for snapshot: %w", err)
@@ -94,8 +100,12 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	if storageRoot == "" {
 		storageRoot = "/var/mail"
 	}
-	certFile := filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert")
-	keyFile := filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key")
+	stateRoot := "/var/lib/urmail-agent"
+	if strings.TrimSpace(cfg.AgentStateRoot) != "" {
+		stateRoot = filepath.Clean(strings.TrimSpace(cfg.AgentStateRoot))
+	}
+	certFile := filepath.Join(stateRoot, "certs", "mail", hostname+".cert")
+	keyFile := filepath.Join(stateRoot, "certs", "mail", hostname+".key")
 
 	// 1. Postfix Snapshot
 	pfDomains := make([]postfix.Domain, 0, len(domains))
@@ -153,8 +163,8 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			continue
 		}
 		updated := time.Now().UTC()
-		if d.UpdatedAt.Valid {
-			updated = d.UpdatedAt.Time.UTC()
+		if d.UpdatedAt != 0 {
+			updated = timeutil.FromMicro(d.UpdatedAt).UTC()
 		}
 		var records []nsd.Record
 		if d.DnsExplicit {
@@ -252,6 +262,10 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			TLSCertFile:   certFile,
 			TLSKeyFile:    keyFile,
 			DatabaseURL:   dovecotDB,
+			MailUID:       cfg.MailUser,
+			MailGID:       cfg.MailGroup,
+			AuthDBPath:    cfg.DovecotAuthDB,
+			AuthEngine:    cfg.AuthEngineName(),
 		},
 
 		NSDNode: nsd.NodeConfig{
@@ -263,6 +277,9 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		},
 		NSDSnap: nsd.Snapshot{Zones: nsdZones},
 
+		RenderRoot:      cfg.RenderedConfigDir,
+		GrafanaHostname: cfg.GrafanaHostname,
+		AuthProxyTarget: cfg.AuthProxyTarget,
 		NginxNode: nginx.NodeConfig{
 			PrimaryDomain: cfg.PrimaryDomain,
 			StorageRoot:   storageRoot,

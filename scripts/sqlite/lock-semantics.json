@@ -1,0 +1,875 @@
+{
+ "note": "S2 行锁语义损失登记（v3.2 §3.2：FOR UPDATE/FOR SHARE 删除必须逐条登记用途与替代，S3/S4 复核）；S5 另登记 8 处 PG advisory lock 的替代",
+ "rows": [
+  {
+   "method": "ArchiveCasesLock",
+   "file": "archive_case_product.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "archive_investigations"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "ArchiveCasesApproval",
+   "file": "archive_case_product.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "archive_approval_requests"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "LockArchiveRetentionPreview",
+   "file": "archive_lifecycle.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "retention_previews"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "GetArchiveOriginalForRecovery",
+   "file": "archive_lifecycle.sql",
+   "kind": "UPDATE",
+   "targets": "a",
+   "tables": [
+    "archive_content",
+    "archive_entries",
+    "of"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "CreateSession",
+   "file": "auth.sql",
+   "kind": "UPDATE",
+   "targets": "u",
+   "tables": [
+    "of",
+    "users"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "GetComplianceGrant",
+   "file": "compliance_and_retention.sql",
+   "kind": "SHARE",
+   "targets": "g",
+   "tables": [
+    "compliance_grants",
+    "user_tenant_roles"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "WAL 快照读一致性（SQLite 读一致无需行锁）"
+  },
+  {
+   "method": "GetEASSend",
+   "file": "mailbox_eas_send.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "mailbox_jobs"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "LockEASSendCopy",
+   "file": "mailbox_eas_send.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "mailbox_jobs"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "LockMailboxImportOwner",
+   "file": "mailbox_import.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "mailboxes"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "LockMailboxImportJob",
+   "file": "mailbox_import.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "mailbox_import_jobs"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "GetMarketingFlowDefinition",
+   "file": "marketing_flow_authoring.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "marketing_flow_definitions"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformGetSieveActivationTarget",
+   "file": "platform_ai.sql",
+   "kind": "UPDATE",
+   "targets": "m",
+   "tables": [
+    "domains",
+    "mailboxes",
+    "of",
+    "tenants"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformLockAIQuotaTenantReader",
+   "file": "platform_ai_quota.sql",
+   "kind": "SHARE",
+   "targets": "u",
+   "tables": [
+    "user_tenant_roles",
+    "users"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockPlatformAdmin",
+   "file": "platform_ai_quota.sql",
+   "kind": "SHARE",
+   "targets": "u",
+   "tables": [
+    "platform_admins",
+    "users"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockAliasSenderTarget",
+   "file": "platform_alias_senders.sql",
+   "kind": "UPDATE",
+   "targets": "a",
+   "tables": [
+    "domains",
+    "mailbox_aliases",
+    "of",
+    "platform_admins"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockAliasSenderTarget",
+   "file": "platform_alias_senders.sql",
+   "kind": "SHARE",
+   "targets": "d",
+   "tables": [
+    "domains",
+    "mailbox_aliases",
+    "of",
+    "platform_admins"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockAliasSenderMailboxes",
+   "file": "platform_alias_senders.sql",
+   "kind": "SHARE",
+   "targets": "m",
+   "tables": [
+    "domains",
+    "mailboxes"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformExpireArchiveApprovals",
+   "file": "platform_archive_activity.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "archive_approval_requests",
+    "due",
+    "skip"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformApplyArchiveRetention",
+   "file": "platform_archive_lifecycle.sql",
+   "kind": "UPDATE",
+   "targets": "a",
+   "tables": [
+    "archive_content",
+    "archive_entries",
+    "candidates",
+    "of"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockArchivePurgeCandidate",
+   "file": "platform_archive_lifecycle.sql",
+   "kind": "UPDATE",
+   "targets": "a",
+   "tables": [
+    "archive_content",
+    "archive_entries",
+    "of"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockRetentionPurgePolicy",
+   "file": "platform_archive_lifecycle.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "retention_policies"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "CreateApplicationCredential",
+   "file": "platform_auth_application.sql",
+   "kind": "UPDATE",
+   "targets": "u",
+   "tables": [
+    "audit",
+    "credential",
+    "of",
+    "users"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformRehashPanelPassword",
+   "file": "platform_auth_security.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "locked",
+    "setting",
+    "users"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformLockBrandHost",
+   "file": "platform_brand_host_verify.sql",
+   "kind": "UPDATE",
+   "targets": "h",
+   "tables": [
+    "brand_hosts",
+    "brands",
+    "of"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockBrandSettingsBrand",
+   "file": "platform_brand_settings.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "brands"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformFindSchedulingEvent",
+   "file": "platform_calendar_scheduling.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "mailbox_events"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformTakeReminderScan",
+   "file": "platform_calendar_scheduling.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "candidate",
+    "mailbox_events",
+    "skip"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformPublishDueCalendarReminders",
+   "file": "platform_calendar_scheduling.sql",
+   "kind": "UPDATE",
+   "targets": "j",
+   "tables": [
+    "candidate",
+    "mailbox_events",
+    "mailbox_jobs",
+    "of"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformClaimMailboxJob",
+   "file": "platform_collaboration.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "candidate",
+    "mailbox_jobs",
+    "skip"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockCollectorCheckpoint",
+   "file": "platform_delivery_collector.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "collector_checkpoints"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformClaimDNSPlan",
+   "file": "platform_dns_onboarding.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "dns_change_plans",
+    "skip"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformFenceDNSPlan",
+   "file": "platform_dns_onboarding.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "dns_change_plans"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformClaimOnboarding",
+   "file": "platform_dns_onboarding.sql",
+   "kind": "UPDATE",
+   "targets": "t",
+   "tables": [
+    "dns_change_plans",
+    "domains",
+    "of",
+    "onboarding_tasks"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformFenceOnboarding",
+   "file": "platform_dns_onboarding.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "onboarding_tasks"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformCurrentManagedDNS",
+   "file": "platform_dns_onboarding.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "managed_dns_zones"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformLockLegacyImportTarget",
+   "file": "platform_legacy_import.sql",
+   "kind": "UPDATE",
+   "targets": "t",
+   "tables": [
+    "of",
+    "platform_admins",
+    "tenants",
+    "users"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockLegacyImportTarget",
+   "file": "platform_legacy_import.sql",
+   "kind": "SHARE",
+   "targets": "a",
+   "tables": [
+    "of",
+    "platform_admins",
+    "tenants",
+    "users"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockLegacyDKIMDomains",
+   "file": "platform_legacy_import.sql",
+   "kind": "UPDATE",
+   "targets": "d",
+   "tables": [
+    "audit_logs",
+    "domains",
+    "of"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformMailboxPasswordForSession",
+   "file": "platform_mailbox_password.sql",
+   "kind": "UPDATE",
+   "targets": "m",
+   "tables": [
+    "domains",
+    "mailbox_sessions",
+    "mailboxes",
+    "of"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformGetSieveBridge",
+   "file": "platform_mailbox_principal.sql",
+   "kind": "UPDATE",
+   "targets": "m",
+   "tables": [
+    "domains",
+    "mailbox_operation_tickets",
+    "mailbox_sessions",
+    "mailboxes"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformCreateVerifiedMailboxSession",
+   "file": "platform_mailbox_principal.sql",
+   "kind": "UPDATE",
+   "targets": "m",
+   "tables": [
+    "domains",
+    "mailboxes",
+    "of",
+    "tenants"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformClaimMailboxScheduledSend",
+   "file": "platform_mailbox_scheduled_sends.sql",
+   "kind": "UPDATE",
+   "targets": "s",
+   "tables": [
+    "candidate",
+    "domains",
+    "mailbox_scheduled_sends",
+    "mailboxes"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformClaimSendCopy",
+   "file": "platform_mailbox_send_receipts.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "candidate",
+    "mailbox_send_receipts",
+    "skip"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformClaimScheduledSentCopy",
+   "file": "platform_mailbox_sent_copy.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "candidate",
+    "mailbox_scheduled_sends",
+    "skip"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformGetLegacyScheduledCopy",
+   "file": "platform_mailbox_sent_copy.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "mailbox_scheduled_sends",
+    "skip"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformClaimMarketingRecipient",
+   "file": "platform_marketing.sql",
+   "kind": "UPDATE",
+   "targets": "d",
+   "tables": [
+    "candidate",
+    "marketing_campaigns",
+    "marketing_recipients",
+    "of"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformClaimMarketingRecipient",
+   "file": "platform_marketing.sql",
+   "kind": "UPDATE",
+   "targets": "r",
+   "tables": [
+    "candidate",
+    "marketing_campaigns",
+    "marketing_recipients",
+    "of"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformClaimMarketingFlowPositions",
+   "file": "platform_marketing_flows.sql",
+   "kind": "UPDATE",
+   "targets": "d",
+   "tables": [
+    "candidate",
+    "due_tenants",
+    "heads",
+    "lateral"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformClaimMarketingFlowPositions",
+   "file": "platform_marketing_flows.sql",
+   "kind": "UPDATE",
+   "targets": "p",
+   "tables": [
+    "candidate",
+    "due_tenants",
+    "heads",
+    "lateral"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformArmMarketingFlowWait",
+   "file": "platform_marketing_flows.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "marketing_flow_positions",
+    "marketing_flow_steps"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformClaimEmailNotification",
+   "file": "platform_notifications.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "notification_outbox",
+    "skip"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformGetDataImportReceipt",
+   "file": "platform_people_product.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "mailbox_jobs"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformLockCalendarInvitationEvent",
+   "file": "platform_people_product.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "mailbox_events"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockRecallAuthority",
+   "file": "platform_recall_product.sql",
+   "kind": "SHARE",
+   "targets": "r",
+   "tables": [
+    "tenants",
+    "user_tenant_roles",
+    "users"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockRecallMailbox",
+   "file": "platform_recall_product.sql",
+   "kind": "SHARE",
+   "targets": "m",
+   "tables": [
+    "domains",
+    "mailboxes"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformLockRecallForExpunge",
+   "file": "platform_recalls.sql",
+   "kind": "UPDATE",
+   "targets": "r",
+   "tables": [
+    "archive_entries",
+    "domains",
+    "mailboxes",
+    "of"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformMailboxRestoreIdentity",
+   "file": "platform_restore_sync.sql",
+   "kind": "UPDATE",
+   "targets": "m",
+   "tables": [
+    "domains",
+    "mailbox_storage_reservations",
+    "mailboxes",
+    "of"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformLockLegacyMFASecrets",
+   "file": "platform_secret_maintenance.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "skip",
+    "users"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "PlatformGetSupportTicket",
+   "file": "platform_support.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "tickets"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "PlatformClaimOnboardingTask",
+   "file": "platform_tenants.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "candidate",
+    "onboarding_tasks",
+    "skip"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "GetMailboxDailySentForUpdate",
+   "file": "platform_usage.sql",
+   "kind": "UPDATE",
+   "targets": "m",
+   "tables": [
+    "mailbox_usage",
+    "mailboxes",
+    "of",
+    "settings"
+   ],
+   "purpose": "队列抢占/租约互斥",
+   "replacement": "条件 UPDATE（WHERE 旧状态）+ changes()==1 判定原子抢占；事务 BEGIN IMMEDIATE 串行（S4 批次逐语句落地）"
+  },
+  {
+   "method": "GetRecallByID",
+   "file": "recalls.sql",
+   "kind": "UPDATE",
+   "targets": null,
+   "tables": [
+    "recall_requests"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "GetRecallTarget",
+   "file": "recalls.sql",
+   "kind": "UPDATE",
+   "targets": "a",
+   "tables": [
+    "archive_entries",
+    "mailboxes",
+    "of"
+   ],
+   "purpose": "事务内一致性读锁",
+   "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "LockMailboxEASSync",
+   "file": "mailbox_eas_sync_lock.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:device",
+   "purpose": "防同一设备并发 EAS 同步",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；方法保留为显式空操作"
+  },
+  {
+   "method": "LockMailboxImportTenantBudget",
+   "file": "mailbox_import.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "urmail/mailimport/tenant",
+   "purpose": "防同一租户并发导入",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformLockBillingTenant",
+   "file": "platform_mail_and_ai_gate.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant_id",
+   "purpose": "防计费/配额并发写",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformLockSendDraft",
+   "file": "platform_mailbox_send_receipts.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:folder:validity:uid",
+   "purpose": "发送与草稿编辑互斥",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformLockDataImport",
+   "file": "platform_people_product.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:idempotency_key",
+   "purpose": "防同一幂等键并发导入",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformLockRecallTenant",
+   "file": "platform_recalls.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant_id",
+   "purpose": "防并发召回",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformAcquireDraftSessionLock",
+   "file": "platform_mailbox_draft_journal.sql",
+   "kind": "pg_advisory_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:folder:validity:uid",
+   "purpose": "草稿保存跨事务互斥",
+   "replacement": "进程内按键互斥量；调用方显式配对释放"
+  },
+  {
+   "method": "PlatformReleaseDraftSessionLock",
+   "file": "platform_mailbox_draft_journal.sql",
+   "kind": "pg_advisory_unlock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:folder:validity:uid",
+   "purpose": "释放草稿锁（未持有返回 false）",
+   "replacement": "进程内按键互斥量释放"
+  }
+ ]
+}

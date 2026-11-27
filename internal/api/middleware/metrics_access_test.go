@@ -14,7 +14,12 @@ func TestMetricsMachineCredentialDoesNotTrustForwardedAddress(t *testing.T) {
 	for _, test := range []struct {
 		remote, credential string
 		status             int
-	}{{"127.0.0.1:1234", token, 200}, {"[::1]:1234", token, 200}, {"203.0.113.1:1234", token, 403}, {"127.0.0.1:1234", "", 403}, {"127.0.0.1:1234", "wrong", 403}, {"127.0.0.1:1234", "plain:" + token, 403}} {
+	}{{"127.0.0.1:1234", token, 200}, {"[::1]:1234", token, 200},
+		// GRAFANA-DESIGN §2.1 option A: the compose bridge (RFC1918/ULA)
+		// scrapes with the same bearer gate; public and link-local stay out.
+		{"172.31.0.5:1234", token, 200}, {"10.1.2.3:1234", token, 200}, {"[fd00::9]:1234", token, 200},
+		{"203.0.113.1:1234", token, 403}, {"[fe80::1]:1234", token, 403}, {"169.254.9.9:1234", token, 403},
+		{"127.0.0.1:1234", "", 403}, {"127.0.0.1:1234", "wrong", 403}, {"127.0.0.1:1234", "plain:" + token, 403}} {
 		router := gin.New()
 		router.GET("/internal/metrics", MetricsAccess(token), func(c *gin.Context) { c.Status(200) })
 		req := httptest.NewRequestWithContext(context.Background(), "GET", "/internal/metrics", nil)

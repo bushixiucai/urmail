@@ -42,15 +42,15 @@ ON CONFLICT ON CONSTRAINT archive_entries_tenant_mailbox_message_uniq DO NOTHING
 `
 
 type PlatformInsertArchiveEntryParams struct {
-	TenantID   int64              `json:"tenant_id"`
-	MailboxID  pgtype.Int8        `json:"mailbox_id"`
-	MessageID  string             `json:"message_id"`
-	Path       string             `json:"path"`
-	Subject    pgtype.Text        `json:"subject"`
-	FromAddr   pgtype.Text        `json:"from_addr"`
-	ToAddr     pgtype.Text        `json:"to_addr"`
-	ReceivedAt pgtype.Timestamptz `json:"received_at"`
-	SizeBytes  int64              `json:"size_bytes"`
+	TenantID   int64       `json:"tenant_id"`
+	MailboxID  pgtype.Int8 `json:"mailbox_id"`
+	MessageID  string      `json:"message_id"`
+	Path       string      `json:"path"`
+	Subject    pgtype.Text `json:"subject"`
+	FromAddr   pgtype.Text `json:"from_addr"`
+	ToAddr     pgtype.Text `json:"to_addr"`
+	ReceivedAt int64       `json:"received_at"`
+	SizeBytes  int64       `json:"size_bytes"`
 }
 
 func (q *Queries) PlatformInsertArchiveEntry(ctx context.Context, arg PlatformInsertArchiveEntryParams) error {

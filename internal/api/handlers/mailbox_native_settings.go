@@ -10,11 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/domain/mailboxsettings"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -73,11 +76,12 @@ func (s StoreMailboxSelfSettings) tx(ctx context.Context) (pgx.Tx, *store.Querie
 	if err != nil {
 		return nil, nil, err
 	}
-	return tx, store.New(tx), nil
+	return tx, db.Queries(tx), nil
 }
 
 // Settings returns the stored snapshot, or an empty version-0 snapshot.
 func (s StoreMailboxSelfSettings) Settings(ctx context.Context, tenantID, mailboxID int64) (MailboxSettings, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	tx, q, err := s.tx(ctx)
 	if err != nil {
 		return MailboxSettings{}, err
@@ -97,13 +101,14 @@ func (s StoreMailboxSelfSettings) Settings(ctx context.Context, tenantID, mailbo
 		Preferences:      row.Preferences,
 		IdentityProfiles: row.IdentityProfiles,
 		Version:          int64(row.Version),
-		UpdatedAt:        row.UpdatedAt.Time,
+		UpdatedAt:        timeutil.FromMicro(row.UpdatedAt),
 	}, nil
 }
 
 // SaveSettings applies the optimistic write: update first, insert only when
 // no row exists yet. A row created by a concurrent writer yields a conflict.
 func (s StoreMailboxSelfSettings) SaveSettings(ctx context.Context, save MailboxSettingsSave) (int64, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if save.ExpectedVersion < 0 || save.ExpectedVersion > math.MaxInt32 {
 		return 0, ErrInvalidSettingsVersion
 	}
@@ -163,6 +168,7 @@ func (s StoreMailboxSelfSettings) SaveSettings(ctx context.Context, save Mailbox
 
 // Quota returns server-authoritative usage for the mailbox.
 func (s StoreMailboxSelfSettings) Quota(ctx context.Context, tenantID, mailboxID int64) (int64, int64, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	tx, q, err := s.tx(ctx)
 	if err != nil {
 		return 0, 0, err
@@ -178,6 +184,7 @@ func (s StoreMailboxSelfSettings) Quota(ctx context.Context, tenantID, mailboxID
 // SenderIdentities lists the alias addresses this mailbox may send From,
 // using the same reviewed sender_logins grants the send path enforces.
 func (s StoreMailboxSelfSettings) SenderIdentities(ctx context.Context, tenantID int64, sender string) ([]string, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	tx, q, err := s.tx(ctx)
 	if err != nil {
 		return nil, err
@@ -196,6 +203,7 @@ func (s StoreMailboxSelfSettings) SenderIdentities(ctx context.Context, tenantID
 
 // SenderIdentityAllowed rechecks one From candidate against the same grants.
 func (s StoreMailboxSelfSettings) SenderIdentityAllowed(ctx context.Context, tenantID int64, sender, from string) (bool, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	tx, q, err := s.tx(ctx)
 	if err != nil {
 		return false, err

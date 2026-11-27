@@ -25,7 +25,7 @@ if [ "$(docker compose -f docker-compose.dev.yml exec -T postgres psql -U urmail
   docker compose -f docker-compose.dev.yml exec -T postgres createdb -U urmail urmail_development
 fi
 export URMAIL_ENV_FILE="$STATE/unused.env"
-export URMAIL_DATABASE_URL='postgres://urmail:urmail@127.0.0.1:55432/urmail_development?sslmode=disable'
+export URMAIL_DATABASE_URL='postgres://urmail:urmail@127.0.0.1:56002/urmail_development?sslmode=disable'
 export URMAIL_DATABASE_URL_PLATFORM="$URMAIL_DATABASE_URL"
 export URMAIL_DATABASE_URL_MIGRATE="$URMAIL_DATABASE_URL"
 export URMAIL_DATABASE_URL_DOVECOT="$URMAIL_DATABASE_URL"

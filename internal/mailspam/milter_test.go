@@ -120,7 +120,7 @@ func (f *fakePostfix) handshake() {
 // deliver sends one full message exchange and returns the EOM action list.
 func (f *fakePostfix) deliver(from, rcpt string, headers [][2]string, body string) []VerdictHeadersAction {
 	f.t.Helper()
-	f.sendMacro('M', "{auth_authen}", "user@urmail.cn")
+	f.sendMacro('M', "{auth_authen}", "user@example.test")
 	f.send(pkt(cmdConnect, "client.example", "4", string([]byte{192, 0, 2, 9}), string([]byte{0, 25})))
 	if response, _ := f.readAction(); response != resContinue {
 		f.t.Fatalf("CONNECT response %c", response)
@@ -245,7 +245,7 @@ func TestMilterRoundTripInsertsHeaders(t *testing.T) {
 	sent := VerdictResponse{InsertHeaders: [][2]string{{HeaderNameSpam, "yes"}, {HeaderNameScore, "7.50"}}}
 	_, client := startMilter(t, staticHandler(sent), MilterConfig{})
 	client.handshake()
-	actions := client.deliver("spammer@bulk.example", "victim@urmail.cn", [][2]string{
+	actions := client.deliver("spammer@bulk.example", "victim@example.test", [][2]string{
 		{"From", "Spammer <spammer@bulk.example>"},
 		{"Subject", "Buy now"},
 	}, "cheap goods body")
@@ -269,7 +269,7 @@ func TestMilterDenyActionsDefaultOff(t *testing.T) {
 	sent := VerdictResponse{InsertHeaders: [][2]string{{HeaderNameSpam, "yes"}}, Reject: true}
 	_, client := startMilter(t, staticHandler(sent), MilterConfig{})
 	client.handshake()
-	actions := client.deliver("spammer@bulk.example", "victim@urmail.cn", nil, "body")
+	actions := client.deliver("spammer@bulk.example", "victim@example.test", nil, "body")
 	for _, action := range actions {
 		if action.reject {
 			t.Fatal("rejection leaked through with DenyActions disabled")
@@ -281,7 +281,7 @@ func TestMilterDenyActionsExplicitlyEnabled(t *testing.T) {
 	sent := VerdictResponse{InsertHeaders: [][2]string{{HeaderNameSpam, "yes"}}, Reject: true}
 	_, client := startMilter(t, staticHandler(sent), MilterConfig{DenyActions: true})
 	client.handshake()
-	actions := client.deliver("spammer@bulk.example", "victim@urmail.cn", nil, "body")
+	actions := client.deliver("spammer@bulk.example", "victim@example.test", nil, "body")
 	if len(actions) != 1 || !actions[0].reject {
 		t.Fatalf("explicit deny action not honored: %+v", actions)
 	}
@@ -295,17 +295,17 @@ func TestMilterPassesContextToHandler(t *testing.T) {
 	})
 	_, client := startMilter(t, handler, MilterConfig{})
 	client.handshake()
-	_ = client.deliver("outer@bulk.example", "inbox@urmail.cn", [][2]string{
+	_ = client.deliver("outer@bulk.example", "inbox@example.test", [][2]string{
 		{"From", "Outer <outer@bulk.example>"},
 		{"Authentication-Results", "mx.urmail.cn; spf=pass"},
 	}, strings.Repeat("payload ", 40))
-	if got.SASLUser != "user@urmail.cn" {
+	if got.SASLUser != "user@example.test" {
 		t.Fatalf("SASL macro lost: %q", got.SASLUser)
 	}
 	if got.EnvelopeFrom != "outer@bulk.example" {
 		t.Fatalf("envelope from wrong: %q", got.EnvelopeFrom)
 	}
-	if len(got.Recipients) != 1 || got.Recipients[0] != "inbox@urmail.cn" {
+	if len(got.Recipients) != 1 || got.Recipients[0] != "inbox@example.test" {
 		t.Fatalf("recipients wrong: %v", got.Recipients)
 	}
 	if len(got.Headers) != 2 {
@@ -324,7 +324,7 @@ func TestMilterBodySampleCapped(t *testing.T) {
 	})
 	_, client := startMilter(t, handler, MilterConfig{MaxBodySampleBytes: 1024})
 	client.handshake()
-	_ = client.deliver("a@b.example", "c@urmail.cn", nil, strings.Repeat("x", 10000))
+	_ = client.deliver("a@b.example", "c@example.test", nil, strings.Repeat("x", 10000))
 	if len(got.BodySample) != 1024 {
 		t.Fatalf("body sample not capped: %d", len(got.BodySample))
 	}
@@ -344,11 +344,11 @@ func TestMilterAbortResetsSession(t *testing.T) {
 	// First message aborted mid-flight after RCPT.
 	client.send(pkt(cmdMail, "<a@b.example>"))
 	_, _ = client.readAction()
-	client.send(pkt(cmdRcpt, "<first@urmail.cn>"))
+	client.send(pkt(cmdRcpt, "<first@example.test>"))
 	_, _ = client.readAction()
 	client.send([]byte{cmdAbort})
 	// Second message completes normally; it must see only its own recipient.
-	_ = client.deliver("c@d.example", "second@urmail.cn", nil, "body")
+	_ = client.deliver("c@d.example", "second@example.test", nil, "body")
 	if calls != 1 {
 		t.Fatalf("EOM fired %d times for two messages with one abort", calls)
 	}

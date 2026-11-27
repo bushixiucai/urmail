@@ -11,10 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const platformChangePanelMFA = `-- name: PlatformChangePanelMFA :one
-SELECT urmail_change_panel_mfa($1::bigint,$2::bigint,$3::text,$4::boolean,$5::jsonb,$6::text)::bigint AS credential_version
-`
-
 type PlatformChangePanelMFAParams struct {
 	UserID          int64       `json:"user_id"`
 	ExpectedVersion int64       `json:"expected_version"`
@@ -22,20 +18,6 @@ type PlatformChangePanelMFAParams struct {
 	Enabled         bool        `json:"enabled"`
 	Codes           []byte      `json:"codes"`
 	KeepSession     string      `json:"keep_session"`
-}
-
-func (q *Queries) PlatformChangePanelMFA(ctx context.Context, arg PlatformChangePanelMFAParams) (int64, error) {
-	row := q.db.QueryRow(ctx, platformChangePanelMFA,
-		arg.UserID,
-		arg.ExpectedVersion,
-		arg.Secret,
-		arg.Enabled,
-		arg.Codes,
-		arg.KeepSession,
-	)
-	var credential_version int64
-	err := row.Scan(&credential_version)
-	return credential_version, err
 }
 
 const platformRehashPanelPassword = `-- name: PlatformRehashPanelPassword :execrows
@@ -57,27 +39,10 @@ func (q *Queries) PlatformRehashPanelPassword(ctx context.Context, arg PlatformR
 	return result.RowsAffected(), nil
 }
 
-const platformRotatePanelPassword = `-- name: PlatformRotatePanelPassword :one
-SELECT urmail_rotate_panel_password($1::bigint,$2::text,$3::bigint,$4::text,$5::text)::bigint AS credential_version
-`
-
 type PlatformRotatePanelPasswordParams struct {
 	UserID          int64  `json:"user_id"`
 	ExpectedHash    string `json:"expected_hash"`
 	ExpectedVersion int64  `json:"expected_version"`
 	PasswordHash    string `json:"password_hash"`
 	KeepSession     string `json:"keep_session"`
-}
-
-func (q *Queries) PlatformRotatePanelPassword(ctx context.Context, arg PlatformRotatePanelPasswordParams) (int64, error) {
-	row := q.db.QueryRow(ctx, platformRotatePanelPassword,
-		arg.UserID,
-		arg.ExpectedHash,
-		arg.ExpectedVersion,
-		arg.PasswordHash,
-		arg.KeepSession,
-	)
-	var credential_version int64
-	err := row.Scan(&credential_version)
-	return credential_version, err
 }

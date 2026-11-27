@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -63,6 +64,7 @@ func LockDraft(ctx context.Context, q *store.Queries, tenant, mailbox int64, ref
 
 // Prepare commits immutable bytes before SMTP. Only a newly created row may submit.
 func (s Service) Prepare(ctx context.Context, tenant, mailbox int64, key, digest, password string, out webmail.Outgoing, ref DraftRef, ack int64) (store.MailboxSendReceipts, bool, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Pool == nil || s.Secrets == nil {
 		return store.MailboxSendReceipts{}, false, errors.New("send storage unavailable")
 	}
@@ -79,7 +81,7 @@ func (s Service) Prepare(ctx context.Context, tenant, mailbox int64, key, digest
 		return store.MailboxSendReceipts{}, false, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	// Every creation for this mailbox/key is serialized, including messages without drafts.
 	if err = LockDraft(ctx, q, tenant, mailbox, DraftRef{Folder: "key:" + key}); err != nil {
 		return store.MailboxSendReceipts{}, false, err
@@ -132,7 +134,8 @@ func (s Service) Prepare(ctx context.Context, tenant, mailbox int64, key, digest
 
 // Submit crosses the SMTP boundary exactly once; failed persistence is never a retry.
 func (s Service) Submit(ctx context.Context, row store.MailboxSendReceipts, address, password string, out webmail.Outgoing) (store.MailboxSendReceipts, error) {
-	q := store.New(s.Pool.Pool)
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	q := db.Queries(s.Pool.Pool)
 	claim, err := q.PlatformBeginSendReceipt(ctx, store.PlatformBeginSendReceiptParams{TenantID: row.TenantID, MailboxID: row.MailboxID, ID: row.ID})
 	if err != nil {
 		return row, err
@@ -164,7 +167,8 @@ func (s Service) Submit(ctx context.Context, row store.MailboxSendReceipts, addr
 
 // Repair is strictly IMAP-only, always reconciling exact bytes before APPEND.
 func (s Service) Repair(ctx context.Context, row store.MailboxSendReceipts, client webmail.Client, guards ...func(context.Context) error) error {
-	q := store.New(s.Pool.Pool)
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	q := db.Queries(s.Pool.Pool)
 	deferCopy := func(cause error) error {
 		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
@@ -230,10 +234,11 @@ func (s Service) Repair(ctx context.Context, row store.MailboxSendReceipts, clie
 
 // StepCopy never submits SMTP. Stale submitting intentions become uncertain.
 func (s Service) StepCopy(ctx context.Context) (bool, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Pool == nil || s.Secrets == nil || s.Dialer == nil {
 		return false, nil
 	}
-	q := store.New(s.Pool.Pool)
+	q := db.Queries(s.Pool.Pool)
 	if _, err := q.PlatformRecoverSendReceipts(ctx); err != nil {
 		return false, err
 	}
@@ -281,8 +286,9 @@ func (s Service) StepCopy(ctx context.Context) (bool, error) {
 
 // ClaimOwner acquires a bounded recovery lease for an already authenticated owner.
 func (s Service) ClaimOwner(ctx context.Context, tenant, mailbox, id int64) (store.MailboxSendReceipts, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Pool == nil {
 		return store.MailboxSendReceipts{}, fmt.Errorf("send store unavailable")
 	}
-	return store.New(s.Pool.Pool).PlatformClaimOwnedSendCopy(ctx, store.PlatformClaimOwnedSendCopyParams{TenantID: tenant, MailboxID: mailbox, ID: id})
+	return db.Queries(s.Pool.Pool).PlatformClaimOwnedSendCopy(ctx, store.PlatformClaimOwnedSendCopyParams{TenantID: tenant, MailboxID: mailbox, ID: id})
 }

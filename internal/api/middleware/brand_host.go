@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -25,16 +26,27 @@ func OriginHost(raw string) string {
 	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(raw), "."))
 }
 
-// BrandHostBoundary rejects stale routes immediately after revocation, and
-// scopes active branded requests before authentication or public handlers run.
-func BrandHostBoundary(pool *db.Pool, canonical ...string) gin.HandlerFunc {
+// BrandHostLookup is the storage seam behind the brand boundary: one
+// lifecycle lookup plus TLS eligibility per branded host. The PostgreSQL
+// pool adapter and the SQLite slice-1 store both implement it.
+type BrandHostLookup interface {
+	// BrandHostLifecycle reports found=false for hosts that are not brand
+	// hosts at all (the boundary passes them through).
+	BrandHostLifecycle(ctx context.Context, host string) (brandID int64, status string, found bool, err error)
+	BrandHostCertEligible(ctx context.Context, host string) (eligible bool, err error)
+}
+
+// brandHostBoundary is the shared core: stale routes are rejected
+// immediately after revocation and active branded requests are scoped
+// before authentication or public handlers run.
+func brandHostBoundary(lookup BrandHostLookup, canonical ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := OriginHost(c.Request.Host)
 		if len(canonical) > 0 && canonical[0] != "" {
 			c.Set(canonicalOriginKey, OriginHost(canonical[0]))
 		}
 		c.Request = c.Request.WithContext(webmail.WithOriginHost(c.Request.Context(), origin))
-		if pool == nil {
+		if lookup == nil {
 			c.Next()
 			return
 		}
@@ -43,27 +55,67 @@ func BrandHostBoundary(pool *db.Pool, canonical ...string) gin.HandlerFunc {
 			host = value
 		}
 		host = strings.TrimSuffix(host, ".")
-		row, err := store.New(pool).PlatformGetBrandHostLifecycle(c, host)
-		if errors.Is(err, pgx.ErrNoRows) {
-			c.Next()
-			return
-		}
+		brandID, status, found, err := lookup.BrandHostLifecycle(c.Request.Context(), host)
+		// Error FIRST: a lookup/scan failure must fail closed with the
+		// fixed 503 DB_ERROR body (no engine detail leaks). Only an explicit
+		// "no such brand host" (err == nil, found == false) passes through;
+		// found=false with err≠nil never skips the boundary.
 		if err != nil {
 			c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"code": "DB_ERROR", "message": "error.DB_ERROR"}})
 			return
 		}
-		if row.Status != "active" {
+		if !found {
+			c.Next()
+			return
+		}
+		if status != "active" {
 			c.AbortWithStatusJSON(http.StatusMisdirectedRequest, gin.H{"error": gin.H{"code": "BRAND_HOST_INACTIVE", "message": "error.BRAND_HOST_INACTIVE"}})
 			return
 		}
-		eligible, err := store.New(pool).PlatformBrandHostCertEligible(c, host)
+		eligible, err := lookup.BrandHostCertEligible(c.Request.Context(), host)
 		if err != nil || !eligible {
 			c.AbortWithStatus(http.StatusMisdirectedRequest)
 			return
 		}
-		c.Set(ContextBrandID, row.BrandID)
+		c.Set(ContextBrandID, brandID)
 		c.Next()
 	}
+}
+
+// BrandHostBoundaryLookup scopes requests through an explicit storage
+// lookup — the SQLite slice-1 runtime wires its store here; the semantics
+// are the shared core above.
+func BrandHostBoundaryLookup(lookup BrandHostLookup, canonical ...string) gin.HandlerFunc {
+	return brandHostBoundary(lookup, canonical...)
+}
+
+// BrandHostBoundary scopes requests through the PostgreSQL pool. Behavior
+// (including the nil-pool pass-through) is identical to the lookup-based
+// core; the pool adapter resolves the two brand queries per request.
+func BrandHostBoundary(pool *db.Pool, canonical ...string) gin.HandlerFunc {
+	if pool == nil {
+		return brandHostBoundary(nil, canonical...)
+	}
+	return brandHostBoundary(pgBrandHostLookup{pool: pool}, canonical...)
+}
+
+type pgBrandHostLookup struct{ pool *db.Pool }
+
+func (p pgBrandHostLookup) BrandHostLifecycle(ctx context.Context, host string) (int64, string, bool, error) {
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	row, err := db.Queries(p.pool).PlatformGetBrandHostLifecycle(platCtx, host)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, err
+	}
+	return row.BrandID, row.Status, true, nil
+}
+
+func (p pgBrandHostLookup) BrandHostCertEligible(ctx context.Context, host string) (bool, error) {
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	return db.Queries(p.pool).PlatformBrandHostCertEligible(platCtx, host)
 }
 
 // BrandTenantAllowed is checked after current session authentication.
@@ -71,7 +123,8 @@ func BrandTenantAllowed(ctx context.Context, pool *db.Pool, tenant, brand int64)
 	if pool == nil {
 		return false
 	}
-	allowed, err := store.New(pool).PlatformTenantBrandMatches(ctx, store.PlatformTenantBrandMatchesParams{ID: tenant, BrandID: brand})
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	allowed, err := db.Queries(pool).PlatformTenantBrandMatches(platCtx, store.PlatformTenantBrandMatchesParams{ID: tenant, BrandID: brand})
 	return err == nil && allowed
 }
 

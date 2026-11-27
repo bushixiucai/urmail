@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -18,6 +20,8 @@ import (
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+	"github.com/bushixiucai/urmail/internal/dovecotauth"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -38,19 +42,28 @@ type Thresholds struct {
 	// OPS-003: a successful backup older than this (default 26h for a daily
 	// schedule with margin) or a failed latest run raises a backup alert.
 	BackupMaxAgeSeconds int64 `json:"backup_max_age_seconds"`
+	// S6 (§5.4.6): dovecot auth snapshot staleness alert threshold (default 60s).
+	AuthSnapshotMaxStalenessSeconds int64 `json:"auth_snapshot_max_staleness_seconds,omitempty"`
 }
 
 // DefaultThresholds returns conservative initial operator thresholds.
 func DefaultThresholds() Thresholds {
 	// CertificateDays fires at T-30 so the T-14 and T-3 severity escalations
 	// are reachable before expiry.
-	return Thresholds{QueueCount: 1000, QueueAgeSeconds: 3600, ResourceUsedFraction: 0.90, CertificateDays: 30, CollectorStaleSeconds: 120, BackupMaxAgeSeconds: 26 * 3600}
+	return Thresholds{QueueCount: 1000, QueueAgeSeconds: 3600, ResourceUsedFraction: 0.90, CertificateDays: 30, CollectorStaleSeconds: 120, BackupMaxAgeSeconds: 26 * 3600, AuthSnapshotMaxStalenessSeconds: 60}
 }
 func (t Thresholds) validate() error {
-	if t.QueueCount < 1 || t.QueueCount > 1000000 || t.QueueAgeSeconds < 1 || t.ResourceUsedFraction <= 0 || t.ResourceUsedFraction >= 1 || t.CertificateDays < 1 || t.BackupMaxAgeSeconds < 3600 || t.CollectorStaleSeconds < 10 || t.CollectorStaleSeconds > 3600 {
+	if t.QueueCount < 1 || t.QueueCount > 1000000 || t.QueueAgeSeconds < 1 || t.ResourceUsedFraction <= 0 || t.ResourceUsedFraction >= 1 || t.CertificateDays < 1 || t.BackupMaxAgeSeconds < 3600 || t.CollectorStaleSeconds < 10 || t.CollectorStaleSeconds > 3600 || (t.AuthSnapshotMaxStalenessSeconds != 0 && t.AuthSnapshotMaxStalenessSeconds < 5) {
 		return errors.New("invalid operational thresholds")
 	}
 	return nil
+}
+
+// AuthSnapshotObservation carries the live state of the dovecot read-only auth snapshot.
+type AuthSnapshotObservation struct {
+	Dirty            bool
+	Built            bool
+	StalenessSeconds float64
 }
 
 // Observation has explicit unavailable states; absent probes cannot imply health.
@@ -66,6 +79,7 @@ type Observation struct {
 	// probe fallback when the host observer could not read a certificate.
 	Backup                *BackupObservation
 	CertificateProbedDays *float64
+	AuthSnapshot          *AuthSnapshotObservation
 }
 
 // Observer returns only fixed, typed root-agent observations.
@@ -205,6 +219,20 @@ func Conditions(o Observation, t Thresholds) (map[string]bool, map[string]float6
 			conditions["telemetry_certificate_expiring"] = remaining <= float64(t.CertificateDays)*86400
 		}
 	}
+	if o.AuthSnapshot != nil {
+		if o.AuthSnapshot.Dirty {
+			values["dovecot_auth_snapshot_dirty"] = 1
+		} else {
+			values["dovecot_auth_snapshot_dirty"] = 0
+		}
+		values["dovecot_auth_snapshot_staleness_seconds"] = o.AuthSnapshot.StalenessSeconds
+		maxStale := t.AuthSnapshotMaxStalenessSeconds
+		if maxStale <= 0 {
+			maxStale = 60
+		}
+		conditions["telemetry_auth_snapshot_dirty"] = o.AuthSnapshot.Dirty
+		conditions["telemetry_auth_snapshot_stale"] = o.AuthSnapshot.Built && o.AuthSnapshot.StalenessSeconds > float64(maxStale)
+	}
 	return conditions, values
 }
 
@@ -227,7 +255,10 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 	if e.Pool == nil || e.Source == nil || e.Stream == "" {
 		return errors.New("observability requires configured source and stream")
 	}
-	q := store.New(e.Pool.Pool)
+	// This evaluator owns the platform pool and only reads platform-wide
+	// observability state; the scheduler caller carries no DB scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	q := db.Queries(e.Pool.Pool)
 	thresholds := DefaultThresholds()
 	started := time.Now()
 	settings, err := q.PlatformGetObservabilityThresholds(ctx)
@@ -257,8 +288,8 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 	}
 	for _, source := range health {
 		if source.Stream == e.Stream {
-			if source.ObservedAt.Valid {
-				timeValue := source.ObservedAt.Time
+			if source.ObservedAt != 0 {
+				timeValue := timeutil.FromMicro(source.ObservedAt)
 				observation.CollectorObserved = &timeValue
 			}
 			observation.CollectionGap = source.GapReason.Valid
@@ -275,8 +306,8 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 	}
 	if backupErr == nil {
 		observation.Backup = &BackupObservation{LatestState: backup.LatestState, AvailableState: true, MaxAgeSeconds: float64(thresholds.BackupMaxAgeSeconds)}
-		if backup.LastSuccessAt.Valid {
-			success := backup.LastSuccessAt.Time
+		if backup.LastSuccessAt != 0 {
+			success := timeutil.FromMicro(backup.LastSuccessAt)
 			observation.Backup.LastSuccessAt = &success
 		}
 	}
@@ -286,6 +317,13 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 			observation.CertificateProbedDays = &days
 		}
 		probeCancel()
+	}
+	if mgr := dovecotauth.MetricsManager(); mgr != nil {
+		observation.AuthSnapshot = &AuthSnapshotObservation{
+			Dirty:            mgr.Dirty(),
+			Built:            mgr.Built(),
+			StalenessSeconds: mgr.Staleness().Seconds(),
+		}
 	}
 	conditions, values := Conditions(observation, thresholds)
 	stats := e.Pool.Stat()
@@ -298,7 +336,7 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	queries := store.New(tx)
+	queries := db.Queries(tx)
 	for kind, firing := range conditions {
 		if err = queries.PlatformSetOperationalCondition(ctx, store.PlatformSetOperationalConditionParams{AlertKey: e.Stream + ":" + kind, Kind: kind, Firing: firing}); err != nil {
 			return err

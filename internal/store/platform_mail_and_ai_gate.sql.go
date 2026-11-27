@@ -30,12 +30,3 @@ func (q *Queries) MailServiceAllowed(ctx context.Context, dollar_1 int64) (bool,
 	err := row.Scan(&allowed)
 	return allowed, err
 }
-
-const platformLockBillingTenant = `-- name: PlatformLockBillingTenant :exec
-SELECT pg_advisory_xact_lock($1::bigint)
-`
-
-func (q *Queries) PlatformLockBillingTenant(ctx context.Context, dollar_1 int64) error {
-	_, err := q.db.Exec(ctx, platformLockBillingTenant, dollar_1)
-	return err
-}

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	domainmail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
@@ -40,8 +41,18 @@ func (s *Service) manager(provider string, credentials dnsprovider.Credentials) 
 	}
 	return dnsprovider.NewRecordManager(provider, credentials)
 }
+
+// platformScopeCtx elevates a verified DNS-route context to the platform
+// scope required by the platform-domain DNS reads below. Callers have already
+// passed the route's owner/admin check (dns_preflight.go); the elevation only
+// matches the queries' declared scope and preserves the acting user.
+func (s *Service) platformScopeCtx(ctx context.Context) context.Context {
+	sc, _ := isolation.ScopeFromContext(ctx)
+	return isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: sc.ActorID})
+}
+
 func (s *Service) credentialManager(ctx context.Context, tenant, domain int64) (store.DnsCredentials, dnsprovider.RecordManager, error) {
-	row, err := store.New(s.Pool.Pool).PlatformGetDNSCredential(ctx, store.PlatformGetDNSCredentialParams{TenantID: tenant, DomainID: domain})
+	row, err := db.Queries(s.Pool.Pool).PlatformGetDNSCredential(s.platformScopeCtx(ctx), store.PlatformGetDNSCredentialParams{TenantID: tenant, DomainID: domain})
 	if err != nil {
 		return row, nil, errors.New("DNS_CREDENTIAL_UNAVAILABLE")
 	}
@@ -63,7 +74,7 @@ func (s *Service) credentialManager(ctx context.Context, tenant, domain int64) (
 // DomainDigest binds a plan to the exact verified identity, mode and public
 // signing key. The private DKIM key is never included in a plan or its digest.
 func DomainDigest(d store.PlatformDNSDomainRow, hostname string) (string, []dnsprovider.Record, error) {
-	if d.Status != "active" || !d.VerifiedAt.Valid {
+	if d.Status != "active" || d.VerifiedAt == 0 {
 		return "", nil, errors.New("DNS_OWNERSHIP_REQUIRED")
 	}
 	if !d.DkimPrivateKey.Valid {
@@ -97,7 +108,7 @@ type Draft struct {
 // Prepare reads upstream data but cannot write DNS or mark a plan confirmed.
 func (s *Service) Prepare(ctx context.Context, tenant, domain int64, kind string, imported []dnsprovider.RemoteRecord) (Draft, error) {
 	out := Draft{Kind: kind}
-	d, err := store.New(s.Pool.Pool).PlatformDNSDomain(ctx, store.PlatformDNSDomainParams{TenantID: tenant, ID: domain})
+	d, err := db.Queries(s.Pool.Pool).PlatformDNSDomain(s.platformScopeCtx(ctx), store.PlatformDNSDomainParams{TenantID: tenant, ID: domain})
 	if err != nil {
 		return out, errors.New("DNS_OWNERSHIP_REQUIRED")
 	}

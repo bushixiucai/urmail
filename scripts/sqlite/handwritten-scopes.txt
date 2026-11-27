@@ -1,0 +1,102 @@
+# 手写查询层作用域表（S4）：internal/store/sqlite_methods.go 中从 sqlc 生成层
+# 拆出的方法没有 `-- scope:` 注解，作用域在此逐条登记，由
+# scripts/sqlite/scope_lint.py 合并进 method_scopes.json（S3 装饰器的输入）。
+#
+# 格式：<Method> <tenant|platform|system|pre-auth>
+# 取值来自被替换语句的原注解；process 级（worker/定时器，无用户会话）方法按
+# scripts/sqlite/PREAUTH-SCOPE-DRAFT.md 的四轴模型登记为 system。
+#
+# 待办（S3）：ConsumeUserRecoveryCode 位于认证前恢复码校验路径，暂按 platform
+# 保守登记；进入 pre-auth 轴需先在 scripts/sqlite/preauth-allowlist.md 逐条签核。
+
+# -- platform: 后台 worker / 无会话进程（QA 终审对齐：worker 以平台授权运行，
+#    与 onboarding/notify/archive/marketing worker 入口显式 platform scope 一致）
+PlatformRevokeMailboxSessions            platform
+PlatformConsumeMailboxOperationTickets   platform
+PlatformApplyArchiveRetentionCandidates  platform
+PlatformApplyArchiveRetentionMarkContent platform
+PlatformApplyArchiveRetentionMarkDeleted platform
+PlatformRecordMarketingFlowNodeExecution platform
+PlatformBumpMarketingFlowAttempt         platform
+
+# -- tenant: 租户请求（配额日计数）
+GetMailboxDailySent          tenant
+GetMailboxDailySentForUpdate tenant
+IncrementMailboxDailySent    tenant
+
+# -- platform: 平台管理员 / 平台写入
+ConsumeUserRecoveryCode            platform
+PlatformTakeMailboxDailyQuota      platform
+RecordTenantAudit                  tenant
+PlatformReadEvidenceBody           platform
+PlatformMarkMarketingFlowUncertain platform
+PlatformDeleteContactGroup         platform
+ArchiveCasesSnapshot tenant
+ArchiveCasesSnapshotDigest tenant
+ArchiveCasesExportVisible tenant
+ArchiveCasesCreate tenant
+SoftDeleteArchiveEntry             platform
+PlatformRotatePanelPassword        platform
+PlatformChangePanelMFA             platform
+
+# -- tenant: DNS/onboarding 租户写路径（生产调用方均为 RequireTenantTx 租户路由；PG 函数 GRANT EXECUTE TO urmail_app）
+SaveDNSCredential      tenant
+RevokeDNSCredential    tenant
+CreateDNSPlan          tenant
+ConfirmDNSPlan         tenant
+CancelDNSPlan          tenant
+RequestOnboardingRetry tenant
+RequestDNSRollback     tenant
+ReviewDNSPlan          tenant
+AbandonDNSPlan         tenant
+
+# -- platform: marketing worker（QA round-2：flow worker 入口为 platform scope，
+#    dispatch/发送/提交全链对齐，消除同 worker 内 platform/system 混用拒绝；role='urmail_platform'）
+PlatformAuthorizeMarketingSend           platform
+PlatformFinishMarketingSend              platform
+PlatformResolveMarketingAttempt          platform
+PlatformRecordMarketingFeedback          platform
+PlatformMarkMarketingRecipientRevoked    platform
+PlatformSkipMarketingRecipient           platform
+PlatformBeginMarketingFlowSend           platform
+PlatformReleaseMarketingFlowReservation  platform
+PlatformCommitMarketingFlowFenced        platform
+PlatformCommitMarketingFlowWait          platform
+
+# -- platform: 营销管理面（沿用被替换语句原 `-- scope: platform` 注解，不擅自放宽为 system）
+ScheduleMarketingCampaign platform
+RetryMarketingFlowInstance tenant
+RecordMarketingFlowAudit  platform
+
+# -- platform: AI 配置面（沿用被替换语句原 `-- scope: platform` 注解；调用方为租户 owner|admin）
+PlatformConfigureTenantAI            platform
+TenantConsentAICloud tenant
+PlatformConfigureTenantAIGovernance  platform
+PlatformSetAIProvider                platform
+PlatformSetActiveAIService           platform
+LockMailboxEASSync                  platform
+LockMailboxImportTenantBudget       platform
+PlatformLockBillingTenant           platform
+PlatformLockSendDraft               platform
+PlatformLockDataImport              platform
+PlatformLockRecallTenant            platform
+PlatformAcquireDraftSessionLock     platform
+PlatformReleaseDraftSessionLock     platform
+
+ConsumeRecoveryCode platform
+ArchiveCasesRequestApproval tenant
+SetMarketingReportBudget platform
+MarketingCampaignReportSnapshot tenant
+MarketingFlowReportSnapshot tenant
+
+# -- B5a blocked legacy .sql.go methods still present on store.Querier (split in queries/*.sql)
+PlatformApplyArchiveRetention system
+PlatformRecordMarketingFlowExecution system
+PlatformRevokeMailboxCredentials system
+PlatformRefreshAIAlerts platform
+PlatformRefreshDNSOnboardingAlerts platform
+PlatformResetBrandTheme platform
+PlatformUnbindBrandHost platform
+PlatformVerifyBrandHostProof platform
+PlatformCreateFirstDomain           tenant
+PlatformListAliases                 platform

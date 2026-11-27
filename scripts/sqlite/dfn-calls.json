@@ -1,0 +1,929 @@
+{
+ "note": "QA 硬前置①：queries 内 urmail_* 函数调用——sqlc 不校验函数存在，B5 后会运行时成片炸；逐条给替代物（S1 119 函数三分类对齐），rewrite_verify 做计数闭合。 B1a 已内联 44 次调用（首批 44 口径含 export_visible 除外）；剩余 52 次在 queries 内由 residue registry 跟踪。",
+ "total_calls": 95,
+ "by_strategy": {
+  "s4-closed": 51,
+  "inline": 32,
+  "inline-compose": 12
+ },
+ "first_batch_inline_calls": 44,
+ "unknown_functions": [],
+ "calls": [
+  {
+   "fn": "urmail_create_archive_case",
+   "file": "archive_case_product.sql",
+   "method": "ArchiveCasesCreate",
+   "line": 4,
+   "snippet": "SELECT urmail_create_archive_case(@tenant_id,@actor_id,@title,@purpose,@expires_at,@request_key) AS ",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：ArchiveCasesCreate（事务；授权+有效期+request_key 幂等；42501/23514 PgError）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_archive_case_snapshot",
+   "file": "archive_case_product.sql",
+   "method": "ArchiveCasesSnapshot",
+   "line": 24,
+   "snippet": "SELECT urmail_archive_case_snapshot(?1,?2,?3) AS snapshot;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：archiveSnapshot JSON 组装（成员/来源/授权嵌套）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_archive_case_snapshot",
+   "file": "archive_case_product.sql",
+   "method": "ArchiveCasesSnapshotDigest",
+   "line": 29,
+   "snippet": "SELECT encode(sha256(convert_to(urmail_archive_case_snapshot(?1,?2,?3),'UTF8')),'hex') AS digest;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：snapshot text 的 sha256 hex",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_archive_case_grant",
+   "file": "archive_case_product.sql",
+   "method": "ArchiveCasesEligibleMembers",
+   "line": 41,
+   "snippet": "WHERE r.tenant_id=?1 AND urmail_archive_case_grant(r.tenant_id,r.user_id,'full_content') ORDER BY u.",
+   "strategy": "inline",
+   "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)；原文中的 t=current_setting('urmail.tenant_id') 自检删除，改为调用点显式绑定 ctx tenant_id（防止平台/租户判定差异丢失）"
+  },
+  {
+   "fn": "urmail_archive_case_grant",
+   "file": "archive_case_product.sql",
+   "method": "ArchiveCasesGrantEligible",
+   "line": 46,
+   "snippet": "SELECT urmail_archive_case_grant(?1,?2,?3) AS allowed;",
+   "strategy": "inline",
+   "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)；原文中的 t=current_setting('urmail.tenant_id') 自检删除，改为调用点显式绑定 ctx tenant_id（防止平台/租户判定差异丢失）"
+  },
+  {
+   "fn": "urmail_archive_case_grant",
+   "file": "archive_case_product.sql",
+   "method": "ArchiveCasesAddMember",
+   "line": 54,
+   "snippet": "AND urmail_archive_case_grant(@tenant_id,@user_id,'full_content')",
+   "strategy": "inline",
+   "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)；原文中的 t=current_setting('urmail.tenant_id') 自检删除，改为调用点显式绑定 ctx tenant_id（防止平台/租户判定差异丢失）"
+  },
+  {
+   "fn": "urmail_archive_export_visible",
+   "file": "archive_case_product.sql",
+   "method": "ArchiveCasesExportVisible",
+   "line": 134,
+   "snippet": "SELECT urmail_archive_export_visible(?1,?2,?3) AS visible;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：复用成员/授权/快照（jsonEqual 比较 source_snapshot）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_record_audit",
+   "file": "audit.sql",
+   "method": "RecordTenantAudit",
+   "line": 40,
+   "snippet": "SELECT urmail_record_audit(@tenant_id, @user_id,",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：action/target/status 校验 + user_tenant_roles 断言 + recordTenantAuditInsertSQL",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_soft_delete_archive",
+   "file": "compliance.sql",
+   "method": "SoftDeleteArchiveEntry",
+   "line": 55,
+   "snippet": "SELECT result AS id FROM urmail_soft_delete_archive(@tenant_id,@id) AS result WHERE result IS NOT NU",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：SoftDeleteArchiveEntry（事务；role 会话语义 app_pending）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_retention_authorized",
+   "file": "compliance_and_retention.sql",
+   "method": "GetRetentionPolicyAuthority",
+   "line": 83,
+   "snippet": "SELECT urmail_retention_authorized(@tenant_id,@created_by,@grant_id) AS allowed;",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：compliance_grants+user_tenant_roles 存在性谓词",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_save_dns_credential",
+   "file": "dns_onboarding.sql",
+   "method": "SaveDNSCredential",
+   "line": 8,
+   "snippet": "SELECT urmail_save_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(provider),sqlc.ar",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：dnsActor(current_setting actor, app_pending)+zone/enc 校验+upsert+计划失效（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_revoke_dns_credential",
+   "file": "dns_onboarding.sql",
+   "method": "RevokeDNSCredential",
+   "line": 12,
+   "snippet": "SELECT urmail_revoke_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id));",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：dnsActor+凭据吊销+计划失效（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_create_dns_plan",
+   "file": "dns_onboarding.sql",
+   "method": "CreateDNSPlan",
+   "line": 16,
+   "snippet": "SELECT urmail_create_dns_plan(sqlc.arg(id),sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.narg(credent",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：dnsActor+kind/凭据版本校验+计划插入；advisory lock→SQLite 单写者",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_confirm_dns_plan",
+   "file": "dns_onboarding.sql",
+   "method": "ConfirmDNSPlan",
+   "line": 20,
+   "snippet": "SELECT urmail_confirm_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(source_digest));",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+digest/expiry/conflicts/credential 校验+确认",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_cancel_dns_plan",
+   "file": "dns_onboarding.sql",
+   "method": "CancelDNSPlan",
+   "line": 24,
+   "snippet": "SELECT urmail_cancel_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+状态/理由（字符数≥10）校验+取消",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_request_onboarding",
+   "file": "dns_onboarding.sql",
+   "method": "RequestOnboardingRetry",
+   "line": 40,
+   "snippet": "SELECT urmail_request_onboarding(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(reason));",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：dnsActor+恢复对账门+任务取代/新建；subscriptions 条款表已删（app_pending）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_rollback_dns_plan",
+   "file": "dns_onboarding.sql",
+   "method": "RequestDNSRollback",
+   "line": 48,
+   "snippet": "SELECT urmail_rollback_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+completed/reason/manual 门+rollback_pending",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_review_dns_plan",
+   "file": "dns_onboarding.sql",
+   "method": "ReviewDNSPlan",
+   "line": 52,
+   "snippet": "SELECT urmail_review_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+uncertain/reason 门+completed+观察动作 unowned",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_abandon_dns_plan",
+   "file": "dns_onboarding.sql",
+   "method": "AbandonDNSPlan",
+   "line": 56,
+   "snippet": "SELECT urmail_abandon_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+uncertain|failed/reason 门+failed",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_schedule_marketing",
+   "file": "marketing_campaigns.sql",
+   "method": "ScheduleMarketingCampaign",
+   "line": 55,
+   "snippet": "SELECT urmail_schedule_marketing(@tenant_id,@campaign_id,@scheduled_at) AS result;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：管理员授权 + 模板快照/排期 + 收件人去重入队（事务）；advisory lock→SQLite 单写者",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_retry_marketing_flow_instance",
+   "file": "marketing_flow_authoring.sql",
+   "method": "RetryMarketingFlowInstance",
+   "line": 152,
+   "snippet": "SELECT urmail_retry_marketing_flow_instance(?1,?2,?3,?4) AS retried;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：平台角色/管理员 + 版本绑定 + 租约过期判定 + 释放预留（事务）；会话变量 app_pending（S2 装饰器/S5 适配器）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_record_marketing_flow_audit",
+   "file": "marketing_flow_authoring.sql",
+   "method": "RecordMarketingFlowAudit",
+   "line": 168,
+   "snippet": "SELECT urmail_record_marketing_flow_audit(?1,?2,?3,?4);",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：管理员 + 动作白名单 + jsonb 对象/4000 字节 + audit_logs 写入（append-only 触发器 S6 前拒绝）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_archive_notification_visible",
+   "file": "notifications.sql",
+   "method": "ListTenantNotifications",
+   "line": 6,
+   "snippet": "AND urmail_archive_notification_visible(tenant_id,nullif(current_setting('urmail.user_id',true),''),",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：CASE kind 谓词（成员 + full_content/export 授权）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_configure_tenant_ai",
+   "file": "platform_ai.sql",
+   "method": "PlatformConfigureTenantAI",
+   "line": 126,
+   "snippet": "SELECT urmail_configure_tenant_ai(sqlc.arg(mode),sqlc.arg(provider),sqlc.arg(endpoint),sqlc.arg(mode",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：租户/用户会话变量（owner|admin）+ 模式组合校验 + enterprise 快照/基础列同写（事务）；会话变量 app_pending（S2 装饰器/S5 适配器）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_ai.sql",
+   "method": "PlatformGetSieveActivationTarget",
+   "line": 133,
+   "snippet": "WHERE m.tenant_id=?1 AND m.id=?2 AND m.status='active' AND t.status='active' AND d.status='active' A",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_ai.sql",
+   "method": "PlatformListSieveScripts",
+   "line": 140,
+   "snippet": "WHERE m.sieve_mode='managed' AND m.sieve_script IS NOT NULL AND m.status='active' AND t.status='acti",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_consent_tenant_ai",
+   "file": "platform_ai.sql",
+   "method": "TenantConsentAICloud",
+   "line": 153,
+   "snippet": "SELECT urmail_consent_tenant_ai(@configuration_digest,@scope_hash,@allow_cloud);",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：会话变量（owner|admin）+ 授权必须引用现状 digest/scope_hash 且非 ollama 已启用 + 本地优先开关（事务）；configuration_digest 的 sha256 计算与 consent guard 触发器 app_pending",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_ai_cloud_authorized",
+   "file": "platform_ai.sql",
+   "method": "AICloudAuthorized",
+   "line": 158,
+   "snippet": "SELECT urmail_ai_cloud_authorized(@tenant_id,@configuration_digest,@scope_hash) AS allowed;",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：配置/同意摘要 + owner|admin 谓词；current_setting 会话语义 app_pending→S2 装饰器",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_configure_tenant_ai_governance",
+   "file": "platform_ai.sql",
+   "method": "PlatformConfigureTenantAIGovernance",
+   "line": 169,
+   "snippet": "SELECT urmail_configure_tenant_ai_governance(sqlc.arg(personal_mode), sqlc.arg(approved_endpoints));",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：会话变量（owner|admin）+ personal_mode 白名单 + approved_endpoints（PG text[] → SQLite JSON 文本）；AI_QUOTA_PLATFORM_REQUIRED 触发器分支 app_pending",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_evidence_manifest_visible",
+   "file": "platform_archive_evidence.sql",
+   "method": "PlatformEvidenceVisible",
+   "line": 4,
+   "snippet": "SELECT urmail_evidence_manifest_visible(?1,?2,?3,?4) AS visible;",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：approved+未过期+成员+摘要谓词",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_read_evidence_body",
+   "file": "platform_archive_evidence.sql",
+   "method": "PlatformReadEvidenceBody",
+   "line": 9,
+   "snippet": "SELECT urmail_read_evidence_body(?1,?2,?3,?4);",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：可见性谓词 + sha256(evidence_body) 摘要校验",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_retention_authorized",
+   "file": "platform_archive_lifecycle.sql",
+   "method": "PlatformApplyArchiveRetention",
+   "line": 30,
+   "snippet": "WHERE p.active AND urmail_retention_authorized(p.tenant_id,p.created_by,p.authorization_grant_id) AN",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：同上（候选谓词）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_retention_authorized",
+   "file": "platform_archive_lifecycle.sql",
+   "method": "PlatformListArchivePurgeCandidates",
+   "line": 49,
+   "snippet": "AND (c.purge_started_at IS NOT NULL OR c.retention_preview IS NULL OR EXISTS(SELECT 1 FROM retention",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：同上（purge 候选谓词）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_retention_authorized",
+   "file": "platform_archive_lifecycle.sql",
+   "method": "PlatformLockRetentionPurgePolicy",
+   "line": 95,
+   "snippet": "SELECT coalesce(p.active AND p.confirmed_preview= @preview_id AND urmail_retention_authorized(p.tena",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：同上（策略锁读谓词）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_rotate_panel_password",
+   "file": "platform_auth_security.sql",
+   "method": "PlatformRotatePanelPassword",
+   "line": 4,
+   "snippet": "SELECT urmail_rotate_panel_password(sqlc.arg(user_id),sqlc.arg(expected_hash),sqlc.arg(expected_vers",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：PlatformRotatePanelPassword（事务；40001/42501 PgError）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_change_panel_mfa",
+   "file": "platform_auth_security.sql",
+   "method": "PlatformChangePanelMFA",
+   "line": 9,
+   "snippet": "SELECT urmail_change_panel_mfa(sqlc.arg(user_id),sqlc.arg(expected_version),sqlc.narg(secret),sqlc.a",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：PlatformChangePanelMFA（事务；40001/42501 PgError）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_delete_contact_group",
+   "file": "platform_collaboration.sql",
+   "method": "PlatformDeleteContactGroup",
+   "line": 226,
+   "snippet": "SELECT urmail_delete_contact_group(?1,?2,?3);",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：软删组 + 清成员两步 DML",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_mail_access.sql",
+   "method": "PlatformMailboxAccessStates",
+   "line": 4,
+   "snippet": "SELECT m.tenant_id,m.id AS mailbox_id,m.address,m.password_version,m.password_revoke_pending, (urmai",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_business_timezone",
+   "file": "platform_mail_and_ai_gate.sql",
+   "method": "GetBillingBusinessTimezone",
+   "line": 4,
+   "snippet": "SELECT urmail_business_timezone(?1) AS timezone;",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：tenant>brand>platform>Asia/Shanghai 回退；时区合法性由 Go 调用方（aiQuotaLocation）保留",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_mail_and_ai_gate.sql",
+   "method": "MailServiceAllowed",
+   "line": 14,
+   "snippet": "SELECT urmail_mail_allowed(?1) AS allowed;",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_scheduled_sends.sql",
+   "method": "PlatformAcknowledgeUncertainScheduledSend",
+   "line": 116,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformCreateSendReceipt",
+   "line": 6,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active()",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformBeginSendReceipt",
+   "line": 28,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND r.tenant_id=sqlc.arg(tenant_id) AND r.mailbox_id=sq",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformFinishSendReceipt",
+   "line": 41,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.a",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformRecoverSendReceipts",
+   "line": 49,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND status IN('prepared','submitting') AND lease_until<",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformHoldExpiredSendCopies",
+   "line": 55,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND status='accepted' AND sent_copy_state IN('pending',",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformClaimSendCopy",
+   "line": 60,
+   "snippet": "WITH candidate AS (SELECT id FROM mailbox_send_receipts WHERE NOT urmail_restore_quarantine_active()",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformClaimOwnedSendCopy",
+   "line": 67,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformMarkSendCopyUnknown",
+   "line": 73,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformCompleteSendCopy",
+   "line": 79,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformDeferSendCopy",
+   "line": 87,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformAcknowledgeUncertainSend",
+   "line": 98,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformHoldUnauthorizedSendCopies",
+   "line": 109,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND r.status='accepted' AND r.sent_copy_state IN('pendi",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_send_receipts.sql",
+   "method": "PlatformAuthorizeSendCopy",
+   "line": 129,
+   "snippet": "AND NOT urmail_restore_quarantine_active() AND m.status='active' AND t.status='active' AND d.status=",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformAcceptMailboxScheduledSend",
+   "line": 7,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.a",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformClaimScheduledSentCopy",
+   "line": 16,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformClaimOwnedScheduledSentCopy",
+   "line": 27,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.a",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformMarkScheduledSentCopyUnknown",
+   "line": 35,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.a",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformCompleteScheduledSentCopy",
+   "line": 44,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.a",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformDeferScheduledSentCopy",
+   "line": 52,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.a",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformHoldExpiredScheduledCopies",
+   "line": 59,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND status='sent' AND sent_copy_state IN('pending','unk",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformFreezeScheduledSend",
+   "line": 65,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND id=sqlc.arg(id) AND claim_token=sqlc.arg(claim_toke",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformHoldUnauthorizedScheduledCopies",
+   "line": 71,
+   "snippet": "WHERE NOT urmail_restore_quarantine_active() AND r.status='sent' AND r.sent_copy_state IN('pending',",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_restore_quarantine_active",
+   "file": "platform_mailbox_sent_copy.sql",
+   "method": "PlatformAuthorizeScheduledCopy",
+   "line": 91,
+   "snippet": "AND NOT urmail_restore_quarantine_active() AND m.status='active' AND t.status='active' AND d.status=",
+   "strategy": "inline",
+   "replacement": "COALESCE((SELECT active FROM restore_quarantine), 0)"
+  },
+  {
+   "fn": "urmail_authorize_marketing_send",
+   "file": "platform_marketing.sql",
+   "method": "PlatformAuthorizeMarketingSend",
+   "line": 53,
+   "snippet": "SELECT urmail_authorize_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence) AS result;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 租约/fence + 权益/限额/通道/发件人 + 配额窗口（事务）；role 会话变量 app_pending",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_finish_marketing_send",
+   "file": "platform_marketing.sql",
+   "method": "PlatformFinishMarketingSend",
+   "line": 58,
+   "snippet": "SELECT urmail_finish_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence,@result) AS finishe",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 结果白名单 + 退配额 + 2^n 退避重排 + 退信抑制（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_resolve_marketing_attempt",
+   "file": "platform_marketing.sql",
+   "method": "PlatformResolveMarketingAttempt",
+   "line": 83,
+   "snippet": "SELECT urmail_resolve_marketing_attempt(@tenant_id,@recipient_id,@outcome,@reason) AS resolved;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 理由字符数 1..2048 + uncertain 态 + 退配额 + 人工确认终态（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_record_marketing_feedback",
+   "file": "platform_marketing.sql",
+   "method": "PlatformRecordMarketingFeedback",
+   "line": 88,
+   "snippet": "SELECT urmail_record_marketing_feedback(@channel_id,@event_id,@recipient_id,@status,@payload_hash) A",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + (channel,event) 幂等 + 硬退信/投诉抑制（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mark_marketing_recipient_revoked",
+   "file": "platform_marketing.sql",
+   "method": "PlatformMarkMarketingRecipientRevoked",
+   "line": 98,
+   "snippet": "SELECT urmail_mark_marketing_recipient_revoked(@tenant_id,@recipient_id,@lease_owner,@fence) AS revo",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 运行中退订抑制 + 退配额（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_skip_marketing_recipient",
+   "file": "platform_marketing.sql",
+   "method": "PlatformSkipMarketingRecipient",
+   "line": 103,
+   "snippet": "SELECT urmail_skip_marketing_recipient(@tenant_id,@recipient_id,@lease_owner,@fence,@reason) AS skip",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 原因白名单 + leased 跳过 + 退配额（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_marketing.sql",
+   "method": "PlatformMarketingAttemptStillAllowed",
+   "line": 111,
+   "snippet": "AND r.status='submitting' AND r.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND c.st",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_marketing_flow_authoring.sql",
+   "method": "PlatformVersionedMarketingFlowMayAdvance",
+   "line": 21,
+   "snippet": "THEN urmail_mail_allowed(?1)",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_marketing_flow_may_advance",
+   "file": "platform_marketing_flow_authoring.sql",
+   "method": "PlatformVersionedMarketingFlowMayAdvance",
+   "line": 27,
+   "snippet": "ELSE urmail_marketing_flow_may_advance(?1,?2,?3) END AS allowed;",
+   "strategy": "inline-compose",
+   "replacement": "mail_allowed 内联 + EXISTS(positions 未退订) + NOT EXISTS(suppressions)"
+  },
+  {
+   "fn": "urmail_commit_marketing_flow_fenced",
+   "file": "platform_marketing_flow_authoring.sql",
+   "method": "PlatformCommitMarketingFlowFenced",
+   "line": 32,
+   "snippet": "SELECT urmail_commit_marketing_flow_fenced(?1,?2,?3,?4,?5,?6,?7,?8) AS result;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：fence 校验 + 确认清预留 + 活动/steps 门 + step 提交（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_begin_marketing_flow_send",
+   "file": "platform_marketing_flow_authoring.sql",
+   "method": "PlatformBeginMarketingFlowSend",
+   "line": 37,
+   "snippet": "SELECT urmail_begin_marketing_flow_send(?1,?2,?3,?4,?5,?6) AS result;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 租约/fence + 权益/限额/通道/发件人(verified) + 配额窗口（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_release_marketing_flow_reservation",
+   "file": "platform_marketing_flow_authoring.sql",
+   "method": "PlatformReleaseMarketingFlowReservation",
+   "line": 42,
+   "snippet": "SELECT urmail_release_marketing_flow_reservation(?1,?2,?3,?4,?5) AS released;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：租约/fence + 释放预留 + 清 uncertain/flags（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mark_marketing_flow_uncertain",
+   "file": "platform_marketing_flows.sql",
+   "method": "PlatformMarkMarketingFlowUncertain",
+   "line": 32,
+   "snippet": "SELECT urmail_mark_marketing_flow_uncertain(?1,?2,?3);",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：UPDATE + rows-affected → missing/uncertain",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_commit_marketing_flow_step",
+   "file": "platform_marketing_flows.sql",
+   "method": "PlatformCommitMarketingFlowWait",
+   "line": 121,
+   "snippet": "SELECT urmail_commit_marketing_flow_step(?1,?2,?3,sqlc.arg(event),sqlc.arg(next_key)) AS result;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：位置重读 + uncertain/unsubscribe/wait/发送门 + 步进提交（事务）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_marketing_flow_may_advance",
+   "file": "platform_marketing_flows.sql",
+   "method": "PlatformMarketingFlowMayAdvance",
+   "line": 133,
+   "snippet": "SELECT urmail_marketing_flow_may_advance(?1,?2,?3) AS allowed;",
+   "strategy": "inline-compose",
+   "replacement": "mail_allowed 内联 + EXISTS(positions 未退订) + NOT EXISTS(suppressions)"
+  },
+  {
+   "fn": "urmail_marketing_flow_sendable",
+   "file": "platform_marketing_flows.sql",
+   "method": "PlatformMarketingFlowStillAllowed",
+   "line": 147,
+   "snippet": "SELECT (urmail_marketing_flow_sendable(?1,?2,?3) NOT IN ('missing','blocked','uncertain')) AS allowe",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：missing|blocked|uncertain|step 判定",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_marketing_flows.sql",
+   "method": "PlatformAuthorizeMarketingFlowSend",
+   "line": 161,
+   "snippet": "SELECT (urmail_mail_allowed(sqlc.arg(tenant_id))",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_alias_would_cycle",
+   "file": "platform_postfix.sql",
+   "method": "AliasWouldCycle",
+   "line": 46,
+   "snippet": "SELECT urmail_alias_would_cycle(sqlc.arg('domain'), sqlc.arg('local_part'), sqlc.arg('target')) AS w",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：WITH RECURSIVE 别名图闭包",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_restore_sync_epoch",
+   "file": "platform_restore_sync.sql",
+   "method": "PlatformRestoreSyncEpoch",
+   "line": 4,
+   "snippet": "SELECT urmail_restore_sync_epoch() AS epoch;",
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：settings.restore_replay_review -> sync_epoch",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_domain_mail_ready",
+   "file": "platform_sieve_gate.sql",
+   "method": "PlatformSieveOutboundAllowed",
+   "line": 11,
+   "snippet": "AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)",
+   "strategy": "inline",
+   "replacement": "EXISTS(SELECT 1 FROM domains WHERE tenant_id=<tenant> AND id=<domain> AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready')"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_sieve_gate.sql",
+   "method": "PlatformSieveOutboundAllowed",
+   "line": 12,
+   "snippet": "AND urmail_mail_allowed(m.tenant_id)) AS allowed;",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_quota_day",
+   "file": "platform_usage.sql",
+   "method": "GetMailboxDailySent",
+   "line": 23,
+   "snippet": "LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：quotaDay 计算业务时区日 + mailboxDailySentSQL（sqlite_methods.go）",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_usage.sql",
+   "method": "GetMailboxDailySent",
+   "line": 24,
+   "snippet": "WHERE m.address = ?1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_domain_mail_ready",
+   "file": "platform_usage.sql",
+   "method": "GetMailboxDailySent",
+   "line": 24,
+   "snippet": "WHERE m.address = ?1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_",
+   "strategy": "inline",
+   "replacement": "EXISTS(SELECT 1 FROM domains WHERE tenant_id=<tenant> AND id=<domain> AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready')"
+  },
+  {
+   "fn": "urmail_quota_day",
+   "file": "platform_usage.sql",
+   "method": "GetMailboxDailySentForUpdate",
+   "line": 42,
+   "snippet": "LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：同上；SQLite 单写者替代 FOR UPDATE",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mail_allowed",
+   "file": "platform_usage.sql",
+   "method": "GetMailboxDailySentForUpdate",
+   "line": 43,
+   "snippet": "WHERE m.address = ?1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_",
+   "strategy": "inline-compose",
+   "replacement": "tenants.status='active' AND (无域名 OR 存在 ready 域名) 完整链见 fnbodies 归档；内联后与 mail_readable/domain_mail_ready 组合"
+  },
+  {
+   "fn": "urmail_domain_mail_ready",
+   "file": "platform_usage.sql",
+   "method": "GetMailboxDailySentForUpdate",
+   "line": 43,
+   "snippet": "WHERE m.address = ?1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_",
+   "strategy": "inline",
+   "replacement": "EXISTS(SELECT 1 FROM domains WHERE tenant_id=<tenant> AND id=<domain> AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready')"
+  },
+  {
+   "fn": "urmail_quota_day",
+   "file": "platform_usage.sql",
+   "method": "IncrementMailboxDailySent",
+   "line": 52,
+   "snippet": "VALUES (?1, ?2, urmail_quota_day(?2), 1)",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：quotaDay + incrementMailboxDailySentSQL",
+   "status": "closed"
+  },
+  {
+   "fn": "urmail_mail_readable",
+   "file": "platform_usage.sql",
+   "method": "PlatformInboundAllowed",
+   "line": 82,
+   "snippet": "SELECT COALESCE((SELECT urmail_mail_readable(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d",
+   "strategy": "inline",
+   "replacement": "EXISTS(SELECT 1 FROM tenants t WHERE t.id=<tenant> AND t.status='active')"
+  },
+  {
+   "fn": "urmail_domain_mail_ready",
+   "file": "platform_usage.sql",
+   "method": "PlatformInboundAllowed",
+   "line": 82,
+   "snippet": "SELECT COALESCE((SELECT urmail_mail_readable(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d",
+   "strategy": "inline",
+   "replacement": "EXISTS(SELECT 1 FROM domains WHERE tenant_id=<tenant> AND id=<domain> AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready')"
+  },
+  {
+   "fn": "urmail_take_mailbox_quota",
+   "file": "platform_usage.sql",
+   "method": "PlatformTakeMailboxDailyQuota",
+   "line": 92,
+   "snippet": "SELECT urmail_take_mailbox_quota(sqlc.arg(tenant_id),sqlc.arg(mailbox_id)) AS allowed;",
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：settingLimitSQL + takeMailboxQuotaSQL（含 lim<=0 短路）",
+   "status": "closed"
+  }
+ ],
+ "first_batch_breakdown": {
+  "urmail_restore_quarantine_active": 24,
+  "urmail_mail_allowed": 10,
+  "urmail_domain_mail_ready": 4,
+  "urmail_mail_readable": 1,
+  "urmail_archive_case_grant": 3,
+  "urmail_marketing_flow_may_advance": 2
+ },
+ "first_batch_note": "口径=按函数相加（restore 24+mail_allowed 10+domain_mail_ready 4+mail_readable 1+case_grant 3+flow_may_advance 2）；urmail_archive_export_visible 2 次（approvals 双端链）不列入首批，随 case 家族第二批。",
+ "b1a_inlined": 44
+}

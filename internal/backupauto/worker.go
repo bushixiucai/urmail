@@ -52,6 +52,10 @@ type Worker struct {
 	Recipient string
 	// OffsiteURI is the s3:// or sftp:// destination.
 	OffsiteURI string
+	// LocalOnly is an explicit operator approval to record a local complete
+	// backup when no offsite destination is configured. The run is marked
+	// pending_local_only; it is never reported as uploaded.
+	LocalOnly bool
 	// Interval is the minimum spacing between successful full runs.
 	Interval time.Duration
 	// Retention policy applied to remote generations after a verified run.
@@ -112,7 +116,13 @@ func (w *Worker) Run(ctx context.Context, logger *zap.Logger) {
 }
 
 func (w *Worker) disabled() bool {
-	return w.Pool == nil || w.Runner == nil || w.Store == nil || w.Recipient == "" || w.OffsiteURI == ""
+	if w.Pool == nil || w.Runner == nil {
+		return true
+	}
+	if w.LocalOnly {
+		return w.Store != nil || w.Recipient != "" || w.OffsiteURI != ""
+	}
+	return w.Store == nil || w.Recipient == "" || w.OffsiteURI == ""
 }
 
 // RunOnce executes one due check and, when due, the full pipeline.
@@ -243,7 +253,14 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	if err = completeLocalArtifacts(stamp, artifacts); err != nil {
 		return err
 	}
-	if _, offsiteErr := w.runOffsitePhase(ctx, stamp, backupTime, artifacts, sourceManifest, scope, consistent); offsiteErr != nil {
+	if w.LocalOnly {
+		// The local generation's own manifest names the generation for the
+		// freshness gate; no offsite object exists.
+		w.manifestName = ManifestName(stamp)
+		if err := recorder.SetOffsiteState(ctx, runUID, OffsiteStatePendingLocalOnly); err != nil {
+			return err
+		}
+	} else if _, offsiteErr := w.runOffsitePhase(ctx, stamp, backupTime, artifacts, sourceManifest, scope, consistent); offsiteErr != nil {
 		// v0.6.25 semantics: an offsite destination is configured, so a run
 		// whose offsite copy failed can never satisfy the "fresh, fully
 		// verified backup" release gate. The local generation stays on disk
@@ -258,10 +275,21 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 			localGenerationUsage(artifacts), offsiteErr)
 	}
 
+	if !w.LocalOnly {
+		if err := recorder.SetOffsiteState(ctx, runUID, OffsiteStateUploaded); err != nil {
+			return err
+		}
+	}
 	if err := recorder.MarkVerifying(ctx, runUID); err != nil {
 		return err
 	}
 
+	if w.LocalOnly {
+		// No offsite inventory exists to prune; local generations are kept
+		// and the run still counts as a verified local complete backup.
+		w.retentionNote = "retention skipped: local-only backup has no offsite inventory"
+		return nil
+	}
 	// Retention runs last and refuses whenever the planner is not certain.
 	deleted, plan, err := w.applyRetention(ctx)
 	w.retentionDeleted = deleted

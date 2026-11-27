@@ -2,6 +2,7 @@ package airetrieval
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -39,12 +41,15 @@ func (s PGChunkStore) inTx(ctx context.Context, p Principal, op txOp) error {
 	if s.Pool == nil || !p.Valid() {
 		return errors.New("airetrieval: missing store pool or principal")
 	}
+	// The store owns the tenant scope of the principal it was given; callers
+	// (service/HTTP) authenticate the principal, but do not carry DB scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: p.TenantID})
 	tx, err := s.Pool.MailboxTx(ctx, p.TenantID, p.MailboxID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	if err := op(ctx, store.New(tx)); err != nil {
+	if err := op(ctx, db.Queries(tx)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -79,9 +84,13 @@ func (s PGChunkStore) ReplaceMessage(ctx context.Context, p Principal, folder st
 		if version < math.MinInt32 || version > math.MaxInt32 || len(contents) > math.MaxInt32 {
 			return fmt.Errorf("airetrieval: message version or chunk count out of range")
 		}
+		uidsJSON, err := json.Marshal([]int64{int64(uid)})
+		if err != nil {
+			return err
+		}
 		if _, err := q.DeleteMailboxAIChunkMessages(ctx, store.DeleteMailboxAIChunkMessagesParams{
 			TenantID: p.TenantID, MailboxID: p.MailboxID, Folder: folder,
-			FolderUidvalidity: int64(uidValidity), Column5: []int64{int64(uid)},
+			FolderUidvalidity: int64(uidValidity), MessageUids: string(uidsJSON),
 		}); err != nil {
 			return err
 		}
@@ -110,10 +119,14 @@ func (s PGChunkStore) DeleteMessages(ctx context.Context, p Principal, folder st
 	for _, uid := range uids {
 		ids = append(ids, int64(uid))
 	}
+	uidsJSON, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
 	return s.inTx(ctx, p, func(ctx context.Context, q *store.Queries) error {
 		_, err := q.DeleteMailboxAIChunkMessages(ctx, store.DeleteMailboxAIChunkMessagesParams{
 			TenantID: p.TenantID, MailboxID: p.MailboxID, Folder: folder,
-			FolderUidvalidity: int64(uidValidity), Column5: ids,
+			FolderUidvalidity: int64(uidValidity), MessageUids: string(uidsJSON),
 		})
 		return err
 	})
@@ -149,7 +162,8 @@ func (s PGChunkStore) SearchChunks(ctx context.Context, p Principal, query strin
 			return fmt.Errorf("airetrieval: limit out of range")
 		}
 		rows, err := q.SearchMailboxAIChunks(ctx, store.SearchMailboxAIChunksParams{
-			TenantID: p.TenantID, MailboxID: p.MailboxID, Column3: query, Column4: int32(limit),
+			TenantID: p.TenantID, MailboxID: p.MailboxID,
+			Column3: sql.NullString{String: query, Valid: true}, Limit: int64(limit),
 		})
 		if err != nil {
 			return err
@@ -217,7 +231,7 @@ func (s PGChunkStore) SearchChunksInScope(ctx context.Context, p Principal, quer
 		if limit < 0 || limit > math.MaxInt32 {
 			return errors.New("airetrieval: limit out of range")
 		}
-		rows, err := q.SearchMailboxAIChunksInScope(ctx, store.SearchMailboxAIChunksInScopeParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Query: query, Scope: raw, ResultLimit: int32(limit)})
+		rows, err := q.SearchMailboxAIChunksInScope(ctx, store.SearchMailboxAIChunksInScopeParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Query: sql.NullString{String: query, Valid: true}, Scope: string(raw), ResultLimit: int64(limit)})
 		if err != nil {
 			return err
 		}

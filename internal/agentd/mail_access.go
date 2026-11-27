@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -125,7 +128,7 @@ func (m *ApplyManager) StartMailAccessWatcher(ctx context.Context, logger *slog.
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	q := store.New(m.pool.Pool)
+	q := db.Queries(m.pool)
 	go func() {
 		defer close(done)
 		watchMailAccess(ctx, func(queryCtx context.Context) ([]MailAccess, time.Time, error) {
@@ -142,8 +145,8 @@ func (m *ApplyManager) StartMailAccessWatcher(ctx context.Context, logger *slog.
 				states = append(states, MailAccess{Address: row.Address, Allowed: row.Allowed, TenantID: row.TenantID, MailboxID: row.MailboxID, PasswordVersion: row.PasswordVersion, PasswordRevokePending: row.PasswordRevokePending})
 			}
 			var next time.Time
-			if boundary.Valid {
-				next = boundary.Time
+			if boundary != 0 {
+				next = timeutil.FromMicro(boundary)
 			}
 			return states, next, nil
 		}, m.run, logger, func(ackCtx context.Context, row MailAccess) error {

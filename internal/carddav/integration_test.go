@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
@@ -31,7 +33,7 @@ func (l pgSessionLookup) GetMailboxSession(ctx context.Context, tokenHash string
 		MailboxID:       row.MailboxID,
 		Address:         row.Address,
 		PasswordVersion: row.PasswordVersion,
-		ExpiresAt:       row.ExpiresAt.Time,
+		ExpiresAt:       timeutil.FromMicro(row.ExpiresAt),
 	}, nil
 }
 

@@ -1,7 +1,6 @@
 package agentd
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -11,7 +10,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/bushixiucai/urmail/internal/certs"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/nginx"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/reconcile"
@@ -33,9 +35,9 @@ func (m *ApplyManager) brandNginxDomains() ([]nginx.DomainConfig, error) {
 	if m.pool == nil {
 		return nil, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := platformContext(5 * time.Second)
 	defer cancel()
-	rows, err := store.New(m.pool).PlatformListBrandHosts(ctx)
+	rows, err := db.Queries(m.pool).PlatformListBrandHosts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -92,9 +94,11 @@ func (m *ApplyManager) ActivateBrandHost(raw json.RawMessage) (string, string, e
 	if !validation.IsValidHostname(p.Hostname) || p.BrandID <= 0 || p.ActorID <= 0 || p.VerifiedAt.IsZero() || m.pool == nil {
 		return "", "", fmt.Errorf("%w: invalid brand identity", ErrRejected)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := platformContext(3 * time.Minute)
 	defer cancel()
-	q := store.New(m.pool)
+	// Trusted platform entry: the actor is verified as a platform admin below
+	// and every store call in this method is platform-scoped.
+	q := db.Queries(m.pool)
 	reserved, reservedErr := q.PlatformBrandHostReserved(ctx, p.Hostname)
 	if reservedErr != nil || reserved || p.Hostname == m.hostname() {
 		return "", "", fmt.Errorf("%w: hostname is reserved", ErrRejected)
@@ -106,7 +110,7 @@ func (m *ApplyManager) ActivateBrandHost(raw json.RawMessage) (string, string, e
 		}
 	}
 	original, err := q.PlatformGetBrandHostLifecycle(ctx, p.Hostname)
-	if err != nil || original.BrandID != p.BrandID || !original.VerifiedAt.Time.Equal(p.VerifiedAt) || !m.brandHostCertEligible(p.Hostname) {
+	if err != nil || original.BrandID != p.BrandID || !timeutil.FromMicro(original.VerifiedAt).Equal(p.VerifiedAt) || !m.brandHostCertEligible(p.Hostname) {
 		return "", "", fmt.Errorf("%w: brand authorization changed", ErrRejected)
 	}
 	if m.cfg.PreserveExternalWeb {
@@ -134,7 +138,7 @@ func (m *ApplyManager) ActivateBrandHost(raw json.RawMessage) (string, string, e
 	if err != nil || n != 1 {
 		return "", "", fmt.Errorf("%w: brand authorization changed", ErrRejected)
 	}
-	snapshot, err := reconcile.AssembleConfigContext(ctx, m.cfg, &reconcile.VersionedStore{StoreQuerier: store.New(m.pool), DB: m.pool.Pool}, m.cfg.PublicIPv4, m.cfg.Nameservers)
+	snapshot, err := reconcile.AssembleConfigContext(ctx, m.cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(m.pool), DB: m.pool.Pool}, m.cfg.PublicIPv4, m.cfg.Nameservers)
 	if err == nil {
 		payload, _ := json.Marshal(ApplyParams{Postfix: snapshot.PostfixSnap, DNS: snapshot.NSDSnap, DKIM: snapshot.DKIM, SpamPolicies: snapshot.DovecotNode.SpamPolicies})
 		_, _, err = m.Apply(payload)

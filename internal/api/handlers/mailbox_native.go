@@ -8,12 +8,15 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/eas"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
@@ -22,11 +25,8 @@ import (
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
-func timestamptzTime(v pgtype.Timestamptz) time.Time {
-	if !v.Valid {
-		return time.Time{}
-	}
-	return v.Time
+func timestamptzTime(v int64) time.Time {
+	return timeutil.FromMicro(v)
 }
 
 // MailboxNativeHandler serves the native webmail API (IMAP proxy).
@@ -36,11 +36,16 @@ type MailboxNativeHandler struct {
 	AILocalEndpoints []string
 	MailHost         string
 	Enabled          bool
-	Auth             MailboxNativeAuth
-	Sessions         MailboxNativeSessions
-	Vault            webmail.CredentialVault
-	Dialer           webmail.Dialer
-	Submitter        webmail.Submitter
+	// Auth / Sessions / SelfSettings / ReadOnlyStore back the native webmail
+	// handler. In SQLite single-engine mode ReadOnlyStore serves folder and
+	// message-summary reads scoped strictly to (session.TenantID, session.MailboxID)
+	// without dialing an external IMAP server.
+	Auth          MailboxNativeAuth
+	Sessions      MailboxNativeSessions
+	ReadOnlyStore MailboxReadOnlyStore
+	Vault         webmail.CredentialVault
+	Dialer        webmail.Dialer
+	Submitter     webmail.Submitter
 	// MaySend reports whether this mailbox may submit mail. Nil preserves older routes.
 	MaySend func(context.Context, int64, int64) (bool, error)
 	// Secrets seals SMTP passwords into mailbox_scheduled_sends.smtp_secret.
@@ -60,6 +65,14 @@ type MailboxNativeHandler struct {
 	// confirmation tokens). An empty key disables those features: remote
 	// images stay blocked and links keep their plain form.
 	RenderKey []byte
+	// ProtocolValidateOnly turns ProtocolAuth into a side-effect-free
+	// credential check: password verification and the rate limiter still
+	// run, but no session row is created or revoked, no credential is
+	// vaulted and no bearer is minted. The SQLite slice-1 runtime sets this
+	// (contract V2 §5: authentication is allowed only as side-effect-free
+	// validation); the router's out-of-group gate then denies the unapproved
+	// protocol surface. PG mode must leave it false.
+	ProtocolValidateOnly bool
 	// ImageFetcher downloads proxied images. Nil uses the default fetcher
 	// with its SSRF screen and limits; tests inject their own.
 	ImageFetcher ImageProxyFetcher
@@ -81,6 +94,14 @@ type MailboxNativeAuth interface {
 	Lookup(ctx context.Context, address string) (tenantID, mailboxID int64, canonicalAddress, passwordHash string, err error)
 }
 
+// MailboxReadOnlyStore serves read-only folder and message-summary listings in
+// SQLite single-engine mode. Every implementation must enforce tenantID and
+// mailboxID ownership derived from the verified session principal.
+type MailboxReadOnlyStore interface {
+	ListFolders(ctx context.Context, tenantID, mailboxID int64) ([]webmail.Folder, error)
+	ListMessages(ctx context.Context, tenantID, mailboxID int64, folder string, opts webmail.ListOpts) (webmail.ListResult, error)
+}
+
 // MailboxNativeSessions persists short-lived mailbox bearer tokens.
 type MailboxNativeSessions interface {
 	// Create inserts a session; remember extends its TTL from 30 minutes to
@@ -97,6 +118,7 @@ type StoreMailboxNative struct {
 
 // Lookup resolves an active mailbox by address.
 func (s StoreMailboxNative) Lookup(ctx context.Context, address string) (int64, int64, string, string, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return 0, 0, "", "", pgx.ErrNoRows
 	}
@@ -120,6 +142,7 @@ func mailboxSessionTTL(remember bool) pgtype.Interval {
 
 // Create inserts a mailbox_sessions row (same principal table as Roundcube bridge).
 func (s StoreMailboxNative) Create(ctx context.Context, tokenHash, address, expectedHash string, remember bool) (webmail.Session, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return webmail.Session{}, pgx.ErrNoRows
 	}
@@ -146,6 +169,7 @@ func (s StoreMailboxNative) Create(ctx context.Context, tokenHash, address, expe
 
 // Get loads a still-valid mailbox session.
 func (s StoreMailboxNative) Get(ctx context.Context, tokenHash string) (webmail.Session, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return webmail.Session{}, pgx.ErrNoRows
 	}
@@ -166,6 +190,7 @@ func (s StoreMailboxNative) Get(ctx context.Context, tokenHash string) (webmail.
 
 // Revoke marks the session revoked.
 func (s StoreMailboxNative) Revoke(ctx context.Context, tokenHash string) error {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return nil
 	}
@@ -305,6 +330,30 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 
 // ListFolders returns IMAP folders for the authenticated mailbox principal.
 func (h *MailboxNativeHandler) ListFolders(c *gin.Context) {
+	if h.ReadOnlyStore != nil {
+		if !h.requireEnabled(c) {
+			return
+		}
+		session, ok := middleware.GetMailboxSession(c)
+		if !ok || session.TenantID <= 0 || session.MailboxID <= 0 {
+			authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+			return
+		}
+		folders, err := h.ReadOnlyStore.ListFolders(c.Request.Context(), session.TenantID, session.MailboxID)
+		if err != nil {
+			if errors.Is(err, ErrMailboxNotFound) {
+				authError(c, http.StatusNotFound, "MAILBOX_NOT_FOUND")
+				return
+			}
+			authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+			return
+		}
+		if folders == nil {
+			folders = []webmail.Folder{}
+		}
+		c.JSON(http.StatusOK, gin.H{"folders": folders})
+		return
+	}
 	client, _, ok := h.dialIMAP(c)
 	if !ok {
 		return
@@ -400,6 +449,7 @@ func (h *MailboxNativeHandler) DeleteSession(c *gin.Context) {
 
 // BrandTenantMatches preserves the current brand boundary for native sessions.
 func (s StoreMailboxNative) BrandTenantMatches(ctx context.Context, tenant, brand int64) bool {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return false
 	}

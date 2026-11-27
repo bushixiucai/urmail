@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
@@ -62,7 +64,7 @@ func TestArchiveExportLayeredSizesOverRealHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: "export", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "layered export integrity verification", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}}); err != nil {
+	if _, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: "export", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), Reason: "layered export integrity verification", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}}); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
 	}

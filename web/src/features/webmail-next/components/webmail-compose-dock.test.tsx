@@ -1,7 +1,14 @@
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailComposeDock } from "./webmail-compose-dock";
-import { sendMessage } from "@/features/webmail/mailbox-api";
+import { sendMessage, saveDraft } from "@/features/webmail/mailbox-api";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
@@ -22,6 +29,18 @@ vi.mock("@/features/webmail/mailbox-api", async () => {
 
 afterEach(() => {
   cleanup();
+  window.sessionStorage.clear();
+  window.localStorage.clear();
+  vi.mocked(saveDraft).mockClear();
+  vi.mocked(sendMessage).mockClear();
+  vi.mocked(saveDraft).mockResolvedValue({
+    saved: true,
+    uid: 999,
+    uid_validity: 1,
+    folder: "Drafts",
+    name_enc: "b64.RHJhZnRz",
+  });
+  vi.mocked(sendMessage).mockResolvedValue({ sent: true } as never);
 });
 
 describe("WebmailComposeDock", () => {
@@ -274,5 +293,172 @@ describe("WebmailComposeDock", () => {
       "compose-subject-input",
     ) as HTMLInputElement;
     expect(subjectInput.value).toBe("Original Subject");
+  });
+});
+
+describe("draft autosave failure visibility", () => {
+  it("shows a visible failure notice and never the saved label when autosave fails", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(saveDraft).mockClear();
+      vi.mocked(saveDraft).mockRejectedValueOnce(new Error("503"));
+      render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+
+      fireEvent.change(screen.getByTestId("compose-subject-input"), {
+        target: { value: "Visibility check" },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+
+      expect(screen.getByTestId("draft-save-error-notice")).toBeTruthy();
+      expect(
+        screen.getByTestId("draft-save-error-notice").textContent,
+      ).toContain("webmail_next.draft_save_failed");
+      // The retry entry rides on the failure notice (REVIEW-UX-002).
+      expect(screen.getByTestId("draft-save-retry")).toBeTruthy();
+      // The 503-class failure must not be presented as a server save.
+      expect(screen.queryByTestId("draft-status-indicator")).toBeNull();
+      // No retry storm: exactly one autosave attempt for one debounced edit.
+      expect(saveDraft).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the failure notice and shows the saved label after a later successful save", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(saveDraft).mockClear();
+      vi.mocked(saveDraft)
+        .mockRejectedValueOnce(new Error("503"))
+        .mockResolvedValueOnce({
+          saved: true,
+          uid: 7,
+          uid_validity: 1,
+          folder: "Drafts",
+          name_enc: "s5a-visibility",
+        });
+      render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+
+      fireEvent.change(screen.getByTestId("compose-subject-input"), {
+        target: { value: "First attempt" },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      expect(screen.getByTestId("draft-save-error-notice")).toBeTruthy();
+
+      fireEvent.change(screen.getByTestId("compose-subject-input"), {
+        target: { value: "First attempt, edited" },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+
+      expect(screen.queryByTestId("draft-save-error-notice")).toBeNull();
+      expect(
+        screen.getByTestId("draft-status-indicator").textContent,
+      ).toContain("webmail_next.draft_saved");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks a restored draft without a server uid as local only, then auto-saves it once", async () => {
+    localStorage.setItem(
+      "urmail.webmail.active_draft",
+      JSON.stringify({
+        to: ["partner@example.test"],
+        subject: "Restored draft",
+        text: "body text",
+      }),
+    );
+    render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+    // The restore flush pushes the stashed draft to the server immediately
+    // (REVIEW-UX-002), so the local-only state resolves to saved.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("draft-status-indicator").textContent,
+      ).toContain("webmail_next.draft_saved"),
+    );
+    expect(saveDraft).toHaveBeenCalledTimes(1);
+    const body = vi.mocked(saveDraft).mock.calls[0][0];
+    expect(body.subject).toBe("Restored draft");
+    expect(body.to).toEqual(["partner@example.test"]);
+  });
+
+  it("shows a retry entry when the draft save fails and re-saves on click", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(saveDraft).mockRejectedValueOnce(
+        Object.assign(new Error("503"), { status: 503 }),
+      );
+      render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+      fireEvent.change(screen.getByTestId("compose-subject-input"), {
+        target: { value: "Persist me" },
+      });
+      // The 2s debounce gates the server save.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+      expect(saveDraft).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId("draft-save-error-notice")).toBeTruthy();
+      const retry = screen.getByTestId("draft-save-retry");
+      fireEvent.click(retry);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(saveDraft).toHaveBeenCalledTimes(2);
+      expect(screen.queryByTestId("draft-save-error-notice")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows failure instead of success when send rejects (503), keeps the draft and retries", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(sendMessage).mockRejectedValueOnce(
+        Object.assign(new Error("503"), { status: 503 }),
+      );
+      const onClose = vi.fn();
+      render(
+        <WebmailComposeDock
+          isOpen={true}
+          onClose={onClose}
+          initialTo={["a@b.test"]}
+          initialSubject="Hello"
+        />,
+      );
+      fireEvent.click(screen.getByTestId("compose-send-button"));
+      // Undo window must NOT claim success before the API resolves.
+      expect(screen.queryByTestId("send-sent-toast")).toBeNull();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // Failure: no sent toast, dock stays open, explicit retry entry.
+      expect(screen.queryByTestId("send-sent-toast")).toBeNull();
+      expect(screen.getByTestId("send-failed-toast")).toBeTruthy();
+      expect(screen.getByTestId("send-retry-button")).toBeTruthy();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByTestId("compose-send-button")).toBeTruthy();
+      // Retry send succeeds → success toast + close.
+      fireEvent.click(screen.getByTestId("send-retry-button"));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("send-sent-toast")).toBeTruthy();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

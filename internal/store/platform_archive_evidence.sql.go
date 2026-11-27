@@ -31,26 +31,3 @@ func (q *Queries) PlatformEvidenceVisible(ctx context.Context, arg PlatformEvide
 	err := row.Scan(&visible)
 	return visible, err
 }
-
-const platformReadEvidenceBody = `-- name: PlatformReadEvidenceBody :one
-SELECT urmail_read_evidence_body($1,$2,$3,$4)
-`
-
-type PlatformReadEvidenceBodyParams struct {
-	PTenant  int64  `json:"p_tenant"`
-	PRequest int64  `json:"p_request"`
-	PActor   int64  `json:"p_actor"`
-	PDigest  string `json:"p_digest"`
-}
-
-func (q *Queries) PlatformReadEvidenceBody(ctx context.Context, arg PlatformReadEvidenceBodyParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, platformReadEvidenceBody,
-		arg.PTenant,
-		arg.PRequest,
-		arg.PActor,
-		arg.PDigest,
-	)
-	var urmail_read_evidence_body []byte
-	err := row.Scan(&urmail_read_evidence_body)
-	return urmail_read_evidence_body, err
-}

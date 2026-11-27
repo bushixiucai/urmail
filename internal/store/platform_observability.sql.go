@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformArchivePathIndexed = `-- name: PlatformArchivePathIndexed :one
@@ -29,8 +27,8 @@ SELECT
 `
 
 type PlatformBackupFreshnessRow struct {
-	LatestState   string             `json:"latest_state"`
-	LastSuccessAt pgtype.Timestamptz `json:"last_success_at"`
+	LatestState   string `json:"latest_state"`
+	LastSuccessAt int64  `json:"last_success_at"`
 }
 
 // OPS-003: single-row backup freshness facts for the alert evaluator. The

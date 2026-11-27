@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -29,10 +31,14 @@ func dnsAudit(ctx context.Context, q *store.Queries, tenant int64, action, targe
 // DNSOnce claims one fenced, explicitly confirmed plan. Unknown upstream
 // results become uncertain and are never replayed automatically.
 func (s *Service) DNSOnce(ctx context.Context, owner string) (bool, error) {
+	// Daemon janitor pass: every statement in this loop is platform-domain
+	// (lease/claim/advance). Elevate once at entry instead of leaking raw
+	// daemon context into scoped queries (purgeExpiredSessions precedent).
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if config.RestoreQuarantined() {
 		return false, errors.New("RESTORE_QUARANTINED")
 	}
-	q := store.New(s.Pool.Pool)
+	q := db.Queries(s.Pool.Pool)
 	if _, err := q.PlatformExpireDNSClaims(ctx); err != nil {
 		return false, err
 	}
@@ -70,7 +76,7 @@ func (s *Service) dnsFence(ctx context.Context, q *store.Queries, p store.DnsCha
 	return nil
 }
 func (s *Service) applyDNS(ctx context.Context, p store.DnsChangePlans) error {
-	q := store.New(s.Pool.Pool)
+	q := db.Queries(s.Pool.Pool)
 	d, err := q.PlatformDNSDomain(ctx, store.PlatformDNSDomainParams{TenantID: p.TenantID, ID: p.DomainID})
 	if err != nil {
 		return err
@@ -117,7 +123,7 @@ func (s *Service) applyDNS(ctx context.Context, p store.DnsChangePlans) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	tq := store.New(tx)
+	tq := db.Queries(tx)
 	if err = s.dnsFence(ctx, tq, p); err != nil {
 		return err
 	}
@@ -194,7 +200,7 @@ func (s *Service) submitDNS(ctx context.Context, p store.DnsChangePlans, a store
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = s.dnsFence(ctx, q, p); err != nil {
 		return err
 	}
@@ -221,7 +227,7 @@ func (s *Service) finishDNSAction(ctx context.Context, p store.DnsChangePlans, a
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	observed, _ := json.Marshal(result)
 	n, err := q.PlatformCompleteDNSAction(ctx, store.PlatformCompleteDNSActionParams{ID: a.ID, Fence: p.Fence, LeaseOwner: p.LeaseOwner, Status: state, ProviderRecordID: text(result.ID), Owned: owned, ObservedRecord: observed, LastErrorCode: text(map[bool]string{true: "DNS_RESULT_UNKNOWN"}[state == "uncertain"])})
 	if err != nil || n != 1 {
@@ -238,7 +244,7 @@ func (s *Service) completeDNS(ctx context.Context, p store.DnsChangePlans, state
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = s.dnsFence(ctx, q, p); err != nil {
 		return err
 	}
@@ -257,7 +263,7 @@ func (s *Service) applyLocalDNS(ctx context.Context, p store.DnsChangePlans, bef
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = s.dnsFence(ctx, q, p); err != nil {
 		return err
 	}
@@ -307,7 +313,7 @@ func (s *Service) applyLocalDNS(ctx context.Context, p store.DnsChangePlans, bef
 	return tx.Commit(ctx)
 }
 func (s *Service) rollbackProviderDNS(ctx context.Context, p store.DnsChangePlans, manager dnsprovider.RecordManager, zone dnsprovider.Zone, current []dnsprovider.RemoteRecord) error {
-	actions, err := store.New(s.Pool.Pool).PlatformListDNSActions(ctx, p.ID)
+	actions, err := db.Queries(s.Pool.Pool).PlatformListDNSActions(ctx, p.ID)
 	if err != nil {
 		return err
 	}

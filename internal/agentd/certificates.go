@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/certs"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/nginx"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // OpCertificateIssue issues for a registered domain using an agent-owned key.
@@ -197,9 +197,9 @@ func (m *ApplyManager) brandHostCertEligible(domain string) bool {
 	if m.pool == nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := platformContext(3 * time.Second)
 	defer cancel()
-	eligible, err := store.New(m.pool.Pool).PlatformBrandHostCertEligible(ctx, domain)
+	eligible, err := db.Queries(m.pool).PlatformBrandHostCertEligible(ctx, domain)
 	return err == nil && eligible
 }
 
@@ -423,13 +423,16 @@ func (m *ApplyManager) issueCertificateContext(ctx context.Context, domain strin
 		_ = rollback()
 		return err
 	}
-	checks := [][]string{{"/usr/sbin/nginx", "-t"}}
-	units := []string{"nginx"}
-	if domain == m.hostname() {
-		checks = append(checks, []string{"/usr/bin/doveconf", "-n"}, []string{"/usr/sbin/postfix", "check"})
-		units = append(units, "dovecot", "postfix")
-	}
 	reload := func() error {
+		if m.cfg != nil && strings.TrimSpace(m.cfg.RenderedConfigDir) != "" {
+			return m.reloadComposeCertificates(domain)
+		}
+		checks := [][]string{{"/usr/sbin/nginx", "-t"}}
+		units := []string{"nginx"}
+		if domain == m.hostname() {
+			checks = append(checks, []string{"/usr/bin/doveconf", "-n"}, []string{"/usr/sbin/postfix", "check"})
+			units = append(units, "dovecot", "postfix")
+		}
 		for _, c := range checks {
 			if err := m.run(installCtx, c[0], c[1:]...); err != nil {
 				return err
@@ -520,7 +523,7 @@ func (m *ApplyManager) customWebEnabled(domain string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	enabled, err := store.New(m.pool.Pool).PlatformCustomWebEnabled(ctx, domain)
+	enabled, err := db.Queries(m.pool).PlatformCustomWebEnabled(ctx, domain)
 	return err == nil && enabled
 }
 func (m *ApplyManager) certificateProvisioningAllowed(domain string) bool {
@@ -533,8 +536,8 @@ func (m *ApplyManager) certificateProvisioningAllowed(domain string) bool {
 	if domain == m.hostname() || m.pool == nil {
 		return true
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := platformContext(3 * time.Second)
 	defer cancel()
-	allowed, err := store.New(m.pool.Pool).PlatformProvisioningCertificateAllowed(ctx, domain)
+	allowed, err := db.Queries(m.pool).PlatformProvisioningCertificateAllowed(ctx, domain)
 	return err == nil && allowed
 }

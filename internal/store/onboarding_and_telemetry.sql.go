@@ -12,12 +12,13 @@ import (
 )
 
 const countDeliveryEventsByStatus = `-- name: CountDeliveryEventsByStatus :many
-SELECT status, count(*) AS count FROM delivery_events WHERE tenant_id=$1 AND occurred_at >= $2 GROUP BY status
+
+SELECT status, count(*) AS count FROM delivery_events WHERE tenant_id=?1 AND occurred_at >= ?2 GROUP BY status
 `
 
 type CountDeliveryEventsByStatusParams struct {
-	TenantID   pgtype.Int8        `json:"tenant_id"`
-	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
+	TenantID   pgtype.Int8 `json:"tenant_id"`
+	OccurredAt int64       `json:"occurred_at"`
 }
 
 type CountDeliveryEventsByStatusRow struct {
@@ -25,6 +26,7 @@ type CountDeliveryEventsByStatusRow struct {
 	Count  int64  `json:"count"`
 }
 
+// scope: tenant
 func (q *Queries) CountDeliveryEventsByStatus(ctx context.Context, arg CountDeliveryEventsByStatusParams) ([]CountDeliveryEventsByStatusRow, error) {
 	rows, err := q.db.Query(ctx, countDeliveryEventsByStatus, arg.TenantID, arg.OccurredAt)
 	if err != nil {
@@ -46,7 +48,8 @@ func (q *Queries) CountDeliveryEventsByStatus(ctx context.Context, arg CountDeli
 }
 
 const createOnboardingTask = `-- name: CreateOnboardingTask :one
-INSERT INTO onboarding_tasks (tenant_id, domain_id, order_id, status, step, max_attempts) VALUES ($1,$2,$3,'pending',$4,$5) RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, leased_until, leased_by, created_at, updated_at, completed_at, fence, next_attempt_at, desired_generation, last_error_code
+
+INSERT INTO onboarding_tasks (tenant_id, domain_id, order_id, status, step, max_attempts) VALUES (?1,?2,?3,'pending',?4,?5) RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code
 `
 
 type CreateOnboardingTaskParams struct {
@@ -57,6 +60,7 @@ type CreateOnboardingTaskParams struct {
 	MaxAttempts int32       `json:"max_attempts"`
 }
 
+// scope: tenant
 func (q *Queries) CreateOnboardingTask(ctx context.Context, arg CreateOnboardingTaskParams) (OnboardingTasks, error) {
 	row := q.db.QueryRow(ctx, createOnboardingTask,
 		arg.TenantID,
@@ -90,7 +94,8 @@ func (q *Queries) CreateOnboardingTask(ctx context.Context, arg CreateOnboarding
 }
 
 const createOrderOnboardingTask = `-- name: CreateOrderOnboardingTask :one
-INSERT INTO onboarding_tasks (tenant_id, order_id, status, step, max_attempts,domain_id) VALUES ($1,$2,'pending',$3,$4,$5) ON CONFLICT (tenant_id, order_id) WHERE order_id IS NOT NULL DO UPDATE SET order_id=EXCLUDED.order_id RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, leased_until, leased_by, created_at, updated_at, completed_at, fence, next_attempt_at, desired_generation, last_error_code
+
+INSERT INTO onboarding_tasks (tenant_id, order_id, status, step, max_attempts,domain_id) VALUES (?1,?2,'pending',?3,?4,?5) ON CONFLICT (tenant_id, order_id) WHERE order_id IS NOT NULL DO UPDATE SET order_id=EXCLUDED.order_id RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code
 `
 
 type CreateOrderOnboardingTaskParams struct {
@@ -101,6 +106,7 @@ type CreateOrderOnboardingTaskParams struct {
 	DomainID    pgtype.Int8 `json:"domain_id"`
 }
 
+// scope: tenant
 func (q *Queries) CreateOrderOnboardingTask(ctx context.Context, arg CreateOrderOnboardingTaskParams) (OnboardingTasks, error) {
 	row := q.db.QueryRow(ctx, createOrderOnboardingTask,
 		arg.TenantID,
@@ -134,7 +140,8 @@ func (q *Queries) CreateOrderOnboardingTask(ctx context.Context, arg CreateOrder
 }
 
 const getOnboardingTaskByDomain = `-- name: GetOnboardingTaskByDomain :one
-SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, leased_until, leased_by, created_at, updated_at, completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=$1 AND domain_id=$2 ORDER BY created_at DESC LIMIT 1
+
+SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC LIMIT 1
 `
 
 type GetOnboardingTaskByDomainParams struct {
@@ -142,6 +149,7 @@ type GetOnboardingTaskByDomainParams struct {
 	DomainID pgtype.Int8 `json:"domain_id"`
 }
 
+// scope: tenant
 func (q *Queries) GetOnboardingTaskByDomain(ctx context.Context, arg GetOnboardingTaskByDomainParams) (OnboardingTasks, error) {
 	row := q.db.QueryRow(ctx, getOnboardingTaskByDomain, arg.TenantID, arg.DomainID)
 	var i OnboardingTasks
@@ -169,9 +177,11 @@ func (q *Queries) GetOnboardingTaskByDomain(ctx context.Context, arg GetOnboardi
 }
 
 const listDeliveryEventsByTenant = `-- name: ListDeliveryEventsByTenant :many
-SELECT id, tenant_id, instance, queue_id, message_id, sender, sender_domain, recipient, recipient_domain, relay, status, dsn, delay_seconds, response_detail, occurred_at, source_event_id, lifecycle_id FROM delivery_events WHERE tenant_id=$1 ORDER BY occurred_at DESC LIMIT 100
+
+SELECT id, tenant_id, instance, queue_id, message_id, sender, sender_domain, recipient, recipient_domain, relay, status, dsn, delay_seconds, response_detail, occurred_at, source_event_id, lifecycle_id FROM delivery_events WHERE tenant_id=?1 ORDER BY occurred_at DESC LIMIT 100
 `
 
+// scope: tenant
 func (q *Queries) ListDeliveryEventsByTenant(ctx context.Context, tenantID pgtype.Int8) ([]DeliveryEvents, error) {
 	rows, err := q.db.Query(ctx, listDeliveryEventsByTenant, tenantID)
 	if err != nil {
@@ -211,9 +221,11 @@ func (q *Queries) ListDeliveryEventsByTenant(ctx context.Context, tenantID pgtyp
 }
 
 const listOnboardingTasksByTenant = `-- name: ListOnboardingTasksByTenant :many
-SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, leased_until, leased_by, created_at, updated_at, completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 50
+
+SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=?1 ORDER BY created_at DESC LIMIT 50
 `
 
+// scope: tenant
 func (q *Queries) ListOnboardingTasksByTenant(ctx context.Context, tenantID int64) ([]OnboardingTasks, error) {
 	rows, err := q.db.Query(ctx, listOnboardingTasksByTenant, tenantID)
 	if err != nil {
@@ -254,34 +266,39 @@ func (q *Queries) ListOnboardingTasksByTenant(ctx context.Context, tenantID int6
 }
 
 const recordDeliveryEvent = `-- name: RecordDeliveryEvent :execrows
+
 INSERT INTO delivery_events (tenant_id,instance,queue_id,message_id,sender,sender_domain,recipient,recipient_domain,relay,status,dsn,delay_seconds,response_detail,occurred_at,source_event_id)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
- 'compat:' || md5(jsonb_build_array($1::bigint,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::text,$9::text,$10::text,$11::text,$12::double precision,$13::text,$14::timestamptz)::text))
+VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,
+ 'compat:' || md5(json_array(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)))
 ON CONFLICT DO NOTHING
 RETURNING id
 `
 
 type RecordDeliveryEventParams struct {
-	TenantID        pgtype.Int8        `json:"tenant_id"`
-	Instance        string             `json:"instance"`
-	QueueID         string             `json:"queue_id"`
-	MessageID       pgtype.Text        `json:"message_id"`
-	Sender          string             `json:"sender"`
-	SenderDomain    string             `json:"sender_domain"`
-	Recipient       pgtype.Text        `json:"recipient"`
-	RecipientDomain pgtype.Text        `json:"recipient_domain"`
-	Relay           pgtype.Text        `json:"relay"`
-	Status          string             `json:"status"`
-	Dsn             pgtype.Text        `json:"dsn"`
-	DelaySeconds    float64            `json:"delay_seconds"`
-	ResponseDetail  pgtype.Text        `json:"response_detail"`
-	OccurredAt      pgtype.Timestamptz `json:"occurred_at"`
+	TenantID        pgtype.Int8 `json:"tenant_id"`
+	Instance        string      `json:"instance"`
+	QueueID         string      `json:"queue_id"`
+	MessageID       pgtype.Text `json:"message_id"`
+	Sender          string      `json:"sender"`
+	SenderDomain    string      `json:"sender_domain"`
+	Recipient       pgtype.Text `json:"recipient"`
+	RecipientDomain pgtype.Text `json:"recipient_domain"`
+	Relay           pgtype.Text `json:"relay"`
+	Status          string      `json:"status"`
+	Dsn             pgtype.Text `json:"dsn"`
+	DelaySeconds    float64     `json:"delay_seconds"`
+	ResponseDetail  pgtype.Text `json:"response_detail"`
+	OccurredAt      int64       `json:"occurred_at"`
 }
 
+// scope: tenant
 // A conflict returns zero rows so the collector can recognize a safe replay.
 // Compatibility writes hash the typed canonical payload; unknown tenant IDs
 // remain NULL. The managed collector uses its physical source-event identity.
 // occurred_at must come from the source line, never the replay wall clock.
+// json_array (TEXT) replaces jsonb_build_array: the fingerprint is only compared
+// against rows written by this engine, and the SQLite timestamps are already
+// integer micros, so byte-for-byte PG jsonb rendering is not reachable.
 func (q *Queries) RecordDeliveryEvent(ctx context.Context, arg RecordDeliveryEventParams) (int64, error) {
 	result, err := q.db.Exec(ctx, recordDeliveryEvent,
 		arg.TenantID,

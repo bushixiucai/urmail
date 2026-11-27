@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -86,9 +89,9 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 	}
 	sendAt = sendAt.UTC()
 	digest := scheduleRequestHash(req, sendAt)
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	keyArg := store.PlatformGetMailboxScheduledSendByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, IdempotencyKey: key}
-	existing, err := q.PlatformGetMailboxScheduledSendByKey(c.Request.Context(), keyArg)
+	existing, err := q.PlatformGetMailboxScheduledSendByKey(platformCtx(c), keyArg)
 	if err == nil {
 		h.returnScheduleReplay(c, existing, digest)
 		return
@@ -143,18 +146,18 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	lockedQ := store.New(tx)
-	if err = mailboxsend.LockDraft(c, lockedQ, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: req.DraftUID, Validity: validity}); err != nil {
+	lockedQ := db.Queries(tx)
+	if err = mailboxsend.LockDraft(platformCtx(c), lockedQ, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: req.DraftUID, Validity: validity}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	locked, err := lockedQ.PlatformDraftSendLocked(c, store.PlatformDraftSendLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(req.DraftUID), DraftUidvalidity: int64(validity)})
+	locked, err := lockedQ.PlatformDraftSendLocked(platformCtx(c), store.PlatformDraftSendLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(req.DraftUID), DraftUidvalidity: int64(validity)})
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
 	if locked.Bool {
-		if replay, e := lockedQ.PlatformGetMailboxScheduledSendByKey(c.Request.Context(), keyArg); e == nil {
+		if replay, e := lockedQ.PlatformGetMailboxScheduledSendByKey(platformCtx(c), keyArg); e == nil {
 			h.returnScheduleReplay(c, replay, digest)
 			return
 		}
@@ -170,9 +173,9 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 		authError(c, 409, "DRAFT_CHANGED")
 		return
 	}
-	row, err := lockedQ.PlatformCreateMailboxScheduledSend(c.Request.Context(), store.PlatformCreateMailboxScheduledSendParams{
+	row, err := lockedQ.PlatformCreateMailboxScheduledSend(platformCtx(c), store.PlatformCreateMailboxScheduledSendParams{
 		TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(req.DraftUID),
-		DraftUidvalidity: int64(validity), SendAt: pgtype.Timestamptz{Time: sendAt, Valid: true}, SmtpSecret: sealed, IdempotencyKey: key, RequestHash: digest,
+		DraftUidvalidity: int64(validity), SendAt: timeutil.Micro(sendAt), SmtpSecret: sealed, IdempotencyKey: key, RequestHash: digest,
 	})
 	if err != nil {
 		_ = tx.Rollback(context.Background())
@@ -181,7 +184,7 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 		var pgerr *pgconn.PgError
 		if errors.As(err, &pgerr) && pgerr.Code == "23505" {
 			// A simultaneous identical request may have committed while we checked IMAP.
-			if row, err = q.PlatformGetMailboxScheduledSendByKey(c.Request.Context(), keyArg); err == nil {
+			if row, err = q.PlatformGetMailboxScheduledSendByKey(platformCtx(c), keyArg); err == nil {
 				h.returnScheduleReplay(c, row, digest)
 				return
 			}
@@ -243,7 +246,7 @@ func (h *MailboxNativeHandler) ListScheduledSends(c *gin.Context) {
 	if offset > 100000 {
 		offset = 100000
 	}
-	rows, err := store.New(h.Pool.Pool).PlatformListMailboxScheduledSends(c.Request.Context(), store.PlatformListMailboxScheduledSendsParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PageLimit: int32(limit), PageOffset: int32(offset)})
+	rows, err := db.Queries(h.Pool.Pool).PlatformListMailboxScheduledSends(platformCtx(c), store.PlatformListMailboxScheduledSendsParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PageLimit: int32(limit), PageOffset: int32(offset)})
 	if err != nil {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
@@ -274,10 +277,10 @@ func (h *MailboxNativeHandler) CancelScheduledSend(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	q := store.New(h.Pool.Pool)
-	row, err := q.PlatformCancelMailboxScheduledSend(c.Request.Context(), store.PlatformCancelMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	q := db.Queries(h.Pool.Pool)
+	row, err := q.PlatformCancelMailboxScheduledSend(platformCtx(c), store.PlatformCancelMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
-		_, err = q.PlatformGetMailboxScheduledSend(c.Request.Context(), store.PlatformGetMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+		_, err = q.PlatformGetMailboxScheduledSend(platformCtx(c), store.PlatformGetMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 		if errors.Is(err, pgx.ErrNoRows) {
 			authError(c, http.StatusNotFound, "NOT_FOUND")
 			return
@@ -306,8 +309,8 @@ func scheduledSendJSON(v store.MailboxScheduledSends) gin.H {
 	if v.Status == "pending" || v.Status == "preparing" {
 		out["next_attempt_at"] = timestamptzTime(v.NextAttemptAt).UTC().Format(time.RFC3339Nano)
 	}
-	if v.SentAt.Valid {
-		out["sent_at"] = v.SentAt.Time.UTC().Format(time.RFC3339Nano)
+	if v.SentAt != 0 {
+		out["sent_at"] = timeutil.FromMicro(v.SentAt).UTC().Format(time.RFC3339Nano)
 	}
 	if v.LastError.Valid && v.LastError.String != "" {
 		out["last_error"] = v.LastError.String
@@ -337,7 +340,7 @@ func (h *MailboxNativeHandler) AcknowledgeUncertainScheduledSend(c *gin.Context)
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	row, e := store.New(h.Pool.Pool).PlatformAcknowledgeUncertainScheduledSend(c, store.PlatformAcknowledgeUncertainScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	row, e := db.Queries(h.Pool.Pool).PlatformAcknowledgeUncertainScheduledSend(platformCtx(c), store.PlatformAcknowledgeUncertainScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(e, pgx.ErrNoRows) {
 		authError(c, 409, "SCHEDULE_CONFLICT")
 		return

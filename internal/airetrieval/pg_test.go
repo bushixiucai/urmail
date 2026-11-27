@@ -3,6 +3,7 @@ package airetrieval
 import (
 	"testing"
 
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
@@ -38,7 +39,7 @@ func newRetrievalFixture(t *testing.T) (PGChunkStore, Principal, Principal) {
 
 func TestPGChunkStoreCrossMailboxIsolation(t *testing.T) {
 	store, a, b := newRetrievalFixture(t)
-	ctx := t.Context()
+	ctx := isolation.WithScope(t.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: a.TenantID})
 	digest := ContentDigest("invoice total 42")
 	if err := store.ReplaceMessage(ctx, a, "INBOX", 3, 7, 1, digest, []string{"the invoice total is 42 euros"}); err != nil {
 		t.Fatal(err)
@@ -60,7 +61,7 @@ func TestPGChunkStoreCrossMailboxIsolation(t *testing.T) {
 
 func TestPGReplaceMessageIncrementsVersion(t *testing.T) {
 	store, a, _ := newRetrievalFixture(t)
-	ctx := t.Context()
+	ctx := isolation.WithScope(t.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: a.TenantID})
 	if err := store.ReplaceMessage(ctx, a, "INBOX", 3, 7, 1, ContentDigest("v1"), []string{"v1 text"}); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestPGReplaceMessageIncrementsVersion(t *testing.T) {
 
 func TestPGDeleteMessagesDropsChunks(t *testing.T) {
 	store, a, _ := newRetrievalFixture(t)
-	ctx := t.Context()
+	ctx := isolation.WithScope(t.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: a.TenantID})
 	if err := store.ReplaceMessage(ctx, a, "INBOX", 3, 7, 1, ContentDigest("x"), []string{"secret body"}); err != nil {
 		t.Fatal(err)
 	}

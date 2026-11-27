@@ -12,10 +12,11 @@ import (
 )
 
 const createChannelAttribution = `-- name: CreateChannelAttribution :one
+
 INSERT INTO channel_attribution (
     tenant_id, channel_id, ref_code
 ) VALUES (
-    $1, $2, $3
+    ?1, ?2, ?3
 ) ON CONFLICT (tenant_id) DO NOTHING
 RETURNING tenant_id, channel_id, ref_code, created_at
 `
@@ -26,6 +27,7 @@ type CreateChannelAttributionParams struct {
 	RefCode   pgtype.Text `json:"ref_code"`
 }
 
+// scope: tenant
 func (q *Queries) CreateChannelAttribution(ctx context.Context, arg CreateChannelAttributionParams) (ChannelAttribution, error) {
 	row := q.db.QueryRow(ctx, createChannelAttribution, arg.TenantID, arg.ChannelID, arg.RefCode)
 	var i ChannelAttribution
@@ -39,10 +41,11 @@ func (q *Queries) CreateChannelAttribution(ctx context.Context, arg CreateChanne
 }
 
 const createCommission = `-- name: CreateCommission :one
+
 INSERT INTO commissions (
     channel_id, tenant_id, order_id, amount_cents, bps, status,source_payment_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6,$7
+    ?1, ?2, ?3, ?4, ?5, ?6,?7
 ) ON CONFLICT(channel_id,order_id) DO UPDATE SET amount_cents=commissions.amount_cents
 RETURNING id, channel_id, tenant_id, order_id, amount_cents, bps, status, created_at,source_payment_id
 `
@@ -57,6 +60,7 @@ type CreateCommissionParams struct {
 	SourcePaymentID pgtype.Int8 `json:"source_payment_id"`
 }
 
+// scope: tenant
 func (q *Queries) CreateCommission(ctx context.Context, arg CreateCommissionParams) (Commissions, error) {
 	row := q.db.QueryRow(ctx, createCommission,
 		arg.ChannelID,
@@ -83,11 +87,13 @@ func (q *Queries) CreateCommission(ctx context.Context, arg CreateCommissionPara
 }
 
 const getChannelAttributionByTenant = `-- name: GetChannelAttributionByTenant :one
+
 SELECT tenant_id, channel_id, ref_code, created_at
 FROM channel_attribution
-WHERE tenant_id = $1
+WHERE tenant_id = ?1
 `
 
+// scope: tenant
 func (q *Queries) GetChannelAttributionByTenant(ctx context.Context, tenantID int64) (ChannelAttribution, error) {
 	row := q.db.QueryRow(ctx, getChannelAttributionByTenant, tenantID)
 	var i ChannelAttribution
@@ -101,11 +107,13 @@ func (q *Queries) GetChannelAttributionByTenant(ctx context.Context, tenantID in
 }
 
 const getChannelByCode = `-- name: GetChannelByCode :one
+
 SELECT id, brand_id, code, name, kind, commission_bps, parent_id, contact, active, created_at
 FROM channels
-WHERE code = $1 AND active = true
+WHERE code = ?1 AND active = true
 `
 
+// scope: platform
 func (q *Queries) GetChannelByCode(ctx context.Context, code string) (Channels, error) {
 	row := q.db.QueryRow(ctx, getChannelByCode, code)
 	var i Channels

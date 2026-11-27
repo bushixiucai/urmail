@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
@@ -42,8 +44,8 @@ func formatSnippet(s store.MailboxSnippets) snippetJSON {
 		Title:     s.Title,
 		Content:   s.Content,
 		Shortcut:  s.Shortcut,
-		CreatedAt: s.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
-		UpdatedAt: s.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		CreatedAt: timeutil.FromMicro(s.CreatedAt).UTC().Format(time.RFC3339Nano),
+		UpdatedAt: timeutil.FromMicro(s.UpdatedAt).UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -67,7 +69,7 @@ func (h *MailboxSnippetsHandler) List(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	rows, err := q.PlatformListMailboxSnippets(ctx, store.PlatformListMailboxSnippetsParams{
 		TenantID:  session.TenantID,
@@ -124,7 +126,7 @@ func (h *MailboxSnippetsHandler) Create(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	row, err := q.PlatformInsertMailboxSnippet(ctx, store.PlatformInsertMailboxSnippetParams{
 		TenantID:  session.TenantID,
@@ -188,7 +190,7 @@ func (h *MailboxSnippetsHandler) Update(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	row, err := q.PlatformUpdateMailboxSnippet(ctx, store.PlatformUpdateMailboxSnippetParams{
 		TenantID:  session.TenantID,
@@ -238,7 +240,7 @@ func (h *MailboxSnippetsHandler) Delete(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	deleted, err := q.PlatformDeleteMailboxSnippet(ctx, store.PlatformDeleteMailboxSnippetParams{
 		TenantID:  session.TenantID,

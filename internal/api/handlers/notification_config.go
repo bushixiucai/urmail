@@ -39,7 +39,7 @@ func (h *NotificationConfigHandler) Save(c *gin.Context) {
 	}
 	value, _ := json.Marshal(cipher)
 	q := requestStore(c, h.Store)
-	if err = q.PlatformUpsertSetting(c, store.PlatformUpsertSettingParams{Key: "notification_channel", Value: value}); err != nil {
+	if err = q.PlatformUpsertSetting(c.Request.Context(), store.PlatformUpsertSettingParams{Key: "notification_channel", Value: value}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}

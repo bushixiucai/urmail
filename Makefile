@@ -9,6 +9,7 @@ SHELL := /bin/bash
 
 GO          ?= go
 GOFLAGS     ?=
+SQLC        ?= $(shell go env GOPATH)/bin/sqlc
 NPM         ?= npm
 DIST        := bin
 WEB         := web
@@ -110,13 +111,30 @@ migrate-version: ## 打印当前 schema 版本
 	$(GO) run ./cmd/urmailctl migrate version
 
 .PHONY: sqlc
-sqlc: ## 生成 sqlc 代码
-	sqlc generate
+sqlc: ## B1：独立生成 PostgreSQL 与 SQLite 查询表面（不切换运行时装配）
+	$(SQLC) generate -f sqlc.postgres.yaml
+	python3 scripts/sqlite/gen_pg_query_manifest.py
+	python3 scripts/sqlite/b5_query_set.py --check
+	python3 scripts/sqlite/gen_sqlc_overrides.py
+	python3 scripts/sqlite/wrap_nullable_ts_projections.py
+	$(SQLC) generate -f sqlc.yaml
+	python3 scripts/sqlite/gen_sqlc.py
+	python3 scripts/sqlite/gen_querier.py
+	python3 scripts/sqlite/check_store_boundary.py
+	python3 scripts/sqlite/gen_isolation_decorator.py
+	python3 scripts/sqlite/nullable_timestamp_scan.py --check
 
 .PHONY: sqlc-check
-sqlc-check: ## 校验 sqlc 生成物与仓库一致
-	sqlc generate
-	git diff --exit-code -- internal/store
+sqlc-check: ## 校验旧运行时门与隔离 PG/SQLite 生成物
+	python3 scripts/sqlite/b5_query_set.py --check
+	python3 scripts/sqlite/gen_pg_query_manifest.py --check
+	python3 scripts/sqlite/gen_sqlc_overrides.py --check
+	python3 scripts/sqlite/gen_sqlc.py --check
+	python3 scripts/sqlite/gen_querier.py --check
+	python3 scripts/sqlite/check_store_boundary.py --check
+	python3 scripts/sqlite/gen_isolation_decorator.py --check
+	python3 scripts/sqlite/nullable_timestamp_scan.py --check
+	python3 scripts/sqlite/check_dual_sqlc.py
 
 .PHONY: i18n-check
 i18n-check: ## 校验所有 locale 的 key 集合一致

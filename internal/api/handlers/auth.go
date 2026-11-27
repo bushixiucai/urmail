@@ -5,12 +5,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
 	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
@@ -53,6 +57,7 @@ type AuthStore interface {
 	GetUserByID(ctx context.Context, id int64) (store.GetUserByIDRow, error)
 	GetUserTenants(ctx context.Context, userID int64) ([]store.GetUserTenantsRow, error)
 	CheckPlatformAdmin(ctx context.Context, userID int64) (bool, error)
+	GetSessionByID(ctx context.Context, id string) (store.Sessions, error)
 	CreateSession(ctx context.Context, arg store.CreateSessionParams) (store.Sessions, error)
 	DeleteSession(ctx context.Context, id string) error
 	MarkSessionMFAVerified(ctx context.Context, id string) error
@@ -73,7 +78,18 @@ type AuthHandler struct {
 	Store       AuthStore
 	Secrets     SecretsBox
 	Credentials ApplicationCredentialStore
+	// PanelDomain is the primary domain the panel is served under. When it
+	// is set, a successful login additionally issues the parent-domain
+	// HttpOnly session cookie the Grafana AuthProxy chain consumes
+	// (GRAFANA-DESIGN §4 option 1); empty keeps the historical localStorage
+	// token-only behavior.
+	PanelDomain string
 }
+
+// authProxyCookie is the parent-domain HttpOnly session cookie issued on
+// login so the Caddy forward_auth chain can authenticate the browser against
+// /api/v1/auth/check without any JavaScript access to the credential.
+const authProxyCookie = "urmail_panel_session"
 
 // SecretsBox is the subset of secrets.Box used by the auth handler.
 type SecretsBox interface {
@@ -88,6 +104,18 @@ func NewAuthHandler(s AuthStore) *AuthHandler {
 		h.Credentials = credentials
 	}
 	return h
+}
+
+func authScopeContext(c *gin.Context) context.Context {
+	ctx := c.Request.Context()
+	if sc, ok := isolation.ScopeFromContext(ctx); ok && sc.Scope == isolation.ScopePlatform {
+		return ctx
+	}
+	actorID, _ := middleware.GetUserID(c)
+	return isolation.WithScope(ctx, isolation.ScopeContext{
+		Scope:   isolation.ScopePlatform,
+		ActorID: actorID,
+	})
 }
 
 func (h *AuthHandler) decryptMFA(value string) (string, error) {
@@ -147,7 +175,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	defer reservation.Discard()
 
-	user, err := h.Store.GetUserByEmail(c, req.Email)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByEmail(authCtx, req.Email)
 	if err != nil {
 		// Unknown user: burn the same hash cost as the verify path so the
 		// response time does not reveal whether the account exists.
@@ -182,13 +211,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			authError(c, 429, "AUTH_RATE_LIMITED")
 			return
 		}
-		n, upgradeErr := h.Store.PlatformRehashPanelPassword(c, store.PlatformRehashPanelPasswordParams{UserID: user.ID, ExpectedHash: user.PasswordHash, PasswordHash: upgraded})
+		n, upgradeErr := h.Store.PlatformRehashPanelPassword(authCtx, store.PlatformRehashPanelPasswordParams{UserID: user.ID, ExpectedHash: user.PasswordHash, PasswordHash: upgraded})
 		if upgradeErr != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
 		if n != 1 {
-			fresh, readErr := h.Store.GetUserByEmail(c, req.Email)
+			fresh, readErr := h.Store.GetUserByEmail(authCtx, req.Email)
 			if readErr != nil || fresh.CredentialVersion != user.CredentialVersion {
 				reservation.RecordFailure()
 				authError(c, 401, "INVALID_CREDENTIALS")
@@ -245,8 +274,9 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		return
 	}
 
-	tenants, _ := h.Store.GetUserTenants(c, userID)
-	isAdmin, _ := h.Store.CheckPlatformAdmin(c, userID)
+	authCtx := authScopeContext(c)
+	tenants, _ := h.Store.GetUserTenants(authCtx, userID)
+	isAdmin, _ := h.Store.CheckPlatformAdmin(authCtx, userID)
 	if brand, ok := c.Get(middleware.ContextBrandID); ok {
 		filtered := make([]store.GetUserTenantsRow, 0, len(tenants))
 		for _, tenant := range tenants {
@@ -267,7 +297,7 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		defaultTenantID = pgtype.Int8{Int64: tenants[0].ID, Valid: true}
 	}
 
-	session, err := h.Store.CreateSession(c, store.CreateSessionParams{
+	session, err := h.Store.CreateSession(authCtx, store.CreateSessionParams{
 		ID:           middleware.HashSessionToken(token),
 		OriginHost:   middleware.OriginHost(c.Request.Host),
 		UserID:       userID,
@@ -275,7 +305,7 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		TenantID:  defaultTenantID,
 		CsrfToken: csrfToken,
 		UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true},
-		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
+		ExpiresAt: timeutil.Micro(time.Now().Add(7 * 24 * time.Hour)),
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -285,8 +315,8 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 	}
 
 	if mfaVerified {
-		if err := h.Store.MarkSessionMFAVerified(c, session.ID); err != nil {
-			if err := h.Store.DeleteSession(c, session.ID); err != nil {
+		if err := h.Store.MarkSessionMFAVerified(authCtx, session.ID); err != nil {
+			if err := h.Store.DeleteSession(authCtx, session.ID); err != nil {
 				authError(c, 503, "DB_ERROR")
 				return
 			}
@@ -312,19 +342,91 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		resp.CurrentTenantID = &tenantID
 	}
 
+	// GRAFANA-DESIGN §4 option 1: issue the parent-domain HttpOnly session
+	// cookie for the Caddy forward_auth → /api/v1/auth/check chain. The
+	// JavaScript-readable bearer token in the response body stays unchanged;
+	// this cookie is HttpOnly, so the panel credential surface does not
+	// grow. SameSite=Lax keeps the cookie attached to same-site navigations
+	// (the Grafana entry) without cross-site exposure.
+	if h.PanelDomain != "" {
+		maxAge := int((session.ExpiresAt - timeutil.NowMicro()) / 1_000_000)
+		if maxAge < 0 {
+			maxAge = 0
+		}
+		secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie(authProxyCookie, token, maxAge, "/", "."+h.PanelDomain, secure, true)
+	}
+
 	c.JSON(http.StatusOK, resp)
 }
 
-// Logout revokes the authenticated session.
+// CheckAuthProxy validates the AuthProxy chain credential (GRAFANA-DESIGN
+// §4): the parent-domain HttpOnly cookie issued at login, or the standard
+// bearer token Caddy copies through. Only a live platform-admin session
+// earns a 200 with the mailbox and role headers Grafana's auth.proxy maps
+// to its Admin role; every other request is rejected fail-closed with 403,
+// so no Viewer role can ever exist on the monitoring plane.
+func (h *AuthHandler) CheckAuthProxy(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	token, err := c.Cookie(authProxyCookie)
+	if err != nil || token == "" {
+		if supplied := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "); supplied != "" && supplied != c.GetHeader("Authorization") {
+			token = supplied
+		}
+	}
+	if token == "" {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	// Every store call carries the platform scope: the production store is a
+	// ScopedQuerier whose method_scope contract rejects a bare request
+	// context (QA PR150 P0-1). Brand/origin boundary note (QA P2-3): the
+	// cookie is issued on the primary domain only, and GetSessionByID's SQL
+	// joins the active-user predicate — a disabled user or a foreign-brand
+	// session simply fails the lookup here.
+	authCtx := authScopeContext(c)
+	session, err := h.Store.GetSessionByID(authCtx, middleware.HashSessionToken(token))
+	if err != nil || session.ExpiresAt != 0 && session.ExpiresAt < timeutil.NowMicro() {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	admin, err := h.Store.CheckPlatformAdmin(authCtx, session.UserID)
+	if err != nil || !admin {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	user, err := h.Store.GetUserByID(authCtx, session.UserID)
+	if err != nil {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	c.Header("X-URMAIL-Mailbox", user.Email)
+	c.Header("X-WEBAUTH-ROLE", "Admin")
+	c.Status(http.StatusOK)
+}
+
+// Logout revokes the authenticated session and expires the AuthProxy
+// cookie, so the browser stops replaying a dead credential to the Caddy
+// forward_auth chain (QA PR150 P1-3).
 func (h *AuthHandler) Logout(c *gin.Context) {
 	val, exists := c.Get(middleware.ContextSession)
 	if exists {
 		if session, ok := val.(store.Sessions); ok {
-			if err := h.Store.DeleteSession(c, session.ID); err != nil {
+			if err := h.Store.DeleteSession(authScopeContext(c), session.ID); err != nil {
 				authError(c, 503, "DB_ERROR")
 				return
 			}
 		}
+	}
+	if h.PanelDomain != "" {
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie(authProxyCookie, "", -1, "/", "."+h.PanelDomain, true, true)
+		// Tidy-up only (QA pathfix P3②): Grafana itself clears its session
+		// on /dashboard/logout; this just stops the browser carrying a dead
+		// grafana_session around. It does NOT revoke anything server-side —
+		// the AuthProxy check rejects every non-panel credential anyway.
+		c.SetCookie("grafana_session", "", -1, "/dashboard", "", true, true)
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -337,14 +439,15 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		return
 	}
 
-	user, err := h.Store.GetUserByID(c, userID)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByID(authCtx, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
 		return
 	}
 
-	tenants, _ := h.Store.GetUserTenants(c, userID)
-	isAdmin, _ := h.Store.CheckPlatformAdmin(c, userID)
+	tenants, _ := h.Store.GetUserTenants(authCtx, userID)
+	isAdmin, _ := h.Store.CheckPlatformAdmin(authCtx, userID)
 	if brand, branded := c.Get(middleware.ContextBrandID); branded {
 		visible := make([]store.GetUserTenantsRow, 0, len(tenants))
 		for _, tenant := range tenants {
@@ -405,7 +508,8 @@ func (h *AuthHandler) SwitchTenant(c *gin.Context) {
 		return
 	}
 
-	tenants, err := h.Store.GetUserTenants(c, s.UserID)
+	authCtx := authScopeContext(c)
+	tenants, err := h.Store.GetUserTenants(authCtx, s.UserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -427,7 +531,7 @@ func (h *AuthHandler) SwitchTenant(c *gin.Context) {
 		return
 	}
 
-	if err := h.Store.UpdateSessionTenant(c, store.UpdateSessionTenantParams{
+	if err := h.Store.UpdateSessionTenant(authCtx, store.UpdateSessionTenantParams{
 		ID:       s.ID,
 		TenantID: pgtype.Int8{Int64: req.TenantID, Valid: true},
 	}); err != nil {

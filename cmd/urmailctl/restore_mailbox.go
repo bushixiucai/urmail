@@ -86,7 +86,7 @@ func runMailboxRestore(ctx context.Context, args []string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	identity, err := store.New(tx).PlatformMailboxRestoreIdentity(ctx, store.PlatformMailboxRestoreIdentityParams{TenantID: *tenant, ID: *mailbox})
+	identity, err := db.Queries(tx).PlatformMailboxRestoreIdentity(ctx, store.PlatformMailboxRestoreIdentityParams{TenantID: *tenant, ID: *mailbox})
 	if err != nil {
 		return fmt.Errorf("current mailbox/storage identity: %w", err)
 	}

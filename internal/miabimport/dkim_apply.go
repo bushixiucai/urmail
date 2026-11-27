@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -38,8 +39,10 @@ type DKIMResult struct {
 // ApplyReviewedDKIM stores the exact source PEM on every locked pending domain.
 // Domains must already come from a committed core import bound to the same proof.
 func ApplyReviewedDKIM(ctx context.Context, pool *db.Pool, dkim *ReviewedDKIM, options Options) (DKIMResult, error) {
+	// Reviewed operator import entry: the import statements are platform-scoped.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	result := DKIMResult{Phase: "source_preflight", CoreOnly: true, CommitOutcome: "not_committed"}
-	if pool == nil || pool.Role() != db.RolePlatform || options.TenantID <= 0 || options.ActorID <= 0 {
+	if pool == nil || !pool.IsPlatform() || options.TenantID <= 0 || options.ActorID <= 0 {
 		return result, ErrAuthority
 	}
 	reason := strings.TrimSpace(options.Reason)
@@ -80,7 +83,7 @@ func ApplyReviewedDKIM(ctx context.Context, pool *db.Pool, dkim *ReviewedDKIM, o
 		defer cancel()
 		_ = tx.Rollback(cleanup)
 	}()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if _, err = q.PlatformLockLegacyImportTarget(ctx, store.PlatformLockLegacyImportTargetParams{TenantID: options.TenantID, ActorID: options.ActorID}); err != nil {
 		return result, ErrAuthority
 	}

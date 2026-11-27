@@ -1,5 +1,7 @@
 package postfix
 
+import "path/filepath"
+
 // NodeConfig holds the node-level configuration required for Postfix generation.
 type NodeConfig struct {
 	Hostname                 string // myhostname (URMAIL_MYHOSTNAME, RFC 1123)
@@ -16,6 +18,34 @@ type NodeConfig struct {
 	ArchiveEnabled           bool   // URMAIL_ARCHIVE_ENABLED, default false
 	ArchiveSocket            string // default private/urmail-archive (relative to Postfix chroot)
 	MessageSizeLimit         int64  // custom message_size_limit; defaults to 25MiB (26214400) when specified
+	// ConfigDir is the absolute Postfix config_dir the rendered main.cf will
+	// be read from (URMAIL_RENDERED_CONFIG_DIR + "/postfix" on compose
+	// deployments, empty for the historical /etc/postfix host layout). The
+	// file-based maps must reference their absolute mount-surface paths, so
+	// the renderer cannot hardcode /etc/postfix.
+	ConfigDir string
+}
+
+// defaultConfigDir is the host-layout Postfix config directory used when
+// ConfigDir is empty.
+const defaultConfigDir = "/etc/postfix"
+
+// EffectiveConfigDir returns the config_dir main.cf is rendered for. Postfix
+// resolves file maps from main.cf by absolute path only (relative map specs
+// resolve against the process working directory, not -c), so every map
+// reference must carry this prefix.
+func (n NodeConfig) EffectiveConfigDir() string {
+	if n.ConfigDir == "" {
+		return defaultConfigDir
+	}
+	return filepath.Clean(n.ConfigDir)
+}
+
+// MapRoot is the absolute directory the urmail map files live in for this
+// deployment shape. It always equals <config_dir>/urmail, which is where the
+// agent writes FileVirtualMailboxMap and friends relative to the render root.
+func (n NodeConfig) MapRoot() string {
+	return filepath.Join(n.EffectiveConfigDir(), "urmail")
 }
 
 // Domain represents a mail domain in the database snapshot.

@@ -204,6 +204,13 @@ export function WebmailThreadStack({
     loaded: ordered.length,
     total: totalThreadCount,
   });
+  // Q2 (contract §7-6, interview 2026-11-26): members carry the server
+  // weak_aggregation stamp for giant threads — the subject-bar badge
+  // switches from the bare number to the weakened「相关 N 封」wording.
+  const isWeakAggregation = members.some((m) => m.weak_aggregation);
+  const totalBadgeLabel = isWeakAggregation
+    ? t("webmail_next.thread_related_count", { count: totalThreadCount })
+    : String(totalThreadCount);
 
   // §11-1 subject bar: expanded message's subject, falling back to the
   // newest member; unread badge renders only when there is unread mail.
@@ -239,7 +246,7 @@ export function WebmailThreadStack({
           title={countLabel}
           className="shrink-0 h-5 px-2 rounded-full bg-[var(--vellum-surface-muted)] text-[var(--vellum-ink-secondary)] text-[11px] font-semibold leading-5 text-center"
         >
-          {totalThreadCount}
+          {totalBadgeLabel}
         </span>
         {unreadBadgeCount > 0 && (
           <span

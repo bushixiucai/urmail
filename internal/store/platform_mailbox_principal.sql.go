@@ -77,13 +77,13 @@ type PlatformCreateMailboxSessionParams struct {
 }
 
 type PlatformCreateMailboxSessionRow struct {
-	TokenHash       string             `json:"token_hash"`
-	TenantID        int64              `json:"tenant_id"`
-	MailboxID       int64              `json:"mailbox_id"`
-	PasswordVersion string             `json:"password_version"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt       pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	TokenHash       string `json:"token_hash"`
+	TenantID        int64  `json:"tenant_id"`
+	MailboxID       int64  `json:"mailbox_id"`
+	PasswordVersion string `json:"password_version"`
+	ExpiresAt       int64  `json:"expires_at"`
+	RevokedAt       int64  `json:"revoked_at"`
+	CreatedAt       int64  `json:"created_at"`
 }
 
 func (q *Queries) PlatformCreateMailboxSession(ctx context.Context, arg PlatformCreateMailboxSessionParams) (PlatformCreateMailboxSessionRow, error) {
@@ -217,13 +217,13 @@ AND s.password_version=md5(m.password_hash) AND m.status='active' AND t.status='
 `
 
 type PlatformGetMailboxSessionRow struct {
-	TokenHash       string             `json:"token_hash"`
-	TenantID        int64              `json:"tenant_id"`
-	MailboxID       int64              `json:"mailbox_id"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	Address         string             `json:"address"`
-	PasswordVersion string             `json:"password_version"`
-	OriginHost      string             `json:"origin_host"`
+	TokenHash       string `json:"token_hash"`
+	TenantID        int64  `json:"tenant_id"`
+	MailboxID       int64  `json:"mailbox_id"`
+	ExpiresAt       int64  `json:"expires_at"`
+	Address         string `json:"address"`
+	PasswordVersion string `json:"password_version"`
+	OriginHost      string `json:"origin_host"`
 }
 
 func (q *Queries) PlatformGetMailboxSession(ctx context.Context, tokenHash string) (PlatformGetMailboxSessionRow, error) {
@@ -268,10 +268,10 @@ AND s.revoked_at IS NULL AND s.expires_at>now() AND s.password_version=md5(m.pas
 `
 
 type PlatformGetSieveBridgeRow struct {
-	TenantID  int64              `json:"tenant_id"`
-	MailboxID int64              `json:"mailbox_id"`
-	Address   string             `json:"address"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	TenantID  int64  `json:"tenant_id"`
+	MailboxID int64  `json:"mailbox_id"`
+	Address   string `json:"address"`
+	ExpiresAt int64  `json:"expires_at"`
 }
 
 func (q *Queries) PlatformGetSieveBridge(ctx context.Context, tokenHash string) (PlatformGetSieveBridgeRow, error) {

@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformAIQuotaUsage = `-- name: PlatformAIQuotaUsage :one
@@ -24,11 +22,11 @@ SELECT (SELECT count(*) FROM window_usage)::bigint AS calls_used,
 `
 
 type PlatformAIQuotaUsageParams struct {
-	MailboxID         int64              `json:"mailbox_id"`
-	TenantID          int64              `json:"tenant_id"`
-	IndependentWindow bool               `json:"independent_window"`
-	PeriodStart       pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd         pgtype.Timestamptz `json:"period_end"`
+	MailboxID         int64 `json:"mailbox_id"`
+	TenantID          int64 `json:"tenant_id"`
+	IndependentWindow bool  `json:"independent_window"`
+	PeriodStart       int64 `json:"period_start"`
+	PeriodEnd         int64 `json:"period_end"`
 }
 
 type PlatformAIQuotaUsageRow struct {

@@ -1,4 +1,4 @@
-Delivered-To: tiger@8ca4b48c2f.redacted
+Delivered-To: user-a@8ca4b48c2f.redacted
 X-Spam-Checker-Version: SpamAssassin 3.4.6 (2021-04-09) on c06464a9fd.redacted
 X-Spam-Level: 
 X-Spam-Status: No, score=-2.0 required=5.0 tests=BAYES_00,DKIMWL_WL_MED,
@@ -51,14 +51,14 @@ X-Gm-Message-State: APuU4Z9qIttlg0qC0q0bBAg0zW5wzj66SeucecLYexOf3TfX4Fm8THi+
 X-Received: by 2002:a05:6820:7054:b0:70b:8307:9bd5 with SMTP id
  006d021491bc7-7170f2e32a5mr413184eaf.53.1794130443903;
         Sun, 08 Nov 2026 01:34:03 -0800 (PST)
-X-Forwarded-To: tiger@65efd11485.redacted
-X-Forwarded-For: renkangtai@591bfe88c8.redacted tiger@65efd11485.redacted
-Delivered-To: renkangtai@gmail.com
+X-Forwarded-To: user-a@65efd11485.redacted
+X-Forwarded-For: user-b@591bfe88c8.redacted user-a@65efd11485.redacted
+Delivered-To: user-b@example.net
 X-Received: by 2002:a17:90b:580b:b0:3b0:9a1b:b708 with SMTP id
  98e67ed59e1d1-3b12d562b8dmr723812a91.62.1794130442397;
         Sun, 08 Nov 2026 01:34:02 -0800 (PST)
 Received-SPF: pass (d4c9d90273.redacted: domain of
- bounce+440582.83f5fc-renkangtai=591bfe88c8.redacted@3a29f06b86.redacted
+ bounce+440582.83f5fc-user-b=591bfe88c8.redacted@3a29f06b86.redacted
  designates 69.72.32.44 as permitted sender) client-ip=69.72.32.44;
 X-Mailgun-Sid: WyIzYjYxZiIsInJlbmthbmd0YWlAZ21haWwuY29tIiwiODNmNWZjIl0=
 X-Feedback-Id: 
@@ -69,11 +69,11 @@ Date: Sun, 08 Nov 2026 09:34:00 +0000
 Mime-Version: 1.0
 Subject: Your usage for the day has reached 85% of your plan's daily limit
 From: Infura <notifications@699b7898f7.redacted>
-To: renkangtai@591bfe88c8.redacted
+To: user-b@591bfe88c8.redacted
 X-Mailgun-Tag: notifications
 X-Mailgun-Variables: {"thresholdExceeded":false,"thresholdPercentage":85}
 X-Mailgun-Template-Name: credit-usage-threshold
-Message-Id: <20261108093400.3411a8a720384d46@3a29f06b86.redacted>
+Message-Id: <corpus-inbox-37887-1@3a29f06b86.redacted>
 Content-Type: text/html; charset="utf-8"
 Content-Transfer-Encoding: base64
 

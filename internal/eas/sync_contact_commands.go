@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -142,6 +144,9 @@ func contactCommandStatus(err error) string {
 }
 
 func (b *SyncBackend) applyContactCommand(ctx context.Context, req *SyncRequest, collection string, bookID int64, cmd *Node, items map[string]itemRow) (string, string) {
+	// Command writes target platform-owned collaboration rows; bind the
+	// platform scope at this trusted EAS command entry.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	serverID := cmd.ChildText(tokServerID)
 	if cmd.Token != tokAdd && cmd.Token != tokChange && cmd.Token != tokDelete {
 		return serverID, syncStatusProtocolError
@@ -151,7 +156,7 @@ func (b *SyncBackend) applyContactCommand(ctx context.Context, req *SyncRequest,
 		return serverID, syncStatusServerError
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	svc := appcollab.Service{Q: q}
 	principal := appcollab.Principal{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID}
 	var version int64

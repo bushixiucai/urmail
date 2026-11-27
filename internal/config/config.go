@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/bushixiucai/urmail/internal/dovecotauth"
 )
 
 // EnvFile is the default location of the on-disk configuration.
@@ -34,10 +36,27 @@ type Config struct {
 	WorkersHeld          bool
 	ACMEServer           string
 	ACMERootCA           string
-	// ListenAddr is the address the HTTP server binds to. It must stay on
-	// loopback: nginx terminates TLS and is the only thing that should be
-	// reachable from the network.
+	// ListenAddr is the address the HTTP server binds to. The default stays
+	// on loopback: nginx (or Caddy on the compose topology) terminates TLS
+	// and is the only thing that should be reachable from the public
+	// network. A compose deployment may explicitly bind a private-network or
+	// wildcard address so the in-network Prometheus can scrape
+	// /internal/metrics (GRAFANA-DESIGN §2.1 option A); the bearer-token
+	// gate on that endpoint is unaffected by the bind address.
 	ListenAddr string
+	// GrafanaHostname is the public HOST that carries the monitoring entry
+	// path /dashboard (URMAIL_GRAFANA_HOSTNAME, the primary site host such
+	// as box.<primary domain> — user decision 2026-11-27 replaced the
+	// deprecated grafana.<domain> subdomain). When set, the compose Caddy
+	// renderer embeds the forward_auth-guarded /dashboard route inside that
+	// site block. Empty keeps the historical Caddyfile without a monitoring
+	// route.
+	GrafanaHostname string
+	// AuthProxyTarget is where the rendered Caddy forward_auth dials
+	// urmaild (URMAIL_AUTH_PROXY_TARGET). Empty keeps the host loopback
+	// chain 127.0.0.1:8080; a compose deployment with published ports or a
+	// shared network namespace sets the reachable address explicitly.
+	AuthProxyTarget string
 
 	// DatabaseURL is the connection string for the tenant-scoped role
 	// (urmail_app). Queries issued over this connection are subject to
@@ -58,6 +77,17 @@ type Config struct {
 	// (urmail_dovecot). Dovecot uses it for passdb/userdb queries across
 	// tenants; it has BYPASSRLS but only SELECT on mailboxes/domains.
 	DatabaseURLDovecot string
+	DovecotAuthDB      string // read-only SQLite auth snapshot dovecot authenticates against
+	RenderedConfigDir  string // injected render root (compose data volume); empty keeps /etc
+	AgentStateRoot     string // private agent state root (URMAIL_AGENT_STATE_ROOT); empty keeps /var/lib/urmail-agent
+
+	// DBEngine selects the single database engine ("postgres" or "sqlite").
+	// Empty defaults to postgres unless SQLitePath is set.
+	DBEngine string
+
+	// SQLitePath is the authoritative SQLite database file path in single-engine
+	// SQLite mode (e.g. /srv/urmail/data/db/urmail.sqlite).
+	SQLitePath string
 
 	// MyHostname is the FQDN Postfix announces itself as (myhostname).
 	MyHostname string
@@ -94,6 +124,8 @@ type Config struct {
 
 	// StorageRoot holds mailboxes, archives and certificates.
 	StorageRoot string
+	MailUser    string // owner name shared by mail storage prep and dovecot render (default mail)
+	MailGroup   string // group name shared with dovecot render (default mail)
 
 	// AgentSocket is the unix socket of the privileged agent.
 	AgentSocket string
@@ -282,10 +314,17 @@ func Load() (*Config, error) {
 		ACMEServer:                  values["URMAIL_ACME_SERVER"],
 		ACMERootCA:                  values["URMAIL_ACME_ROOT_CA"],
 		ListenAddr:                  values["URMAIL_LISTEN_ADDR"],
+		GrafanaHostname:             strings.TrimSpace(values["URMAIL_GRAFANA_HOSTNAME"]),
+		AuthProxyTarget:             strings.TrimSpace(values["URMAIL_AUTH_PROXY_TARGET"]),
 		DatabaseURL:                 values["URMAIL_DATABASE_URL"],
 		DatabaseURLPlatform:         values["URMAIL_DATABASE_URL_PLATFORM"],
 		DatabaseURLMigrate:          values["URMAIL_DATABASE_URL_MIGRATE"],
 		DatabaseURLDovecot:          values["URMAIL_DATABASE_URL_DOVECOT"],
+		DovecotAuthDB:               dovecotAuthDB(values["URMAIL_DOVECOT_AUTH_DB"]),
+		RenderedConfigDir:           strings.TrimSpace(values["URMAIL_RENDERED_CONFIG_DIR"]),
+		AgentStateRoot:              strings.TrimSpace(values["URMAIL_AGENT_STATE_ROOT"]),
+		DBEngine:                    strings.ToLower(strings.TrimSpace(values["URMAIL_DB_ENGINE"])),
+		SQLitePath:                  strings.TrimSpace(values["URMAIL_SQLITE_PATH"]),
 		MyHostname:                  values["URMAIL_MYHOSTNAME"],
 		PrimaryDomain:               values["URMAIL_PRIMARY_DOMAIN"],
 		PolicyEnabled:               parseBool(values["URMAIL_POLICY_ENABLED"]),
@@ -297,6 +336,8 @@ func Load() (*Config, error) {
 		PreserveExternalOpenDKIM:    preserveDKIM,
 		ArchiveEnabled:              parseBool(values["URMAIL_ARCHIVE_ENABLED"]),
 		StorageRoot:                 values["URMAIL_STORAGE_ROOT"],
+		MailUser:                    mailIdentity(values["URMAIL_MAIL_USER"]),
+		MailGroup:                   mailIdentity(values["URMAIL_MAIL_GROUP"]),
 		AgentSocket:                 values["URMAIL_AGENT_SOCKET"],
 		PolicySocket:                values["URMAIL_POLICY_SOCKET"],
 		MasterKeyPath:               values["URMAIL_MASTER_KEY_PATH"],
@@ -405,6 +446,14 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// isAllowedListenHost accepts loopback, RFC1918/ULA private-network and
+// wildcard bind addresses. Public unicast addresses are rejected: the HTTP
+// face terminates behind nginx/Caddy, and binding it straight onto a public
+// IP would bypass that front door.
+func isAllowedListenHost(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified()
+}
+
 // validate rejects a configuration that cannot work.
 //
 // The database URLs are required but deliberately not defaulted: silently
@@ -432,23 +481,66 @@ func (c *Config) validate() error {
 	}
 	host, port, err := net.SplitHostPort(c.ListenAddr)
 	listenerPort, portErr := strconv.Atoi(port)
-	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() || portErr != nil || listenerPort < 1 || listenerPort > 65535 {
-		return errors.New("HTTP requires an explicit loopback IP and a port between 1 and 65535")
+	if err != nil || net.ParseIP(host) == nil || portErr != nil || listenerPort < 1 || listenerPort > 65535 {
+		return errors.New("HTTP requires an explicit IP and a port between 1 and 65535")
 	}
-	var missing []string
-	if c.DatabaseURL == "" {
-		missing = append(missing, "URMAIL_DATABASE_URL")
+	// Development keeps the strict loopback discipline (the dev stack is a
+	// local workstation). Production accepts loopback, the private compose
+	// bridge and wildcard binds so the in-network Prometheus can scrape
+	// /internal/metrics (GRAFANA-DESIGN §2.1 option A); public unicast stays
+	// rejected because nginx/Caddy is the only public door.
+	if c.DevMode {
+		if !net.ParseIP(host).IsLoopback() {
+			return errors.New("development HTTP requires an explicit loopback IP")
+		}
+	} else if !isAllowedListenHost(net.ParseIP(host)) {
+		return errors.New("HTTP requires an explicit loopback, private-network or wildcard IP (public addresses must terminate behind nginx/Caddy)")
 	}
-	if c.DatabaseURLPlatform == "" {
-		missing = append(missing, "URMAIL_DATABASE_URL_PLATFORM")
+	switch strings.ToLower(strings.TrimSpace(c.DBEngine)) {
+	case "", "postgres", "sqlite":
+	default:
+		return fmt.Errorf("unsupported URMAIL_DB_ENGINE %q (want postgres or sqlite)", c.DBEngine)
 	}
-	if len(missing) > 0 {
-		return fmt.Errorf("%w: %s", ErrMissing, strings.Join(missing, ", "))
+	if strings.EqualFold(strings.TrimSpace(c.DBEngine), "postgres") && strings.TrimSpace(c.SQLitePath) != "" {
+		return errors.New("single-engine configuration rejects URMAIL_SQLITE_PATH when URMAIL_DB_ENGINE=postgres")
+	}
+	if c.IsSQLite() {
+		if strings.TrimSpace(c.SQLitePath) == "" {
+			return fmt.Errorf("%w: URMAIL_SQLITE_PATH", ErrMissing)
+		}
+		if strings.TrimSpace(c.DatabaseURL) != "" ||
+			strings.TrimSpace(c.DatabaseURLPlatform) != "" ||
+			strings.TrimSpace(c.DatabaseURLMigrate) != "" ||
+			strings.TrimSpace(c.DatabaseURLDovecot) != "" {
+			return errors.New("single-engine configuration rejects PostgreSQL database URLs in SQLite mode")
+		}
+	} else {
+		var missing []string
+		if c.DatabaseURL == "" {
+			missing = append(missing, "URMAIL_DATABASE_URL")
+		}
+		if c.DatabaseURLPlatform == "" {
+			missing = append(missing, "URMAIL_DATABASE_URL_PLATFORM")
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("%w: %s", ErrMissing, strings.Join(missing, ", "))
+		}
+	}
+	if c.GrafanaHostname != "" {
+		host := strings.TrimSpace(c.GrafanaHostname)
+		if host == "" || strings.ContainsAny(host, " \t\r\n{}$") {
+			return errors.New("URMAIL_GRAFANA_HOSTNAME must be a bare hostname without whitespace or Caddy-site metacharacters")
+		}
 	}
 	// CFG-01: outside development the SaaS policy service is the only place
 	// subscription eligibility and daily send accounting are enforced, so a
-	// deployment must not silently boot without it.
-	if !c.DevMode && !c.PolicyEnabled {
+	// deployment must not silently boot without it. The slice-1 SQLite
+	// topology is the documented exception: its policy server is not
+	// migrated yet, the render therefore emits no check_policy_service line
+	// (a check against a policy service that will never listen would 451
+	// every submission), and the enforced-eligibility surface answers the
+	// explicit slice gates instead (cutover-blockers Blocker B, option b).
+	if !c.DevMode && !c.PolicyEnabled && !c.IsSQLite() {
 		return errors.New("production requires URMAIL_POLICY_ENABLED=true: without the policy service, send eligibility and daily accounting are not enforced")
 	}
 	return nil
@@ -582,4 +674,48 @@ func resolveDNSListenAddresses(override string) ([]string, error) {
 // without disabling mail protocols, policy enforcement or config convergence.
 func (c *Config) BackgroundWorkersAllowed() bool {
 	return c != nil && !c.DevMode && !c.Quarantined && !c.WorkersHeld
+}
+
+// AuthEngineName names the dovecot auth source: the single-engine snapshot or
+// the PostgreSQL DSN contract. It keeps the renderer and validator agreeing.
+func (c *Config) AuthEngineName() string {
+	if c != nil && c.IsSQLite() {
+		return "sqlite"
+	}
+	return ""
+}
+
+// IsSQLite reports whether the daemon is configured for single-engine SQLite mode.
+func (c *Config) IsSQLite() bool {
+	if c == nil {
+		return false
+	}
+	engine := strings.ToLower(strings.TrimSpace(c.DBEngine))
+	if engine == "sqlite" {
+		return true
+	}
+	if engine == "" && strings.TrimSpace(c.SQLitePath) != "" {
+		return true
+	}
+	return false
+}
+
+// mailIdentity returns a non-empty mail storage identity name.
+func mailIdentity(raw string) string {
+	if name := strings.TrimSpace(raw); name != "" {
+		return name
+	}
+	return "mail"
+}
+
+// dovecotAuthDB returns the read-only auth snapshot path (design §5).
+func dovecotAuthDB(raw string) string {
+	if path := strings.TrimSpace(raw); path != "" {
+		return path
+	}
+	// Follow the dovecotauth package default: the snapshot lives in its own
+	// standalone parent directory since cutover-blockers Blocker 2, and a
+	// second hardcoded copy of that path here is exactly the drift that
+	// QA blockers2 CB-1 flags.
+	return dovecotauth.DefaultPath
 }

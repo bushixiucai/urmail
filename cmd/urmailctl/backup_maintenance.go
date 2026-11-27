@@ -83,7 +83,18 @@ func backupUnitState(ctx context.Context, unit string) (bool, error) {
 		if strings.Contains(text, "LoadState=not-found") {
 			return false, nil
 		}
-		if !strings.Contains(text, "LoadState=loaded") {
+		// LoadState=masked is the deliberate retirement state of the six
+		// legacy backup writer units, but masking only blocks future starts
+		// — it does not stop a process that is still running (systemd
+		// semantics; QA blockers2 CB-2). A masked unit therefore skips the
+		// loaded-only requirement yet still goes through the same
+		// ActiveState evaluation below: masked+active blocks the fence,
+		// masked+inactive/failed is the expected retired posture, and
+		// masked+deactivating goes through the settle window like any other
+		// transitional state.
+		loaded := strings.Contains(text, "LoadState=loaded")
+		masked := strings.Contains(text, "LoadState=masked")
+		if !loaded && !masked {
 			return false, fmt.Errorf("backup writer %s has unknown load state", unit)
 		}
 		for _, state := range []string{"active", "activating", "reloading"} {
@@ -304,18 +315,44 @@ func runBackupAutoResume(ctx context.Context, args []string) error {
 	return resumeBackupWritersLocked(ctx, root, systemBackupUnit)
 }
 
-// Any maintenance marker fails closed, including an unreadable or dangling
-// marker. No stopped writer is restarted until the operator clears the hold.
-func backupWritersHeld() bool {
+// Test seams for the hold probes; tests replace them to inject permission
+// errors and glob failures.
+var (
+	stableWorkerHoldPath = "/run/urmail-stable-worker-hold.env"
+	stableUpgradeGlob    = "/var/lib/urmail-stable-upgrade-*.hold"
+	backupHoldLstat      = os.Lstat
+	backupHoldGlob       = filepath.Glob
+)
+
+// backupWritersHeldChecked distinguishes a real hold from an undeterminable
+// state. A real hold means "skip by policy"; a read error or insufficient
+// permission means the caller must fail non-zero, never silently succeed.
+func backupWritersHeldChecked() (bool, error) {
 	if config.RestoreQuarantined() || config.ParseBool(os.Getenv("URMAIL_WORKERS_HELD")) || config.ParseBool(os.Getenv("URMAIL_QUARANTINED")) {
-		return true
+		return true, nil
 	}
-	if _, err := os.Lstat("/run/urmail-stable-worker-hold.env"); !errors.Is(err, os.ErrNotExist) {
-		return true
+	if _, err := backupHoldLstat(stableWorkerHoldPath); err == nil {
+		return true, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("inspect stable worker hold: %w", err)
 	}
-	if maintenance.IsUpgradeHeld(currentMaintenanceRoot()) {
-		return true
+	held, err := maintenance.UpgradeHoldState(currentMaintenanceRoot())
+	if err != nil {
+		return false, fmt.Errorf("inspect upgrade hold: %w", err)
 	}
-	matches, err := filepath.Glob("/var/lib/urmail-stable-upgrade-*.hold")
-	return err != nil || len(matches) > 0
+	if held {
+		return true, nil
+	}
+	matches, err := backupHoldGlob(stableUpgradeGlob)
+	if err != nil {
+		return false, fmt.Errorf("inspect stable upgrade holds: %w", err)
+	}
+	return len(matches) > 0, nil
+}
+
+// backupWritersHeld keeps the conservative boolean for callers whose only
+// safe reaction to an undeterminable state is to skip their operation.
+func backupWritersHeld() bool {
+	held, err := backupWritersHeldChecked()
+	return held || err != nil
 }

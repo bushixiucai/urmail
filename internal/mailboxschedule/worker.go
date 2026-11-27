@@ -11,11 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailboxsend"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -76,7 +79,7 @@ func NewWorker(opts Options) *Worker {
 		opts.Now = time.Now
 	}
 	if opts.Store == nil && opts.Pool != nil {
-		opts.Store = store.New(opts.Pool)
+		opts.Store = db.Queries(opts.Pool)
 	}
 	return &Worker{opts: opts}
 }
@@ -116,6 +119,10 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	if !w.enabled() {
 		return false, nil
 	}
+	// This worker only runs platform-issued durable tasks (recovery, authority
+	// re-check, claim and submit). It owns that scope; the caller never has to
+	// provide one, and user-facing handlers still never reach these queries.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if box, ok := w.opts.Secrets.(mailboxsend.SecretBox); ok && w.opts.Pool != nil {
 		if err := SealLegacyCopies(ctx, w.opts.Pool, box); err != nil {
 			return false, err
@@ -311,7 +318,7 @@ func (w *Worker) retry(ctx context.Context, row store.MailboxScheduledSends, exp
 	defer cancel()
 	_, err := w.opts.Store.PlatformRequeueMailboxScheduledSend(finalCtx, store.PlatformRequeueMailboxScheduledSendParams{
 		ID: row.ID, ClaimToken: row.ClaimToken, ExpectedStatus: expected,
-		NextAttemptAt: pgtype.Timestamptz{Time: NextAttempt(int(row.Attempts), w.opts.Now()), Valid: true}, LastError: pgtype.Text{String: code, Valid: true},
+		NextAttemptAt: timeutil.Micro(NextAttempt(int(row.Attempts), w.opts.Now())), LastError: pgtype.Text{String: code, Valid: true},
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil

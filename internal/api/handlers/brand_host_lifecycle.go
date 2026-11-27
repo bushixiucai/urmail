@@ -10,11 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/brandhost"
@@ -32,6 +33,7 @@ type BrandHostLifecycleHandler struct {
 
 // Action never accepts a presented ownership token; it observes DNS itself.
 func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
+	bindPlatformScope(c)
 	host, ok := normalizeBrandHost(c.Param("hostname"))
 	var input struct {
 		Action  string `json:"action"`
@@ -45,7 +47,7 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
-	q := store.New(h.Pool)
+	q := db.Queries(h.Pool)
 	row, err := q.PlatformGetBrandHostLifecycle(ctx, host)
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
@@ -72,13 +74,13 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 			return
 		}
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		tq := store.New(tx)
+		tq := db.Queries(tx)
 		locked, e := tq.PlatformLockBrandHost(ctx, host)
-		if e != nil || locked.BrandID != row.BrandID || !locked.UpdatedAt.Time.Equal(row.UpdatedAt.Time) {
+		if e != nil || locked.BrandID != row.BrandID || !timeutil.FromMicro(locked.UpdatedAt).Equal(timeutil.FromMicro(row.UpdatedAt)) {
 			authError(c, 409, "BRAND_HOST_STATE_CONFLICT")
 			return
 		}
-		if e = tq.PlatformInsertBrandHostChallenge(ctx, store.PlatformInsertBrandHostChallengeParams{Hostname: host, TokenDigest: challenge.Digest, Method: challenge.Method, ExpiresAt: pgtype.Timestamptz{Time: challenge.Expires, Valid: true}}); e != nil {
+		if e = tq.PlatformInsertBrandHostChallenge(ctx, store.PlatformInsertBrandHostChallengeParams{Hostname: host, TokenDigest: challenge.Digest, Method: challenge.Method, ExpiresAt: timeutil.Micro(challenge.Expires)}); e != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
@@ -108,12 +110,13 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 			return
 		}
 		var consumed *time.Time
-		if proof.ConsumedAt.Valid {
-			consumed = &proof.ConsumedAt.Time
+		if proof.ConsumedAt != 0 {
+			at := timeutil.FromMicro(proof.ConsumedAt)
+			consumed = &at
 		}
 		matched := false
 		for _, v := range values {
-			if len(v) <= 512 && strings.HasPrefix(v, "urmail-brand-verify=") && brandhost.CheckChallenge(brandhost.ChallengeRecord{TokenDigest: proof.TokenDigest, ExpiresAt: proof.ExpiresAt.Time, ConsumedAt: consumed}, strings.TrimPrefix(v, "urmail-brand-verify="), time.Now()) == nil {
+			if len(v) <= 512 && strings.HasPrefix(v, "urmail-brand-verify=") && brandhost.CheckChallenge(brandhost.ChallengeRecord{TokenDigest: proof.TokenDigest, ExpiresAt: timeutil.FromMicro(proof.ExpiresAt), ConsumedAt: consumed}, strings.TrimPrefix(v, "urmail-brand-verify="), time.Now()) == nil {
 				matched = true
 				break
 			}
@@ -128,9 +131,9 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 			return
 		}
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		tq := store.New(tx)
+		tq := db.Queries(tx)
 		locked, e := tq.PlatformLockBrandHost(ctx, host)
-		if e != nil || locked.BrandID != row.BrandID || !locked.UpdatedAt.Time.Equal(row.UpdatedAt.Time) {
+		if e != nil || locked.BrandID != row.BrandID || !timeutil.FromMicro(locked.UpdatedAt).Equal(timeutil.FromMicro(row.UpdatedAt)) {
 			authError(c, 409, "BRAND_HOST_STATE_CONFLICT")
 			return
 		}
@@ -156,7 +159,7 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 			authError(c, 503, "BRAND_HOST_CERTIFICATE_UNAVAILABLE")
 			return
 		}
-		response, e := h.Agent.Do(ctx, agentd.OpBrandHostActivate, agentd.BrandHostParams{Hostname: host, BrandID: row.BrandID, VerifiedAt: row.VerifiedAt.Time, ActorID: func() int64 { id, _ := middleware.GetUserID(c); return id }()})
+		response, e := h.Agent.Do(ctx, agentd.OpBrandHostActivate, agentd.BrandHostParams{Hostname: host, BrandID: row.BrandID, VerifiedAt: timeutil.FromMicro(row.VerifiedAt), ActorID: func() int64 { id, _ := middleware.GetUserID(c); return id }()})
 		if e != nil || response == nil {
 			authError(c, 503, "BRAND_HOST_CERTIFICATE_UNAVAILABLE")
 			return
@@ -169,12 +172,13 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 
 // Status returns persisted lifecycle and the current public certificate verdict.
 func (h *BrandHostLifecycleHandler) Status(c *gin.Context) {
+	bindPlatformScope(c)
 	host, ok := normalizeBrandHost(c.Param("hostname"))
 	if !ok || h.Pool == nil {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	row, err := store.New(h.Pool).PlatformGetBrandHostLifecycle(c, host)
+	row, err := db.Queries(h.Pool).PlatformGetBrandHostLifecycle(c.Request.Context(), host)
 	if err != nil {
 		authError(c, 404, "NOT_FOUND")
 		return

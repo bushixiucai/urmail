@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -14,12 +16,12 @@ import (
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
-func ts(t testing.TB, v *time.Time) pgtype.Timestamptz {
+func ts(t testing.TB, v *time.Time) int64 {
 	t.Helper()
 	if v == nil {
-		return pgtype.Timestamptz{}
+		return 0
 	}
-	return pgtype.Timestamptz{Time: *v, Valid: true}
+	return timeutil.Micro(*v)
 }
 
 func textPtr(v string) pgtype.Text { return pgtype.Text{String: v, Valid: v != ""} }
@@ -69,11 +71,11 @@ func TestBrandHostLifecyclePersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var consumedAt *time.Time
-	if record.ConsumedAt.Valid {
-		tm := record.ConsumedAt.Time
+	if record.ConsumedAt != 0 {
+		tm := timeutil.FromMicro(record.ConsumedAt)
 		consumedAt = &tm
 	}
-	persisted := ChallengeRecord{TokenDigest: record.TokenDigest, ExpiresAt: record.ExpiresAt.Time, ConsumedAt: consumedAt}
+	persisted := ChallengeRecord{TokenDigest: record.TokenDigest, ExpiresAt: timeutil.FromMicro(record.ExpiresAt), ConsumedAt: consumedAt}
 	if err := CheckChallenge(persisted, ch.Token, time.Now()); err != nil {
 		t.Fatalf("fresh challenge rejected: %v", err)
 	}
@@ -136,7 +138,7 @@ func TestBrandHostLifecyclePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rebound.Status != string(StatusPendingVerify) || rebound.VerifiedAt.Valid {
+	if rebound.Status != string(StatusPendingVerify) || rebound.VerifiedAt != 0 {
 		t.Fatalf("rebinding did not reset lifecycle: %+v", rebound)
 	}
 	eligible, _ = queries.PlatformBrandHostCertEligible(ctx, "brand.example.test")

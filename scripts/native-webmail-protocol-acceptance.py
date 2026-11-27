@@ -85,6 +85,12 @@ def main():
         run(["docker", "cp", str(api_binary), name + ":/tmp/webmail-api-runtime.test"])
         run(["docker", "cp", str(milter_binary), name + ":/tmp/frommilter-runtime.test"])
         run(["docker", "cp", str(archive_binary), name + ":/tmp/archive-runtime.test"])
+        # The archive stage is executed by the Postfix pipe user, not by root.
+        # docker cp preserves the host build mode (0700 root-owned), which made
+        # the pipe die with status 126 "Permission denied" before any archive
+        # assertion could run. Make only that binary executable by the pipe
+        # user; the test assertions and the stage's own switches are unchanged.
+        run(["docker", "exec", name, "chmod", "0755", "/tmp/archive-runtime.test"])
         setup = r'''
 set -eu
 root=/tmp/native-mail-runtime

@@ -96,7 +96,7 @@ type MessageSummary struct {
 	// ThreadVerification is "unverified" when server grouping could not be
 	// checked; no thread identity or count is supplied for such a row.
 	ThreadVerification string `json:"thread_verification,omitempty"`
-	// WeakAggregation marks giant threads (ThreadCount > 20, Tiger decision
+	// WeakAggregation marks giant threads (ThreadCount > 20, 产品决策
 	// v0.6.20 C1): the UI aggregates only the newest window instead of one
 	// giant stack. EarlierCount is how many members fall outside that
 	// newest-20 window; both are zero unless WeakAggregation is set.

@@ -61,7 +61,10 @@ func changeMailboxPassword(ctx context.Context, q *store.Queries, input mailboxB
 	if changed != 1 {
 		return identity, errMailboxPasswordConflict
 	}
-	if err = q.PlatformRevokeMailboxCredentials(ctx, store.PlatformRevokeMailboxCredentialsParams{TenantID: identity.TenantID, MailboxID: identity.MailboxID}); err != nil {
+	if _, err = q.PlatformRevokeMailboxSessions(ctx, store.PlatformRevokeMailboxSessionsParams{TenantID: identity.TenantID, MailboxID: identity.MailboxID}); err != nil {
+		return identity, err
+	}
+	if _, err = q.PlatformConsumeMailboxOperationTickets(ctx, store.PlatformConsumeMailboxOperationTicketsParams{TenantID: identity.TenantID, MailboxID: identity.MailboxID}); err != nil {
 		return identity, err
 	}
 	return identity, nil

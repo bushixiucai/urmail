@@ -14,7 +14,7 @@ func TestBudgetLeaseLifecycleAndSessionLocks(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			url := testDatabaseURL(t)
 			ctx := context.Background()
-			p, err := db.OpenBudgeted(ctx, url, db.RolePlatform, "test-lease", db.Budget{MaxConns: 1, MaxQueue: 0, AcquireTimeout: time.Second, OperationTimeout: time.Second})
+			p, err := db.OpenPlatformBudgeted(ctx, url, "test-lease", db.Budget{MaxConns: 1, MaxQueue: 0, AcquireTimeout: time.Second, OperationTimeout: time.Second})
 			if err != nil {
 				t.Fatal(err)
 			}

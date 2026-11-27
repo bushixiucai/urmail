@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
@@ -30,7 +30,7 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{byUID: map[string]store.MailboxEvents{}, byID: map[int64]store.MailboxEvents{}}
 }
 
-func tz(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t.UTC(), Valid: true} }
+func tz(t time.Time) int64 { return timeutil.Micro(t.UTC()) }
 
 func attendeeJSONFor(in []string) []byte {
 	raw, err := json.Marshal(in)
@@ -57,7 +57,7 @@ func (f *fakeStore) CreateEvent(_ context.Context, p appcollab.Principal, calend
 
 func (f *fakeStore) UpdateEvent(_ context.Context, _ appcollab.Principal, id, version int64, in collab.Event) (store.PlatformUpdateEventRow, error) {
 	row, ok := f.byID[id]
-	if !ok || row.DeletedAt.Valid || row.Version != version {
+	if !ok || row.DeletedAt != 0 || row.Version != version {
 		return store.PlatformUpdateEventRow{}, appcollab.ErrConflict
 	}
 	row.Version++
@@ -71,7 +71,7 @@ func (f *fakeStore) UpdateEvent(_ context.Context, _ appcollab.Principal, id, ve
 
 func (f *fakeStore) GetEventByUID(_ context.Context, _ appcollab.Principal, uid string) (store.MailboxEvents, error) {
 	row, ok := f.byUID[uid]
-	if !ok || row.DeletedAt.Valid {
+	if !ok || row.DeletedAt != 0 {
 		return store.MailboxEvents{}, appcollab.ErrNotFound
 	}
 	return row, nil
@@ -87,7 +87,7 @@ func (f *fakeStore) GetEventAny(_ context.Context, _ appcollab.Principal, id int
 
 func (f *fakeStore) DeleteEvent(_ context.Context, _ appcollab.Principal, id, version int64) (store.PlatformDeleteEventRow, error) {
 	row, ok := f.byID[id]
-	if !ok || row.DeletedAt.Valid || row.Version != version {
+	if !ok || row.DeletedAt != 0 || row.Version != version {
 		return store.PlatformDeleteEventRow{}, appcollab.ErrConflict
 	}
 	row.DeletedAt, row.Status, row.Version = tz(time.Now()), `cancelled`, row.Version+1 //nolint:misspell // RFC 5545 STATUS:CANCELLED value
@@ -99,7 +99,7 @@ func (f *fakeStore) DeleteEvent(_ context.Context, _ appcollab.Principal, id, ve
 func (f *fakeStore) ListEvents(_ context.Context, _ appcollab.Principal, _, _ time.Time, _ int32) ([]store.MailboxEvents, error) {
 	var rows []store.MailboxEvents
 	for _, row := range f.byID {
-		if !row.DeletedAt.Valid {
+		if row.DeletedAt == 0 {
 			rows = append(rows, row)
 		}
 	}

@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -25,8 +27,8 @@ import (
 
 const shapeTenantID int64 = 1
 
-func shapeTime() pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), Valid: true}
+func shapeTime() int64 {
+	return timeutil.Micro(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 }
 
 func shapeText(s string) pgtype.Text {
@@ -166,7 +168,7 @@ func (f *shapeFakeDomainStore) PlatformBindOnboardingDomain(_ context.Context, _
 }
 
 func (f *shapeFakeDomainStore) RotateDomainChallenge(_ context.Context, arg store.RotateDomainChallengeParams) (store.RotateDomainChallengeRow, error) {
-	return store.RotateDomainChallengeRow{ID: arg.ID, Fqdn: f.byID.Fqdn, VerificationToken: arg.VerificationToken, VerificationIssuedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}, VerificationExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true}}, nil
+	return store.RotateDomainChallengeRow{ID: arg.ID, Fqdn: f.byID.Fqdn, VerificationToken: arg.VerificationToken, VerificationIssuedAt: timeutil.Micro(time.Now()), VerificationExpiresAt: timeutil.Micro(time.Now().Add(7 * 24 * time.Hour))}, nil
 }
 func (f *shapeFakeDomainStore) VerifyDomainChallenge(_ context.Context, arg store.VerifyDomainChallengeParams) (store.VerifyDomainChallengeRow, error) {
 	return store.VerifyDomainChallengeRow{ID: arg.ID, TenantID: arg.TenantID, Fqdn: f.byID.Fqdn, Status: "active"}, nil

@@ -7,12 +7,11 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const addSupportAttachment = `-- name: AddSupportAttachment :one
-INSERT INTO ticket_attachments(tenant_id,message_id,filename,content_type,content) VALUES($1,$2,$3,$4,$5) RETURNING id,tenant_id,message_id,filename,content_type,created_at
+
+INSERT INTO ticket_attachments(tenant_id,message_id,filename,content_type,content) VALUES(?1,?2,?3,?4,?5) RETURNING id,tenant_id,message_id,filename,content_type,created_at
 `
 
 type AddSupportAttachmentParams struct {
@@ -24,14 +23,15 @@ type AddSupportAttachmentParams struct {
 }
 
 type AddSupportAttachmentRow struct {
-	ID          int64              `json:"id"`
-	TenantID    int64              `json:"tenant_id"`
-	MessageID   int64              `json:"message_id"`
-	Filename    string             `json:"filename"`
-	ContentType string             `json:"content_type"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID          int64  `json:"id"`
+	TenantID    int64  `json:"tenant_id"`
+	MessageID   int64  `json:"message_id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	CreatedAt   int64  `json:"created_at"`
 }
 
+// scope: tenant
 func (q *Queries) AddSupportAttachment(ctx context.Context, arg AddSupportAttachmentParams) (AddSupportAttachmentRow, error) {
 	row := q.db.QueryRow(ctx, addSupportAttachment,
 		arg.TenantID,
@@ -53,7 +53,8 @@ func (q *Queries) AddSupportAttachment(ctx context.Context, arg AddSupportAttach
 }
 
 const addSupportMessage = `-- name: AddSupportMessage :one
-INSERT INTO ticket_messages(tenant_id,ticket_id,author_id,body,is_staff) VALUES($1,$2,$3,$4,false) RETURNING id, ticket_id, author_id, body, is_staff, created_at, tenant_id
+
+INSERT INTO ticket_messages(tenant_id,ticket_id,author_id,body,is_staff) VALUES(?1,?2,?3,?4,false) RETURNING id, ticket_id, author_id, body, is_staff, created_at, tenant_id
 `
 
 type AddSupportMessageParams struct {
@@ -63,6 +64,7 @@ type AddSupportMessageParams struct {
 	Body     string `json:"body"`
 }
 
+// scope: tenant
 func (q *Queries) AddSupportMessage(ctx context.Context, arg AddSupportMessageParams) (TicketMessages, error) {
 	row := q.db.QueryRow(ctx, addSupportMessage,
 		arg.TenantID,
@@ -84,7 +86,8 @@ func (q *Queries) AddSupportMessage(ctx context.Context, arg AddSupportMessagePa
 }
 
 const changeSupportTicketStatus = `-- name: ChangeSupportTicketStatus :one
-UPDATE tickets SET status=$4 WHERE tenant_id=$1 AND opened_by=$2 AND id=$3 AND status<>$4 RETURNING id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at
+
+UPDATE tickets SET status=?4 WHERE tenant_id=?1 AND opened_by=?2 AND id=?3 AND status<>?4 RETURNING id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at
 `
 
 type ChangeSupportTicketStatusParams struct {
@@ -94,6 +97,7 @@ type ChangeSupportTicketStatusParams struct {
 	Status   string `json:"status"`
 }
 
+// scope: tenant
 func (q *Queries) ChangeSupportTicketStatus(ctx context.Context, arg ChangeSupportTicketStatusParams) (Tickets, error) {
 	row := q.db.QueryRow(ctx, changeSupportTicketStatus,
 		arg.TenantID,
@@ -117,7 +121,8 @@ func (q *Queries) ChangeSupportTicketStatus(ctx context.Context, arg ChangeSuppo
 }
 
 const createSupportTicket = `-- name: CreateSupportTicket :one
-INSERT INTO tickets(tenant_id,opened_by,subject,priority) VALUES($1,$2,$3,$4) RETURNING id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at
+
+INSERT INTO tickets(tenant_id,opened_by,subject,priority) VALUES(?1,?2,?3,?4) RETURNING id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at
 `
 
 type CreateSupportTicketParams struct {
@@ -127,6 +132,7 @@ type CreateSupportTicketParams struct {
 	Priority string `json:"priority"`
 }
 
+// scope: tenant
 func (q *Queries) CreateSupportTicket(ctx context.Context, arg CreateSupportTicketParams) (Tickets, error) {
 	row := q.db.QueryRow(ctx, createSupportTicket,
 		arg.TenantID,
@@ -150,7 +156,8 @@ func (q *Queries) CreateSupportTicket(ctx context.Context, arg CreateSupportTick
 }
 
 const getSupportAttachment = `-- name: GetSupportAttachment :one
-SELECT id, tenant_id, message_id, filename, content_type, content, created_at FROM ticket_attachments WHERE tenant_id=$1 AND id=$2
+
+SELECT id, tenant_id, message_id, filename, content_type, content, created_at FROM ticket_attachments WHERE tenant_id=?1 AND id=?2
 `
 
 type GetSupportAttachmentParams struct {
@@ -158,6 +165,7 @@ type GetSupportAttachmentParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetSupportAttachment(ctx context.Context, arg GetSupportAttachmentParams) (TicketAttachments, error) {
 	row := q.db.QueryRow(ctx, getSupportAttachment, arg.TenantID, arg.ID)
 	var i TicketAttachments
@@ -174,7 +182,8 @@ func (q *Queries) GetSupportAttachment(ctx context.Context, arg GetSupportAttach
 }
 
 const getSupportTicket = `-- name: GetSupportTicket :one
-SELECT id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at FROM tickets WHERE tenant_id=$1 AND opened_by=$2 AND id=$3
+
+SELECT id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at FROM tickets WHERE tenant_id=?1 AND opened_by=?2 AND id=?3
 `
 
 type GetSupportTicketParams struct {
@@ -183,6 +192,7 @@ type GetSupportTicketParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetSupportTicket(ctx context.Context, arg GetSupportTicketParams) (Tickets, error) {
 	row := q.db.QueryRow(ctx, getSupportTicket, arg.TenantID, arg.OpenedBy, arg.ID)
 	var i Tickets
@@ -201,7 +211,8 @@ func (q *Queries) GetSupportTicket(ctx context.Context, arg GetSupportTicketPara
 }
 
 const listSupportAttachments = `-- name: ListSupportAttachments :many
-SELECT a.id,a.message_id,a.filename,a.content_type,a.created_at FROM ticket_attachments a JOIN ticket_messages m ON m.tenant_id=a.tenant_id AND m.id=a.message_id WHERE a.tenant_id=$1 AND m.ticket_id=$2 ORDER BY a.id LIMIT 500
+
+SELECT a.id,a.message_id,a.filename,a.content_type,a.created_at FROM ticket_attachments a JOIN ticket_messages m ON m.tenant_id=a.tenant_id AND m.id=a.message_id WHERE a.tenant_id=?1 AND m.ticket_id=?2 ORDER BY a.id LIMIT 500
 `
 
 type ListSupportAttachmentsParams struct {
@@ -210,13 +221,14 @@ type ListSupportAttachmentsParams struct {
 }
 
 type ListSupportAttachmentsRow struct {
-	ID          int64              `json:"id"`
-	MessageID   int64              `json:"message_id"`
-	Filename    string             `json:"filename"`
-	ContentType string             `json:"content_type"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID          int64  `json:"id"`
+	MessageID   int64  `json:"message_id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	CreatedAt   int64  `json:"created_at"`
 }
 
+// scope: tenant
 func (q *Queries) ListSupportAttachments(ctx context.Context, arg ListSupportAttachmentsParams) ([]ListSupportAttachmentsRow, error) {
 	rows, err := q.db.Query(ctx, listSupportAttachments, arg.TenantID, arg.TicketID)
 	if err != nil {
@@ -244,7 +256,8 @@ func (q *Queries) ListSupportAttachments(ctx context.Context, arg ListSupportAtt
 }
 
 const listSupportMessages = `-- name: ListSupportMessages :many
-SELECT id, ticket_id, author_id, body, is_staff, created_at, tenant_id FROM ticket_messages WHERE tenant_id=$1 AND ticket_id=$2 AND id > $3::bigint ORDER BY id LIMIT 101
+
+SELECT id, ticket_id, author_id, body, is_staff, created_at, tenant_id FROM ticket_messages WHERE tenant_id=?1 AND ticket_id=?2 AND id > ?3 ORDER BY id LIMIT 101
 `
 
 type ListSupportMessagesParams struct {
@@ -253,6 +266,7 @@ type ListSupportMessagesParams struct {
 	AfterID  int64 `json:"after_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListSupportMessages(ctx context.Context, arg ListSupportMessagesParams) ([]TicketMessages, error) {
 	rows, err := q.db.Query(ctx, listSupportMessages, arg.TenantID, arg.TicketID, arg.AfterID)
 	if err != nil {
@@ -282,7 +296,8 @@ func (q *Queries) ListSupportMessages(ctx context.Context, arg ListSupportMessag
 }
 
 const listSupportTickets = `-- name: ListSupportTickets :many
-SELECT id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at FROM tickets WHERE tenant_id=$1 AND opened_by=$2 AND id < $3::bigint ORDER BY id DESC LIMIT 51
+
+SELECT id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at FROM tickets WHERE tenant_id=?1 AND opened_by=?2 AND id < ?3 ORDER BY id DESC LIMIT 51
 `
 
 type ListSupportTicketsParams struct {
@@ -291,6 +306,7 @@ type ListSupportTicketsParams struct {
 	BeforeID int64 `json:"before_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListSupportTickets(ctx context.Context, arg ListSupportTicketsParams) ([]Tickets, error) {
 	rows, err := q.db.Query(ctx, listSupportTickets, arg.TenantID, arg.OpenedBy, arg.BeforeID)
 	if err != nil {
@@ -322,9 +338,11 @@ func (q *Queries) ListSupportTickets(ctx context.Context, arg ListSupportTickets
 }
 
 const listVisibleAnnouncements = `-- name: ListVisibleAnnouncements :many
-SELECT a.id, a.brand_id, a.title, a.body, a.published_at, a.created_at, a.state, a.ends_at FROM announcements a JOIN tenants t ON t.id = $1::bigint WHERE (a.brand_id IS NULL OR a.brand_id=t.brand_id) AND a.state='published' AND a.published_at<=now() AND (a.ends_at IS NULL OR a.ends_at>now()) ORDER BY a.published_at DESC,a.id DESC LIMIT 100
+
+SELECT a.id, a.brand_id, a.title, a.body, coalesce(a.published_at, 0) AS published_at, a.created_at, a.state, coalesce(a.ends_at, 0) AS ends_at FROM announcements a JOIN tenants t ON t.id = ?1 WHERE (a.brand_id IS NULL OR a.brand_id=t.brand_id) AND a.state='published' AND a.published_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (a.ends_at IS NULL OR a.ends_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY a.published_at DESC,a.id DESC LIMIT 100
 `
 
+// scope: platform
 func (q *Queries) ListVisibleAnnouncements(ctx context.Context, tenantID int64) ([]Announcements, error) {
 	rows, err := q.db.Query(ctx, listVisibleAnnouncements, tenantID)
 	if err != nil {

@@ -200,6 +200,7 @@ func TestConfirmedDNSPlanAppliesAndRollsBackOnlyOwnChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err = store.New(tx).RequestDNSRollback(ctx, store.RequestDNSRollbackParams{TenantID: f.tenant, ID: p.ID, Reason: "Tenant reviewed the exact rollback changes"}); err != nil {
 		t.Fatal(err)
 	}

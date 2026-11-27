@@ -11,90 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const abandonDNSPlan = `-- name: AbandonDNSPlan :exec
-SELECT urmail_abandon_dns_plan($1::bigint,$2::uuid,$3::text)
-`
-
-type AbandonDNSPlanParams struct {
-	TenantID int64       `json:"tenant_id"`
-	ID       pgtype.UUID `json:"id"`
-	Reason   string      `json:"reason"`
-}
-
-func (q *Queries) AbandonDNSPlan(ctx context.Context, arg AbandonDNSPlanParams) error {
-	_, err := q.db.Exec(ctx, abandonDNSPlan, arg.TenantID, arg.ID, arg.Reason)
-	return err
-}
-
-const cancelDNSPlan = `-- name: CancelDNSPlan :exec
-SELECT urmail_cancel_dns_plan($1::bigint,$2::uuid,$3::text)
-`
-
-type CancelDNSPlanParams struct {
-	TenantID int64       `json:"tenant_id"`
-	ID       pgtype.UUID `json:"id"`
-	Reason   string      `json:"reason"`
-}
-
-func (q *Queries) CancelDNSPlan(ctx context.Context, arg CancelDNSPlanParams) error {
-	_, err := q.db.Exec(ctx, cancelDNSPlan, arg.TenantID, arg.ID, arg.Reason)
-	return err
-}
-
-const confirmDNSPlan = `-- name: ConfirmDNSPlan :exec
-SELECT urmail_confirm_dns_plan($1::bigint,$2::uuid,$3::text)
-`
-
-type ConfirmDNSPlanParams struct {
-	TenantID     int64       `json:"tenant_id"`
-	ID           pgtype.UUID `json:"id"`
-	SourceDigest string      `json:"source_digest"`
-}
-
-func (q *Queries) ConfirmDNSPlan(ctx context.Context, arg ConfirmDNSPlanParams) error {
-	_, err := q.db.Exec(ctx, confirmDNSPlan, arg.TenantID, arg.ID, arg.SourceDigest)
-	return err
-}
-
-const createDNSPlan = `-- name: CreateDNSPlan :one
-SELECT urmail_create_dns_plan($1::uuid,$2::bigint,$3::bigint,$4::bigint,$5::bigint,$6::text,$7::text,$8::text,$9::jsonb,$10::jsonb,$11::jsonb)::uuid AS id
-`
-
-type CreateDNSPlanParams struct {
-	ID                pgtype.UUID `json:"id"`
-	TenantID          int64       `json:"tenant_id"`
-	DomainID          int64       `json:"domain_id"`
-	CredentialID      pgtype.Int8 `json:"credential_id"`
-	CredentialVersion pgtype.Int8 `json:"credential_version"`
-	Kind              string      `json:"kind"`
-	DomainDigest      string      `json:"domain_digest"`
-	SourceDigest      string      `json:"source_digest"`
-	BeforeRecords     []byte      `json:"before_records"`
-	DesiredRecords    []byte      `json:"desired_records"`
-	Changes           []byte      `json:"changes"`
-}
-
-func (q *Queries) CreateDNSPlan(ctx context.Context, arg CreateDNSPlanParams) (pgtype.UUID, error) {
-	row := q.db.QueryRow(ctx, createDNSPlan,
-		arg.ID,
-		arg.TenantID,
-		arg.DomainID,
-		arg.CredentialID,
-		arg.CredentialVersion,
-		arg.Kind,
-		arg.DomainDigest,
-		arg.SourceDigest,
-		arg.BeforeRecords,
-		arg.DesiredRecords,
-		arg.Changes,
-	)
-	var id pgtype.UUID
-	err := row.Scan(&id)
-	return id, err
-}
-
 const getDNSPlan = `-- name: GetDNSPlan :one
-SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, confirmed_at, expires_at, fence, lease_owner, lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=$1 AND id=$2
+
+SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, coalesce(confirmed_at, 0) AS confirmed_at, coalesce(expires_at, 0) AS expires_at, fence, lease_owner, coalesce(lease_until, 0) AS lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND id=?2
 `
 
 type GetDNSPlanParams struct {
@@ -102,6 +21,7 @@ type GetDNSPlanParams struct {
 	ID       pgtype.UUID `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetDNSPlan(ctx context.Context, arg GetDNSPlanParams) (DnsChangePlans, error) {
 	row := q.db.QueryRow(ctx, getDNSPlan, arg.TenantID, arg.ID)
 	var i DnsChangePlans
@@ -134,7 +54,8 @@ func (q *Queries) GetDNSPlan(ctx context.Context, arg GetDNSPlanParams) (DnsChan
 }
 
 const getDomainProvisioning = `-- name: GetDomainProvisioning :one
-SELECT provisioning_state,dns_explicit FROM domains WHERE tenant_id=$1 AND id=$2
+
+SELECT provisioning_state,dns_explicit FROM domains WHERE tenant_id=?1 AND id=?2
 `
 
 type GetDomainProvisioningParams struct {
@@ -147,6 +68,7 @@ type GetDomainProvisioningRow struct {
 	DnsExplicit       bool   `json:"dns_explicit"`
 }
 
+// scope: tenant
 func (q *Queries) GetDomainProvisioning(ctx context.Context, arg GetDomainProvisioningParams) (GetDomainProvisioningRow, error) {
 	row := q.db.QueryRow(ctx, getDomainProvisioning, arg.TenantID, arg.ID)
 	var i GetDomainProvisioningRow
@@ -155,7 +77,8 @@ func (q *Queries) GetDomainProvisioning(ctx context.Context, arg GetDomainProvis
 }
 
 const listDNSActions = `-- name: ListDNSActions :many
-SELECT id, tenant_id, plan_id, ordinal, kind, before_record, after_record, provider_record_id, observed_record, owned, status, last_error_code, created_at, updated_at FROM dns_record_actions WHERE tenant_id=$1 AND plan_id=$2 ORDER BY ordinal
+
+SELECT id, tenant_id, plan_id, ordinal, kind, before_record, after_record, provider_record_id, observed_record, owned, status, last_error_code, created_at, updated_at FROM dns_record_actions WHERE tenant_id=?1 AND plan_id=?2 ORDER BY ordinal
 `
 
 type ListDNSActionsParams struct {
@@ -163,6 +86,7 @@ type ListDNSActionsParams struct {
 	PlanID   pgtype.UUID `json:"plan_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListDNSActions(ctx context.Context, arg ListDNSActionsParams) ([]DnsRecordActions, error) {
 	rows, err := q.db.Query(ctx, listDNSActions, arg.TenantID, arg.PlanID)
 	if err != nil {
@@ -199,7 +123,8 @@ func (q *Queries) ListDNSActions(ctx context.Context, arg ListDNSActionsParams) 
 }
 
 const listDNSCredentials = `-- name: ListDNSCredentials :many
-SELECT id,tenant_id,domain_id,provider,zone_name,zone_id,version,enabled,verified_at,revoked_at,updated_at FROM dns_credentials WHERE tenant_id=$1 AND domain_id=$2
+
+SELECT id, tenant_id, domain_id, provider, zone_name, zone_id, version, enabled, coalesce(verified_at, 0) AS verified_at, coalesce(revoked_at, 0) AS revoked_at, updated_at FROM dns_credentials WHERE tenant_id=?1 AND domain_id=?2
 `
 
 type ListDNSCredentialsParams struct {
@@ -208,19 +133,20 @@ type ListDNSCredentialsParams struct {
 }
 
 type ListDNSCredentialsRow struct {
-	ID         int64              `json:"id"`
-	TenantID   int64              `json:"tenant_id"`
-	DomainID   int64              `json:"domain_id"`
-	Provider   string             `json:"provider"`
-	ZoneName   string             `json:"zone_name"`
-	ZoneID     string             `json:"zone_id"`
-	Version    int64              `json:"version"`
-	Enabled    bool               `json:"enabled"`
-	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
-	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ID         int64  `json:"id"`
+	TenantID   int64  `json:"tenant_id"`
+	DomainID   int64  `json:"domain_id"`
+	Provider   string `json:"provider"`
+	ZoneName   string `json:"zone_name"`
+	ZoneID     string `json:"zone_id"`
+	Version    int64  `json:"version"`
+	Enabled    bool   `json:"enabled"`
+	VerifiedAt int64  `json:"verified_at"`
+	RevokedAt  int64  `json:"revoked_at"`
+	UpdatedAt  int64  `json:"updated_at"`
 }
 
+// scope: tenant
 func (q *Queries) ListDNSCredentials(ctx context.Context, arg ListDNSCredentialsParams) ([]ListDNSCredentialsRow, error) {
 	rows, err := q.db.Query(ctx, listDNSCredentials, arg.TenantID, arg.DomainID)
 	if err != nil {
@@ -254,7 +180,8 @@ func (q *Queries) ListDNSCredentials(ctx context.Context, arg ListDNSCredentials
 }
 
 const listDNSPlans = `-- name: ListDNSPlans :many
-SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, confirmed_at, expires_at, fence, lease_owner, lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=$1 AND domain_id=$2 ORDER BY created_at DESC,id LIMIT 20
+
+SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, coalesce(confirmed_at, 0) AS confirmed_at, coalesce(expires_at, 0) AS expires_at, fence, lease_owner, coalesce(lease_until, 0) AS lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC,id LIMIT 20
 `
 
 type ListDNSPlansParams struct {
@@ -262,6 +189,7 @@ type ListDNSPlansParams struct {
 	DomainID int64 `json:"domain_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListDNSPlans(ctx context.Context, arg ListDNSPlansParams) ([]DnsChangePlans, error) {
 	rows, err := q.db.Query(ctx, listDNSPlans, arg.TenantID, arg.DomainID)
 	if err != nil {
@@ -304,90 +232,4 @@ func (q *Queries) ListDNSPlans(ctx context.Context, arg ListDNSPlansParams) ([]D
 		return nil, err
 	}
 	return items, nil
-}
-
-const requestDNSRollback = `-- name: RequestDNSRollback :exec
-SELECT urmail_rollback_dns_plan($1::bigint,$2::uuid,$3::text)
-`
-
-type RequestDNSRollbackParams struct {
-	TenantID int64       `json:"tenant_id"`
-	ID       pgtype.UUID `json:"id"`
-	Reason   string      `json:"reason"`
-}
-
-func (q *Queries) RequestDNSRollback(ctx context.Context, arg RequestDNSRollbackParams) error {
-	_, err := q.db.Exec(ctx, requestDNSRollback, arg.TenantID, arg.ID, arg.Reason)
-	return err
-}
-
-const requestOnboardingRetry = `-- name: RequestOnboardingRetry :exec
-SELECT urmail_request_onboarding($1::bigint,$2::bigint,$3::text)
-`
-
-type RequestOnboardingRetryParams struct {
-	TenantID int64  `json:"tenant_id"`
-	DomainID int64  `json:"domain_id"`
-	Reason   string `json:"reason"`
-}
-
-func (q *Queries) RequestOnboardingRetry(ctx context.Context, arg RequestOnboardingRetryParams) error {
-	_, err := q.db.Exec(ctx, requestOnboardingRetry, arg.TenantID, arg.DomainID, arg.Reason)
-	return err
-}
-
-const reviewDNSPlan = `-- name: ReviewDNSPlan :exec
-SELECT urmail_review_dns_plan($1::bigint,$2::uuid,$3::text)
-`
-
-type ReviewDNSPlanParams struct {
-	TenantID int64       `json:"tenant_id"`
-	ID       pgtype.UUID `json:"id"`
-	Reason   string      `json:"reason"`
-}
-
-func (q *Queries) ReviewDNSPlan(ctx context.Context, arg ReviewDNSPlanParams) error {
-	_, err := q.db.Exec(ctx, reviewDNSPlan, arg.TenantID, arg.ID, arg.Reason)
-	return err
-}
-
-const revokeDNSCredential = `-- name: RevokeDNSCredential :exec
-SELECT urmail_revoke_dns_credential($1::bigint,$2::bigint)
-`
-
-type RevokeDNSCredentialParams struct {
-	TenantID int64 `json:"tenant_id"`
-	DomainID int64 `json:"domain_id"`
-}
-
-func (q *Queries) RevokeDNSCredential(ctx context.Context, arg RevokeDNSCredentialParams) error {
-	_, err := q.db.Exec(ctx, revokeDNSCredential, arg.TenantID, arg.DomainID)
-	return err
-}
-
-const saveDNSCredential = `-- name: SaveDNSCredential :one
-SELECT urmail_save_dns_credential($1::bigint,$2::bigint,$3::text,$4::text,$5::text,$6::text)::bigint AS id
-`
-
-type SaveDNSCredentialParams struct {
-	TenantID        int64  `json:"tenant_id"`
-	DomainID        int64  `json:"domain_id"`
-	Provider        string `json:"provider"`
-	ZoneName        string `json:"zone_name"`
-	ZoneID          string `json:"zone_id"`
-	EncryptedSecret string `json:"encrypted_secret"`
-}
-
-func (q *Queries) SaveDNSCredential(ctx context.Context, arg SaveDNSCredentialParams) (int64, error) {
-	row := q.db.QueryRow(ctx, saveDNSCredential,
-		arg.TenantID,
-		arg.DomainID,
-		arg.Provider,
-		arg.ZoneName,
-		arg.ZoneID,
-		arg.EncryptedSecret,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
 }

@@ -1,25 +1,33 @@
 -- name: GetChannelByCode :one
+-- scope: platform
+
 SELECT id, brand_id, code, name, kind, commission_bps, parent_id, contact, active, created_at
 FROM channels
-WHERE code = $1 AND active = true;
+WHERE code = ?1 AND active = true;
 
 -- name: CreateChannelAttribution :one
+-- scope: tenant
+
 INSERT INTO channel_attribution (
     tenant_id, channel_id, ref_code
 ) VALUES (
-    $1, $2, $3
+    ?1, ?2, ?3
 ) ON CONFLICT (tenant_id) DO NOTHING
 RETURNING tenant_id, channel_id, ref_code, created_at;
 
 -- name: GetChannelAttributionByTenant :one
+-- scope: tenant
+
 SELECT tenant_id, channel_id, ref_code, created_at
 FROM channel_attribution
-WHERE tenant_id = $1;
+WHERE tenant_id = ?1;
 
 -- name: CreateCommission :one
+-- scope: tenant
+
 INSERT INTO commissions (
     channel_id, tenant_id, order_id, amount_cents, bps, status,source_payment_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6,sqlc.narg(source_payment_id)
+    ?1, ?2, ?3, ?4, ?5, ?6,sqlc.narg(source_payment_id)
 ) ON CONFLICT(channel_id,order_id) DO UPDATE SET amount_cents=commissions.amount_cents
 RETURNING id, channel_id, tenant_id, order_id, amount_cents, bps, status, created_at,source_payment_id;

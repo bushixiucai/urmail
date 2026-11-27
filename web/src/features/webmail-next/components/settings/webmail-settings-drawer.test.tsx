@@ -50,24 +50,24 @@ describe("WebmailSettingsDrawer", () => {
 
     vi.mocked(mailboxApi.listMailboxIdentities).mockResolvedValue({
       identities: [
-        { address: "tiger@urmail.cn", primary: true },
-        { address: "support@urmail.cn", primary: false },
+        { address: "alex@example.test", primary: true },
+        { address: "support@example.test", primary: false },
       ],
     });
 
     vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
-      display_name: "Tiger Wang",
-      signature_text: "Best regards,\nTiger",
-      signature_html: "<p>Best regards,<br><b>Tiger</b></p>",
+      display_name: "Alex Example",
+      signature_text: "Best regards,\nAlex",
+      signature_html: "<p>Best regards,<br><b>Alex</b></p>",
       preferences: {},
       version: 1,
       updated_at: "2026-11-06T00:00:00Z",
-      address: "tiger@urmail.cn",
+      address: "alex@example.test",
       identity_profiles: {
-        "tiger@urmail.cn": {
-          display_name: "Tiger Wang",
-          signature_text: "Best regards,\nTiger",
-          signature_html: "<p>Best regards,<br><b>Tiger</b></p>",
+        "alex@example.test": {
+          display_name: "Alex Example",
+          signature_text: "Best regards,\nAlex",
+          signature_html: "<p>Best regards,<br><b>Alex</b></p>",
         },
       },
     });
@@ -231,26 +231,26 @@ describe("WebmailSettingsDrawer", () => {
     });
 
     const preview = screen.getByTestId("signature-rendered-preview");
-    expect(preview.innerHTML).toContain("Tiger");
+    expect(preview.innerHTML).toContain("Alex");
 
     // Change display name and text
     const nameInput = screen.getByTestId("input-display-name");
-    fireEvent.change(nameInput, { target: { value: "Tiger W." } });
-    expect(nameInput.getAttribute("value")).toBe("Tiger W.");
+    fireEvent.change(nameInput, { target: { value: "Alex E." } });
+    expect(nameInput.getAttribute("value")).toBe("Alex E.");
   });
 
   it("sanitizes malicious script and onerror injections in signature HTML preview (D3)", async () => {
     vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValueOnce({
-      display_name: "Tiger Wang",
+      display_name: "Alex Example",
       signature_text: "Malicious",
       signature_html: `<p>Hello</p><script>alert('xss')</script><img src="x" onerror="alert(1)"/><a href="javascript:alert(2)">click</a>`,
       preferences: {},
       version: 1,
       updated_at: "2026-11-06T00:00:00Z",
-      address: "tiger@urmail.cn",
+      address: "alex@example.test",
       identity_profiles: {
-        "tiger@urmail.cn": {
-          display_name: "Tiger Wang",
+        "alex@example.test": {
+          display_name: "Alex Example",
           signature_text: "Malicious",
           signature_html: `<p>Hello</p><script>alert('xss')</script><img src="x" onerror="alert(1)"/><a href="javascript:alert(2)">click</a>`,
         },
@@ -377,5 +377,30 @@ describe("WebmailSettingsDrawer", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByTestId("webmail-settings-drawer")).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe("appearance section (REVIEW-UIUX-008)", () => {
+  it("wires the language and theme controls into the drawer", async () => {
+    const { I18nProvider } = await import("@/app/providers");
+    render(
+      <I18nProvider>
+        <WebmailSettingsDrawer
+          isOpen={true}
+          onClose={vi.fn()}
+          initialTab="appearance"
+        />
+      </I18nProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-appearance-section")).toBeTruthy(),
+    );
+    // AppearanceControls' labelled selects are the wired entries.
+    expect(
+      screen.getAllByLabelText("appearance.language").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("appearance.theme").length).toBeGreaterThan(
+      0,
+    );
   });
 });

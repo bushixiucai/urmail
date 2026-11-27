@@ -32,25 +32,29 @@ type fencePreflightFixture struct {
 	maintDir  string
 	dropInDir string
 	envFile   string
+	spool     string
 }
 
 func newFencePreflightFixture(t *testing.T) *fencePreflightFixture {
 	t.Helper()
 	allowUpgradeTestUser(t)
 	dsn := testdb.New(t)
-	testdb.MigrateTo(t, dsn, 159)
+	testdb.MigrateTo(t, dsn, 160)
 	platform, err := db.OpenPlatform(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(platform.Close)
-	f := &fencePreflightFixture{platform: platform, maintDir: t.TempDir(), dropInDir: t.TempDir()}
+	f := &fencePreflightFixture{platform: platform, maintDir: t.TempDir(), dropInDir: t.TempDir(), spool: t.TempDir()}
 	f.envFile = filepath.Join(f.maintDir, "urmail.env")
 	if err = os.WriteFile(f.envFile, []byte("URMAIL_DATABASE_URL="+dsn+"\nURMAIL_DATABASE_URL_PLATFORM="+dsn+"\nURMAIL_QUOTE_HMAC_KEY=test-key\nURMAIL_POLICY_ENABLED=true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("URMAIL_ENV_FILE", f.envFile)
 	t.Setenv("URMAIL_MAINTENANCE_ROOT", f.maintDir)
+	// The pre-flight verifies the newest generation on disk, so the fixture
+	// owns a private spool instead of the fixed production directory.
+	t.Setenv("URMAIL_BACKUP_SPOOL", f.spool)
 	// Every writer unit reports inactive so the fence completes without
 	// exercising systemd, isolating the pre-flight decision under test.
 	reset := setBackupUnitActionForTest(func(_ context.Context, action, unit string) (bool, error) {
@@ -73,10 +77,56 @@ func (f *fencePreflightFixture) seedRun(t *testing.T, state string, startedAgo t
 // stale-stamp generations (R1 QA).
 func (f *fencePreflightFixture) seedRunScoped(t *testing.T, state, scope string, startedAgo time.Duration, errorText, manifestName string) {
 	t.Helper()
+	f.seedRunOffsite(t, state, scope, startedAgo, errorText, manifestName, backupauto.OffsiteStateUploaded, "s3://fixture/backup.dump")
+}
+
+// seedRunOffsite plants a finished run with an explicit offsite disposition.
+func (f *fencePreflightFixture) seedRunOffsite(t *testing.T, state, scope string, startedAgo time.Duration, errorText, manifestName, offsiteState, offsiteURI string) {
+	t.Helper()
 	if _, err := f.platform.Exec(context.Background(),
-		"INSERT INTO backup_runs(run_uid,state,scope,started_at,finished_at,error,manifest_name) VALUES($1,$2,$3,$4,statement_timestamp(),$5,$6)",
-		fmt.Sprintf("preflight-%s-%s-%d", state, scope, startedAgo.Milliseconds()), state, scope,
-		time.Now().UTC().Add(-startedAgo), errorText, manifestName); err != nil {
+		"INSERT INTO backup_runs(run_uid,state,scope,started_at,finished_at,error,manifest_name,offsite_state,offsite_uri) VALUES($1,$2,$3,$4,statement_timestamp(),$5,$6,$7,$8)",
+		fmt.Sprintf("pf-%d-%s", startedAgo.Milliseconds(), offsiteState), state, scope,
+		time.Now().UTC().Add(-startedAgo), errorText, manifestName, offsiteState, offsiteURI); err != nil {
+		t.Fatal(err)
+	}
+	if state == backupauto.StateSuccess && scope == backupauto.ScopeComplete {
+		plantCompleteGeneration(t, f.spool, manifestName, backupauto.KindPgDump)
+	}
+}
+
+// plantCompleteGeneration writes one complete generation (artifacts plus
+// manifest) so the pre-flight's fail-closed integrity check has real files;
+// the run row alone is metadata and is not accepted.
+func plantCompleteGeneration(t *testing.T, spool, manifestName, dbKind string) {
+	t.Helper()
+	stamp := strings.TrimSuffix(strings.TrimPrefix(manifestName, "urmail-"), ".manifest.json")
+	dbName := "urmail-" + stamp + ".dump"
+	if dbKind == backupauto.KindSqliteSnapshot {
+		dbName = "urmail-" + stamp + ".sqlite"
+	}
+	specs := []struct{ name, kind, data string }{
+		{dbName, dbKind, "database fixture bytes"},
+		{"urmail-config-" + stamp + ".tar.gz", backupauto.KindConfigTar, "config fixture bytes"},
+		{"urmail-mail-" + stamp + ".tar.gz", backupauto.KindMailTar, "mail fixture bytes"},
+	}
+	artifacts := make([]backupauto.Artifact, 0, len(specs))
+	for _, spec := range specs {
+		data := []byte(spec.data)
+		if err := os.WriteFile(filepath.Join(spool, spec.name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(data)
+		artifacts = append(artifacts, backupauto.Artifact{
+			Name: spec.name, Kind: spec.kind, Size: int64(len(data)),
+			SHA256: hex.EncodeToString(sum[:]), Mode: 0o600,
+		})
+	}
+	manifest := &backupauto.Manifest{Version: 1, Scope: backupauto.ScopeComplete, CreatedAt: time.Now().UTC(), Artifacts: artifacts}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(spool, manifestName), append(raw, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -85,6 +135,60 @@ func (f *fencePreflightFixture) clearRuns(t *testing.T) {
 	t.Helper()
 	if _, err := f.platform.Exec(context.Background(), "DELETE FROM backup_runs"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestUpgradeFencePreflightRefusesMissingGenerationArtifact proves the fence
+// rejects a ledger row whose generation lost an artifact: the row is metadata,
+// the files are the backup.
+func TestUpgradeFencePreflightRefusesMissingGenerationArtifact(t *testing.T) {
+	f := newFencePreflightFixture(t)
+	startedAgo := time.Hour
+	manifestName := backupauto.ManifestName(backupauto.StampFor(time.Now().UTC().Add(-startedAgo)))
+	f.seedRunScoped(t, backupauto.StateSuccess, backupauto.ScopeComplete, startedAgo, "", manifestName)
+	stamp := strings.TrimSuffix(strings.TrimPrefix(manifestName, "urmail-"), ".manifest.json")
+	if err := os.Remove(filepath.Join(f.spool, "urmail-"+stamp+".dump")); err != nil {
+		t.Fatal(err)
+	}
+	err := f.fence(context.Background())
+	if err == nil {
+		t.Fatal("a generation with a missing artifact established the fence")
+	}
+	t.Logf("fence refused missing artifact: %v", err)
+	if !strings.Contains(err.Error(), "open backup artifact") {
+		t.Fatalf("unexpected refusal: %v", err)
+	}
+	if maintenance.IsUpgradeHeld(f.maintDir) {
+		t.Fatal("refused fence must not be established")
+	}
+}
+
+// TestUpgradeFencePreflightRefusesTamperedGenerationArtifact proves a changed
+// artifact byte is refused on the hash the manifest recorded.
+func TestUpgradeFencePreflightRefusesTamperedGenerationArtifact(t *testing.T) {
+	f := newFencePreflightFixture(t)
+	startedAgo := time.Hour
+	manifestName := backupauto.ManifestName(backupauto.StampFor(time.Now().UTC().Add(-startedAgo)))
+	f.seedRunScoped(t, backupauto.StateSuccess, backupauto.ScopeComplete, startedAgo, "", manifestName)
+	stamp := strings.TrimSuffix(strings.TrimPrefix(manifestName, "urmail-"), ".manifest.json")
+	artifact := filepath.Join(f.spool, "urmail-"+stamp+".dump")
+	raw, err := os.ReadFile(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(artifact, append(raw, []byte("tampered")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = f.fence(context.Background())
+	if err == nil {
+		t.Fatal("a generation with a tampered artifact established the fence")
+	}
+	t.Logf("fence refused tampered artifact: %v", err)
+	if !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Fatalf("unexpected refusal: %v", err)
+	}
+	if maintenance.IsUpgradeHeld(f.maintDir) {
+		t.Fatal("refused fence must not be established")
 	}
 }
 
@@ -289,7 +393,7 @@ func TestUpgradeFencePreflightDegradesWhenPlatformDBUnreachable(t *testing.T) {
 // and the release gate see the same truth as the scheduled worker.
 func TestManualOffsiteUploadRecordsRun(t *testing.T) {
 	dsn := testdb.New(t)
-	testdb.MigrateTo(t, dsn, 159)
+	testdb.MigrateTo(t, dsn, 160)
 	platform, err := db.OpenPlatform(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -390,4 +494,66 @@ func TestManualOffsiteUploadRecordsRun(t *testing.T) {
 	if runs != 2 {
 		t.Fatalf("expected exactly two recorded manual runs, got %d", runs)
 	}
+}
+
+// TestUpgradeFencePreflightOffsiteDisposition: an empty or invalid
+// offsite_state is NOT satisfied; uploaded requires an offsite object; an
+// approved local-only run passes and the verdict prints offsite=...
+func TestUpgradeFencePreflightOffsiteDisposition(t *testing.T) {
+	state := func(t *testing.T, offsiteState, offsiteURI string) *fencePreflightFixture {
+		t.Helper()
+		f := newFencePreflightFixture(t)
+		f.seedRunOffsite(t, backupauto.StateSuccess, backupauto.ScopeComplete, time.Hour, "",
+			backupauto.ManifestName(backupauto.StampFor(time.Now().UTC().Add(-time.Hour))), offsiteState, offsiteURI)
+		return f
+	}
+	t.Run("historical empty state is not satisfied", func(t *testing.T) {
+		f := state(t, "", "")
+		if err := f.fence(context.Background()); err == nil || !strings.Contains(err.Error(), "offsite_state") {
+			t.Fatalf("empty offsite_state must be refused, got %v", err)
+		}
+	})
+	// Invalid values cannot be written: migration 0160 carries a CHECK
+	// constraint. The gate's default branch stays as defense in depth for a
+	// row that predates or bypasses it; it is not seedable through SQL.
+	t.Run("uploaded without an offsite uri is refused", func(t *testing.T) {
+		f := state(t, backupauto.OffsiteStateUploaded, "")
+		if err := f.fence(context.Background()); err == nil || !strings.Contains(err.Error(), "offsite_uri") {
+			t.Fatalf("uploaded without uri must be refused, got %v", err)
+		}
+	})
+	t.Run("uploaded with an offsite uri passes", func(t *testing.T) {
+		f := state(t, backupauto.OffsiteStateUploaded, "s3://fixture/backup.dump")
+		if err := f.fence(context.Background()); err != nil {
+			t.Fatalf("uploaded run must pass, got %v", err)
+		}
+	})
+	t.Run("pending local only passes and is printed", func(t *testing.T) {
+		f := state(t, backupauto.OffsiteStatePendingLocalOnly, "")
+		out := captureStdoutErr(t, func() error { return f.fence(context.Background()) })
+		if !strings.Contains(out, "offsite="+backupauto.OffsiteStatePendingLocalOnly) {
+			t.Fatalf("pre-flight must print the reduced offsite口径: %s", out)
+		}
+	})
+}
+
+func captureStdoutErr(t *testing.T, fn func() error) string {
+	t.Helper()
+	old := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writer
+	defer func() { os.Stdout = old }()
+	runErr := fn()
+	_ = writer.Close()
+	out, readErr := io.ReadAll(reader)
+	if runErr != nil {
+		t.Fatalf("fence: %v", runErr)
+	}
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	return string(out)
 }

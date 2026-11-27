@@ -2,39 +2,77 @@ package agentd
 
 import (
 	"context"
-	"errors"
-	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bushixiucai/urmail/internal/config"
 )
 
-func TestBackupSchedulerReadinessRequiresIndependentInstalledEnabledActiveUnit(t *testing.T) {
-	for _, fail := range []string{"cat", "is-enabled", "is-active", ""} {
-		t.Run("fail_"+fail, func(t *testing.T) {
-			calls := []string{}
-			manager := &ApplyManager{cfg: &config.Config{}, run: func(_ context.Context, command string, args ...string) error {
-				calls = append(calls, strings.Join(args, " "))
-				if command != "/usr/bin/systemctl" {
-					t.Fatal("unexpected executable")
-				}
-				if len(args) > 0 && args[0] == fail {
-					return errors.New("controlled scheduler failure")
-				}
-				return nil
-			}}
-			err := manager.probeBackupScheduler(t.Context())
-			if (fail != "") != (err != nil) {
-				t.Fatal("scheduler readiness hid installation/state failure", fail, err)
-			}
-			if fail == "" && len(calls) != 3 {
-				t.Fatal("not all scheduler proofs checked", calls)
-			}
-		})
+func TestBackupSchedulerReadinessUsesHealthFileWithoutSystemd(t *testing.T) {
+	stateRoot := t.TempDir()
+	now := time.Now()
+
+	manager := &ApplyManager{
+		cfg:  &config.Config{},
+		root: stateRoot,
+		run: func(context.Context, string, ...string) error {
+			t.Fatal("probeBackupScheduler must not invoke systemctl or external commands")
+			return nil
+		},
 	}
+
+	// Missing health file must fail closed.
+	if err := manager.probeBackupScheduler(t.Context()); err == nil {
+		t.Fatal("expected probeBackupScheduler to fail when health file is missing")
+	}
+
+	// Live scheduler writes health file; probe passes without systemd.
+	var runs atomic.Int32
+	sched := &BackupScheduler{
+		StateRoot: stateRoot,
+		Interval:  20 * time.Millisecond,
+		Clock:     time.Now,
+		RunBackup: func(context.Context) error {
+			runs.Add(1)
+			return nil
+		},
+	}
+	stop := sched.Start(t.Context())
+	defer stop()
+
+	if err := manager.probeBackupScheduler(t.Context()); err != nil {
+		t.Fatalf("expected live scheduler probe to pass without systemd, got: %v", err)
+	}
+
+	// Trigger manual run and wait for execution.
+	sched.Trigger()
+	deadline := time.Now().Add(2 * time.Second)
+	for runs.Load() < 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if runs.Load() < 1 {
+		t.Fatal("expected BackupScheduler to execute triggered backup pass")
+	}
+
+	// Stale health file must fail closed.
+	stop()
+	staleSched := &BackupScheduler{
+		StateRoot: stateRoot,
+		Clock:     func() time.Time { return now.Add(-5 * time.Hour) },
+		RunBackup: func(context.Context) error { return nil },
+	}
+	if err := staleSched.RunOnce(t.Context(), "timer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.probeBackupScheduler(t.Context()); err == nil {
+		t.Fatal("expected stale scheduler health file to fail probe")
+	}
+
+	// Held/dev/quarantined modes still skip scheduler probe.
 	for _, cfg := range []*config.Config{nil, {WorkersHeld: true}, {DevMode: true}, {Quarantined: true}} {
-		manager := &ApplyManager{cfg: cfg, run: func(context.Context, string, ...string) error { t.Fatal("held mode consulted scheduler"); return nil }}
-		if err := manager.probeBackupScheduler(t.Context()); err != nil {
+		heldMgr := &ApplyManager{cfg: cfg, root: t.TempDir()}
+		if err := heldMgr.probeBackupScheduler(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 	}

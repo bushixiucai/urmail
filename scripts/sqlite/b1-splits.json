@@ -1,0 +1,174 @@
+{
+ "note": "B1a 未覆盖的 DML-CTE/claim 链：SQLite 无数据修改 CTE，需折叠为 INSERT/UPDATE…RETURNING 单语句或 repo Go 事务拆分；逐条列出，B1b 完成并对每条带测试引用。",
+ "count": 28,
+ "items": [
+  {
+   "method": "ArchiveCasesRequestApproval",
+   "file": "archive_case_product.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformApplyArchiveRetention",
+   "file": "platform_archive_lifecycle.sql",
+   "reason": "claim 链含 turn 序号/审计第二写，需 repo Go 事务编排",
+   "batch": "B1b"
+  },
+  {
+   "method": "CreateApplicationCredential",
+   "file": "platform_auth_application.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "RevokeApplicationCredential",
+   "file": "platform_auth_application.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformVerifyBrandHostProof",
+   "file": "platform_brand_host_verify.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformUnbindBrandHost",
+   "file": "platform_brand_public.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformResetBrandTheme",
+   "file": "platform_brand_public.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformRecordSchedulingReply",
+   "file": "platform_calendar_scheduling.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformInsertContact",
+   "file": "platform_collaboration.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformUpdateContact",
+   "file": "platform_collaboration.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformDeleteContact",
+   "file": "platform_collaboration.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformInsertEvent",
+   "file": "platform_collaboration.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformUpdateEvent",
+   "file": "platform_collaboration.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformDeleteEvent",
+   "file": "platform_collaboration.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformInsertContactGroupMember",
+   "file": "platform_collaboration.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformRefreshDNSOnboardingAlerts",
+   "file": "platform_dns_onboarding.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformRevokeMailboxCredentials",
+   "file": "platform_mailbox_password.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformClaimMarketingRecipient",
+   "file": "platform_marketing.sql",
+   "reason": "claim 链含 turn 序号/审计第二写，需 repo Go 事务编排",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformRecordMarketingFlowExecution",
+   "file": "platform_marketing_flow_authoring.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformClaimMarketingFlowPositions",
+   "file": "platform_marketing_flows.sql",
+   "reason": "claim 链含 turn 序号/审计第二写，需 repo Go 事务编排",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformRefreshAIAlerts",
+   "file": "platform_notifications.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformInsertContactEnhanced",
+   "file": "platform_parity_enhancements.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformUpdateContactEnhanced",
+   "file": "platform_parity_enhancements.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformFinishReviewedRecall",
+   "file": "platform_recall_product.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "PlatformCompleteRecall",
+   "file": "platform_recalls.sql",
+   "reason": "多段 DML CTE（≥2 写）需拆为顺序语句",
+   "batch": "B1b"
+  },
+  {
+   "method": "StoreRecallReviewPreview",
+   "file": "recall_product.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "ConfirmRecallReview",
+   "file": "recall_product.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  },
+  {
+   "method": "CreateRecall",
+   "file": "recalls.sql",
+   "reason": "DML CTE 需单语句折叠改写",
+   "batch": "B1b"
+  }
+ ]
+}

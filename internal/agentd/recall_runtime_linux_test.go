@@ -168,7 +168,7 @@ service stats {
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 		q := store.New(tx)
-		row, err := q.StoreRecallReviewPreview(ctx, store.StoreRecallReviewPreviewParams{TenantID: f.tenant, ActorID: f.actor, EntryID: f.entry, Token: uuid.NewString(), Digest: digest, Snapshot: []byte(out)})
+		row, err := q.StoreRecallReviewPreview(ctx, store.StoreRecallReviewPreviewParams{TenantID: f.tenant, ActorID: f.actor, EntryID: f.entry, Token: pgtype.Text{String: uuid.NewString(), Valid: true}, Digest: pgtype.Text{String: digest, Valid: true}, Snapshot: []byte(out)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -180,7 +180,7 @@ service stats {
 		if err = tx.Commit(ctx); err != nil {
 			t.Fatal(err)
 		}
-		return store.RecallRequests(confirmed)
+		return confirmed
 	}
 	first := review(func(recall.Copy) bool { return true })
 	partial := f.execute(t, first)

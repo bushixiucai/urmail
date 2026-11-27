@@ -155,6 +155,34 @@ if [ -f /etc/urmail/urmaild.env ]; then
   # operator may also set URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT=1 to record
   # an explicit override in the fence reason (runbook: docs/operations/
   # upgrade-fence-preflight.md).
+  # An apply that was already in flight when this upgrade started is not an
+  # unresolved journal. The fence stops urmaild-agent (drop-in guards), so this
+  # check must run BEFORE fencing: once the agent is stopped nothing can clear a
+  # journal written by the in-flight apply. Give the running agent a bounded
+  # window (the file must stay absent for five consecutive seconds); if it still
+  # exists after the bound the refusal stays fail-closed at exit 1.
+  journal=/var/lib/urmail-agent/pending.json
+  if [ -e "$journal" ]; then
+    log "pending journal present before the fence; waiting for the running agent to finish (max 60s)"
+  fi
+  waited=0
+  stable=0
+  for _ in $(seq 1 60); do
+    waited=$((waited + 1))
+    if [ -e "$journal" ]; then
+      stable=0
+    else
+      stable=$((stable + 1))
+      [ "$stable" -ge 5 ] && break
+    fi
+    sleep 1
+  done
+  if [ -e "$journal" ]; then
+    log "pending journal still present after ${waited}s; refusing (fence will keep it for recovery)"
+  else
+    log "pending journal absent after ${waited}s; continuing to fence"
+  fi
+
   PREFLIGHT_FLAGS=""
   if [ "${URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT:-0}" = "1" ]; then
     log "URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT=1: forwarding --skip-preflight to upgrade fence"
@@ -212,6 +240,14 @@ PYCODE
   [ -f /etc/urmail/agent.env ] || die "Existing agent configuration is required for an upgrade checkpoint; fence retained."
   install -o root -g root -m 0600 /etc/urmail/agent.env "$BACKUP_DIR/agent.env"
 
+  if [ "${URMAIL_DB_ENGINE:-}" = "sqlite" ] && [ -n "${URMAIL_SQLITE_PATH:-}" ]; then
+    # Single-engine checkpoint: VACUUM INTO takes a consistent copy of the
+    # live database while the fence keeps every writer stopped. No PostgreSQL
+    # gate applies to this topology.
+    rm -f "$BACKUP_DIR/database.sqlite"
+    sqlite3 "$URMAIL_SQLITE_PATH" "VACUUM INTO '$BACKUP_DIR/database.sqlite'" || die "SQLite pre-upgrade checkpoint failed; fence retained."
+    chmod 0600 "$BACKUP_DIR/database.sqlite"
+  else
   # 4. Ensure PostgreSQL is accessible to perform CHECKPOINT and database dump BEFORE unpacking new binaries
   systemctl daemon-reload
   systemctl enable --now postgresql >/dev/null 2>&1 || die "Cannot start PostgreSQL service."
@@ -277,6 +313,8 @@ PYCODE
   else
     die "PostgreSQL is unavailable for the pre-upgrade dump; fence retained."
   fi
+  fi
+  # The checkpoint manifest and archive capture are engine-neutral.
   python3 "$CLI_EXTRACT_DIR/usr/share/urmail/upgrade-checkpoint.py" create "$BACKUP_DIR" || die "Cannot finalize upgrade checkpoint; fence retained."
 fi
 
@@ -562,6 +600,22 @@ systemctl reload nginx 2>/dev/null || systemctl restart nginx
 # Readiness still requires the applied generation and successful daemon probes.
 systemctl enable --now urmail-backup-auto.timer
 urmailctl config status --wait 240s
+# A reported success must not leave an in-flight configuration journal behind:
+# the next managed upgrade refuses such a host (fail-closed), and the operator
+# would see a successful install that cannot be upgraded. Wait, bounded, for
+# the agent to clear it; a journal that survives the bound is a real failure.
+pending_journal=/var/lib/urmail-agent/pending.json
+if [ -e "$pending_journal" ]; then
+  # A journal left by an interrupted apply is cleared by the agent's own
+  # recover path on start (internal/agentd/apply.go recover()); restarting the
+  # agent triggers that reconciliation instead of waiting blindly.
+  systemctl restart urmaild-agent.service
+fi
+for _ in $(seq 1 120); do
+  [ ! -e "$pending_journal" ] && break
+  sleep 1
+done
+[ ! -e "$pending_journal" ] || die "Configuration apply journal did not settle; installation incomplete (journal retained)."
 
 log "urMail.cn is installed."
 cat <<'EOF'

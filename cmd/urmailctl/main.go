@@ -27,6 +27,9 @@ Usage:
   urmailctl migrate up             apply pending schema migrations
   urmailctl migrate down           roll back the most recent schema migration
   urmailctl migrate version        print the current schema version
+  urmailctl sqlite migrate up      apply the embedded SQLite schema chain (single entry)
+  urmailctl sqlite import          migrate PG source to SQLite target and verify 0-diff
+  urmailctl sqlite verify-import   verify 0-diff between PG source and SQLite target
   urmailctl setup --email E --password P [--brand B] [--tenant T]
                   [--free-until RFC3339 --free-reason TEXT]
   urmailctl status                 print the service status
@@ -49,6 +52,8 @@ Usage:
   urmailctl restore mailbox --tenant-id T --mailbox-id M --address A --mail FILE --manifest FILE [--apply-review SHA256 --rollback-dir NEW_PRIVATE_DIR]
   urmailctl restore quarantine status|release [--restore-id ID --confirm-reconciled --source-isolated --reason TEXT]
   urmailctl restore --dump FILE --force [--config FILE] [--database-url URL]
+  urmailctl s5-recall-stage --target PATH [--source-env NAME] [--migrations-dir DIR]
+                                   controlled offline recall preservation: private staging, verified, no-overwrite publish
   urmailctl recover-pending        recover a private pending agent journal while fenced (no service restart)
   urmailctl upgrade fence|hold|release|status|resume|rollback|run-installer|check-installer-lease [OPTIONS]
 `
@@ -89,6 +94,8 @@ func run(args []string) error {
 		return runBootstrap(ctx, args[1:])
 	case "migrate":
 		return runMigrate(ctx, args[1:])
+	case "sqlite":
+		return runSQLiteMigrate(ctx, args[1:])
 	case "setup":
 		return runSetup(ctx, args[1:])
 	case "status":
@@ -127,10 +134,14 @@ func run(args []string) error {
 		return runBackup(ctx, args[1:])
 	case "restore":
 		return runRestore(ctx, args[1:])
+	case "s5-recall-stage":
+		return runS5RecallStage(ctx, args[1:])
 	case "recover-pending":
 		return runRecoverPendingOffline(ctx, args[1:])
 	case "upgrade":
 		return runUpgrade(ctx, args[1:])
+	case "cutover":
+		return runCutover(ctx, args[1:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

@@ -11,7 +11,7 @@ import (
 func TestBudgetScopeAndAbandonedTransaction(t *testing.T) {
 	url := testDatabaseURL(t)
 	ctx := context.Background()
-	p, err := db.OpenBudgeted(ctx, url, db.RoleApp, "test-scope", db.Budget{MaxConns: 1, MaxQueue: 1, AcquireTimeout: time.Second, OperationTimeout: time.Second})
+	p, err := db.OpenTenantBudgeted(ctx, url, "test-scope", db.Budget{MaxConns: 1, MaxQueue: 1, AcquireTimeout: time.Second, OperationTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

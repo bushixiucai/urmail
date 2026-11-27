@@ -46,7 +46,7 @@ func runSecrets(ctx context.Context, args []string) error {
 		return err
 	}
 	defer pool.Close()
-	q := store.New(pool)
+	q := db.Queries(pool)
 	if !*apply {
 		count, err := q.PlatformCountLegacyMFASecrets(ctx)
 		if err != nil {
@@ -80,7 +80,7 @@ func encryptLegacyTOTPBatch(ctx context.Context, pool *db.Pool, box *secrets.Box
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	rows, err := q.PlatformLockLegacyMFASecrets(ctx, batch)
 	if err != nil {
 		return 0, err

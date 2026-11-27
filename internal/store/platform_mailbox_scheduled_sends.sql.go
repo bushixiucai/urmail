@@ -215,15 +215,15 @@ INSERT INTO mailbox_scheduled_sends(
 `
 
 type PlatformCreateMailboxScheduledSendParams struct {
-	TenantID         int64              `json:"tenant_id"`
-	MailboxID        int64              `json:"mailbox_id"`
-	DraftFolder      string             `json:"draft_folder"`
-	DraftUid         int64              `json:"draft_uid"`
-	DraftUidvalidity int64              `json:"draft_uidvalidity"`
-	SendAt           pgtype.Timestamptz `json:"send_at"`
-	SmtpSecret       string             `json:"smtp_secret"`
-	IdempotencyKey   string             `json:"idempotency_key"`
-	RequestHash      string             `json:"request_hash"`
+	TenantID         int64  `json:"tenant_id"`
+	MailboxID        int64  `json:"mailbox_id"`
+	DraftFolder      string `json:"draft_folder"`
+	DraftUid         int64  `json:"draft_uid"`
+	DraftUidvalidity int64  `json:"draft_uidvalidity"`
+	SendAt           int64  `json:"send_at"`
+	SmtpSecret       string `json:"smtp_secret"`
+	IdempotencyKey   string `json:"idempotency_key"`
+	RequestHash      string `json:"request_hash"`
 }
 
 // Service-only schedule metadata; message bodies stay in IMAP.
@@ -525,11 +525,11 @@ RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, a
 `
 
 type PlatformRequeueMailboxScheduledSendParams struct {
-	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError      pgtype.Text        `json:"last_error"`
-	ID             int64              `json:"id"`
-	ClaimToken     int64              `json:"claim_token"`
-	ExpectedStatus string             `json:"expected_status"`
+	NextAttemptAt  int64       `json:"next_attempt_at"`
+	LastError      pgtype.Text `json:"last_error"`
+	ID             int64       `json:"id"`
+	ClaimToken     int64       `json:"claim_token"`
+	ExpectedStatus string      `json:"expected_status"`
 }
 
 func (q *Queries) PlatformRequeueMailboxScheduledSend(ctx context.Context, arg PlatformRequeueMailboxScheduledSendParams) (MailboxScheduledSends, error) {

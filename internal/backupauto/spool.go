@@ -15,17 +15,20 @@ import (
 func ReadSpool(dir, stamp string) (*Manifest, []LocalArtifact, error) {
 	names := []struct{ kind, name string }{
 		{KindPgDump, "urmail-" + stamp + ".dump"},
+		{KindSqliteSnapshot, "urmail-" + stamp + ".sqlite"},
 		{KindConfigTar, "urmail-config-" + stamp + ".tar.gz"},
 		{KindMailTar, "urmail-mail-" + stamp + ".tar.gz"},
 	}
 	var artifacts []LocalArtifact
-	includedMail := false
-	for i, candidate := range names {
+	includedMail, includedDB := false, false
+	for _, candidate := range names {
 		path := filepath.Join(dir, candidate.name)
 		info, err := os.Stat(path)
 		if err != nil {
-			if os.IsNotExist(err) && candidate.kind == KindMailTar {
-				continue // metadata-only backup: the CLI omits the mail tar
+			// The engine supplies exactly one database artifact; the other kind
+			// is legitimately absent. The mail tar is absent for metadata-only.
+			if os.IsNotExist(err) && (candidate.kind == KindMailTar || candidate.kind == KindPgDump || candidate.kind == KindSqliteSnapshot) {
+				continue
 			}
 			return nil, nil, fmt.Errorf("backup artifact %s: %w", candidate.name, err)
 		}
@@ -46,19 +49,27 @@ func ReadSpool(dir, stamp string) (*Manifest, []LocalArtifact, error) {
 			Name: candidate.name, Path: path, Kind: candidate.kind,
 			Size: info.Size(), SHA256: hex.EncodeToString(h.Sum(nil)),
 		})
-		if i == 2 {
+		switch candidate.kind {
+		case KindMailTar:
 			includedMail = true
+		case KindPgDump, KindSqliteSnapshot:
+			if includedDB {
+				return nil, nil, fmt.Errorf("backup spool %s contains both database artifact kinds", dir)
+			}
+			includedDB = true
 		}
 	}
-	if len(artifacts) < 2 {
-		return nil, nil, fmt.Errorf("backup spool %s lacks the dump or config archive", dir)
-	}
-	if !includedMail {
-		return nil, nil, fmt.Errorf("backup spool %s lacks the mail archive", dir)
+	if !includedDB {
+		return nil, nil, fmt.Errorf("backup spool %s lacks the database artifact", dir)
 	}
 	manifest, err := LoadManifest(filepath.Join(dir, ManifestName(stamp)))
 	if err != nil && !os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf("read spool manifest: %w", err)
+	}
+	// A metadata-only generation legitimately omits the mail archive; a complete
+	// generation must carry it, or the spool is not a restorable backup.
+	if !includedMail && (manifest == nil || manifest.Scope == ScopeComplete) {
+		return nil, nil, fmt.Errorf("backup spool %s lacks the mail archive", dir)
 	}
 	return manifest, artifacts, nil
 }

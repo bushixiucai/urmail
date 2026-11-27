@@ -12,12 +12,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/telemetry"
 )
@@ -54,6 +57,10 @@ func (w *Worker) Start(ctx context.Context, logger *zap.Logger) {
 
 // Once retains every failed spool item for retry or operator investigation.
 func (w *Worker) Once(ctx context.Context) error {
+	// Entire pass is platform-domain: spool indexing, retention, purge and
+	// alerts all bind platform statements. Elevate at ENTRY (QA round-2: the
+	// spool index loop runs before the retention block and needs the scope).
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if w.Pool == nil {
 		return errors.New("archive database unavailable")
 	}
@@ -134,14 +141,17 @@ func (w *Worker) Once(ctx context.Context) error {
 	if processed < 100 {
 		w.scanAfter = ""
 	}
-	q := store.New(w.Pool)
+	q := db.Queries(w.Pool)
 	if _, expiryErr := q.PlatformExpireArchiveApprovals(ctx); expiryErr != nil {
 		failures = append(failures, expiryErr)
 	}
 	if err = w.backfill(ctx); err != nil {
 		failures = append(failures, err)
 	}
-	if _, err = q.PlatformApplyArchiveRetention(ctx); err != nil {
+	if _, err = q.PlatformApplyArchiveRetentionMarkContent(ctx); err != nil {
+		failures = append(failures, err)
+	}
+	if _, err = q.PlatformApplyArchiveRetentionMarkDeleted(ctx); err != nil {
 		failures = append(failures, err)
 	}
 	candidates, err := q.PlatformListArchivePurgeCandidates(ctx)
@@ -178,7 +188,7 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 	if manifest.Recipient.TenantID <= 0 || manifest.Recipient.MailboxID <= 0 {
 		return errors.New("legacy archive recipient is unbound; manual canonical recovery required")
 	}
-	q := store.New(w.Pool)
+	q := db.Queries(w.Pool)
 	_, err = q.PlatformResolvePinnedArchiveMailbox(ctx, store.PlatformResolvePinnedArchiveMailboxParams{TenantID: manifest.Recipient.TenantID, MailboxID: manifest.Recipient.MailboxID, Address: manifest.Recipient.Address})
 	if err != nil {
 		return errors.New("pinned archive mailbox no longer matches canonical ownership")
@@ -217,14 +227,14 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q = store.New(tx)
+	q = db.Queries(tx)
 	// Lock the exact canonical identity through the indexing transaction. The
 	// reserved-identity guards prevent reuse once an archive row references it.
 	_, err = q.PlatformResolvePinnedArchiveMailbox(ctx, store.PlatformResolvePinnedArchiveMailboxParams{TenantID: manifest.Recipient.TenantID, MailboxID: manifest.Recipient.MailboxID, Address: manifest.Recipient.Address})
 	if err != nil {
 		return err
 	}
-	entry, err := q.PlatformIndexArchiveCopy(ctx, store.PlatformIndexArchiveCopyParams{TenantID: manifest.Recipient.TenantID, MailboxID: pgtype.Int8{Int64: manifest.Recipient.MailboxID, Valid: true}, MessageID: content.MessageID, Path: path, Subject: pgtype.Text{String: content.Subject, Valid: content.Subject != ""}, FromAddr: pgtype.Text{String: content.From, Valid: content.From != ""}, ToAddr: pgtype.Text{String: content.To, Valid: content.To != ""}, ReceivedAt: pgtype.Timestamptz{Time: manifest.ReceivedAt, Valid: true}, SizeBytes: manifest.Size, RawSha256: manifest.SHA256})
+	entry, err := q.PlatformIndexArchiveCopy(ctx, store.PlatformIndexArchiveCopyParams{TenantID: manifest.Recipient.TenantID, MailboxID: pgtype.Int8{Int64: manifest.Recipient.MailboxID, Valid: true}, MessageID: content.MessageID, Path: path, Subject: pgtype.Text{String: content.Subject, Valid: content.Subject != ""}, FromAddr: pgtype.Text{String: content.From, Valid: content.From != ""}, ToAddr: pgtype.Text{String: content.To, Valid: content.To != ""}, ReceivedAt: timeutil.Micro(manifest.ReceivedAt), SizeBytes: manifest.Size, RawSha256: manifest.SHA256})
 	if err != nil {
 		return err
 	}
@@ -233,7 +243,7 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 		if e != nil {
 			return e
 		}
-		if lifecycle.PurgeStartedAt.Valid || lifecycle.PurgedAt.Valid {
+		if lifecycle.PurgeStartedAt != 0 || lifecycle.PurgedAt != 0 {
 			return errors.New("duplicate original is already purging or purged; durable input retained for explicit reconciliation")
 		}
 		if e = ValidateOwnershipPath(w.Archive, entry.Path, manifest.Recipient.TenantID, manifest.Recipient.MailboxID); e != nil {
@@ -287,12 +297,15 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 }
 
 func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
+	// Purge is a platform-domain lifecycle op; bind the scope here so both the
+	// Once-driven pass and direct callers (retention drill) satisfy the hook.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	for phase := 0; phase < 2; phase++ {
 		tx, err := w.Pool.PlatformTx(ctx)
 		if err != nil {
 			return err
 		}
-		q := store.New(tx)
+		q := db.Queries(tx)
 		entry, err := q.PlatformLockArchivePurgeCandidate(ctx, store.PlatformLockArchivePurgeCandidateParams{TenantID: tenantID, ID: id})
 		if err != nil {
 			_ = tx.Rollback(ctx)
@@ -324,7 +337,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 			switch {
 			case readErr == nil:
 				err = q.PlatformCancelArchivePurgeIntent(ctx, store.PlatformCancelArchivePurgeIntentParams{TenantID: tenantID, EntryID: id})
-			case errors.Is(readErr, os.ErrNotExist) && entry.PurgeStartedAt.Valid:
+			case errors.Is(readErr, os.ErrNotExist) && entry.PurgeStartedAt != 0:
 				err = q.PlatformFinishArchivePurge(ctx, store.PlatformFinishArchivePurgeParams{TenantID: tenantID, EntryID: id})
 			default:
 				err = readErr
@@ -338,7 +351,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 		}
 		if phase == 0 {
 			err = q.PlatformBeginArchivePurge(ctx, store.PlatformBeginArchivePurgeParams{TenantID: tenantID, EntryID: id})
-			if err == nil && !entry.PurgeStartedAt.Valid {
+			if err == nil && entry.PurgeStartedAt == 0 {
 				_, err = q.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, Action: "archive.physical_purge_started", TargetType: pgtype.Text{String: "archive", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: []byte(`{"source":"archive_worker"}`)})
 			}
 			if err == nil {
@@ -368,7 +381,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 			}
 			err = root.Remove(relative)
 			_ = root.Close()
-		case errors.Is(readErr, os.ErrNotExist) && entry.PurgeStartedAt.Valid:
+		case errors.Is(readErr, os.ErrNotExist) && entry.PurgeStartedAt != 0:
 			err = nil
 		default:
 			err = readErr
@@ -386,7 +399,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 			err = tx.Commit(ctx)
 		} else {
 			_ = tx.Rollback(ctx)
-			_ = store.New(w.Pool).PlatformFailArchivePurge(ctx, store.PlatformFailArchivePurgeParams{TenantID: tenantID, EntryID: id, PurgeError: bounded(err.Error(), 1000)})
+			_ = db.Queries(w.Pool).PlatformFailArchivePurge(ctx, store.PlatformFailArchivePurgeParams{TenantID: tenantID, EntryID: id, PurgeError: bounded(err.Error(), 1000)})
 		}
 		return err
 	}
@@ -415,7 +428,7 @@ func archiveRelative(root, path string) (string, error) {
 }
 
 func (w *Worker) backfill(ctx context.Context) error {
-	q := store.New(w.Pool)
+	q := db.Queries(w.Pool)
 	entries, err := q.PlatformListArchiveUnindexedOriginals(ctx, w.legacyAfter)
 	if err != nil {
 		return err
@@ -445,7 +458,7 @@ func (w *Worker) backfill(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
-		queries := store.New(tx)
+		queries := db.Queries(tx)
 		if e = queries.PlatformSetArchiveOriginalHash(ctx, store.PlatformSetArchiveOriginalHashParams{TenantID: entry.TenantID, ID: entry.ID, RawSha256: digest}); e == nil {
 			e = queries.PlatformIndexArchiveContent(ctx, store.PlatformIndexArchiveContentParams{TenantID: entry.TenantID, EntryID: entry.ID, BodyText: content.Body, BodyHtml: content.BodyHTML, Attachments: attachments, ExtractionError: content.Error, OriginalSha256: digest})
 		}
@@ -468,7 +481,7 @@ func (w *Worker) observeOrphans(ctx context.Context) error {
 	if _, err := os.Stat(w.Archive); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	q := store.New(w.Pool)
+	q := db.Queries(w.Pool)
 	scanned := 0
 	if w.orphanAfter == "" {
 		w.orphanFound = false
@@ -560,6 +573,9 @@ func (w *Worker) IndexSpoolCopy(ctx context.Context, id string) (returnedErr err
 	if w.Pool == nil {
 		return errors.New("archive database unavailable")
 	}
+	// Public index entry: bind platform scope for the pinned-ownership and
+	// index statements (direct callers bypass the Once-elevated context).
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if config.RestoreQuarantined() {
 		return errors.New("archive indexing quarantined")
 	}

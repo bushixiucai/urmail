@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/sieve"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -27,9 +28,12 @@ func RunSieveReconciler(ctx context.Context, pool *db.Pool, activator SieveActiv
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+	// This reconciler is the trusted background retry path for desired Sieve
+	// scripts; it owns the platform scope and is not reachable from HTTP.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	applied := map[int64]string{}
 	for {
-		rows, err := store.New(pool).PlatformListSieveScripts(ctx)
+		rows, err := db.Queries(pool).PlatformListSieveScripts(ctx)
 		if err != nil {
 			logger.Error("list desired sieve scripts", zap.Error(err))
 		} else {
@@ -49,7 +53,7 @@ func RunSieveReconciler(ctx context.Context, pool *db.Pool, activator SieveActiv
 					continue
 				}
 				detail, _ := json.Marshal(map[string]any{"actor_type": "system", "mailbox_id": row.ID, "digest": digest, "status": 200, "outcome": "succeeded"})
-				if _, auditErr := store.New(pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: row.TenantID, Valid: true}, Action: "sieve.activated", TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); auditErr != nil {
+				if _, auditErr := db.Queries(pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: row.TenantID, Valid: true}, Action: "sieve.activated", TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); auditErr != nil {
 					logger.Error("write sieve activation audit", zap.Error(auditErr))
 					continue
 				}

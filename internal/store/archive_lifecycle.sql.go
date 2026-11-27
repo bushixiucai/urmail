@@ -7,14 +7,16 @@ package store
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const activateArchiveRetention = `-- name: ActivateArchiveRetention :exec
+
 INSERT INTO retention_policies(tenant_id,retention_days,action,active,created_by,confirmed_preview,authorization_grant_id)
-VALUES($1,$2,'soft_delete',true,$3,$4,$5)
-ON CONFLICT(tenant_id) DO UPDATE SET retention_days=EXCLUDED.retention_days,action='soft_delete',active=true,created_by=EXCLUDED.created_by,confirmed_preview=EXCLUDED.confirmed_preview,authorization_grant_id=EXCLUDED.authorization_grant_id,updated_at=statement_timestamp()
+VALUES(?1,?2,'soft_delete',true,?3,?4,?5)
+ON CONFLICT(tenant_id) DO UPDATE SET retention_days=EXCLUDED.retention_days,action='soft_delete',active=true,created_by=EXCLUDED.created_by,confirmed_preview=EXCLUDED.confirmed_preview,authorization_grant_id=EXCLUDED.authorization_grant_id,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 `
 
 type ActivateArchiveRetentionParams struct {
@@ -25,6 +27,7 @@ type ActivateArchiveRetentionParams struct {
 	AuthorizationGrantID pgtype.Int8 `json:"authorization_grant_id"`
 }
 
+// scope: tenant
 func (q *Queries) ActivateArchiveRetention(ctx context.Context, arg ActivateArchiveRetentionParams) error {
 	_, err := q.db.Exec(ctx, activateArchiveRetention,
 		arg.TenantID,
@@ -37,21 +40,31 @@ func (q *Queries) ActivateArchiveRetention(ctx context.Context, arg ActivateArch
 }
 
 const archiveRetentionCandidateDigest = `-- name: ArchiveRetentionCandidateDigest :one
-SELECT count(*)::bigint AS candidate_count,md5(coalesce(string_agg(id::text,',' ORDER BY id),''))::text AS candidate_digest
-FROM archive_entries WHERE tenant_id= $1 AND NOT legal_hold AND deleted_at IS NULL
- AND received_at < $2::timestamptz
+
+SELECT count(*) AS candidate_count,
+ md5(coalesce((SELECT group_concat(id, ',') FROM (
+   SELECT a.id FROM archive_entries a
+   WHERE a.tenant_id=?1 AND NOT a.legal_hold AND a.deleted_at IS NULL
+    AND a.received_at < ?2
+   ORDER BY a.id)),'')) AS candidate_digest
+FROM archive_entries WHERE archive_entries.tenant_id= ?1 AND NOT archive_entries.legal_hold AND archive_entries.deleted_at IS NULL
+ AND archive_entries.received_at < ?2
 `
 
 type ArchiveRetentionCandidateDigestParams struct {
-	TenantID int64              `json:"tenant_id"`
-	Cutoff   pgtype.Timestamptz `json:"cutoff"`
+	TenantID int64 `json:"tenant_id"`
+	Cutoff   int64 `json:"cutoff"`
 }
 
 type ArchiveRetentionCandidateDigestRow struct {
-	CandidateCount  int64  `json:"candidate_count"`
-	CandidateDigest string `json:"candidate_digest"`
+	CandidateCount  int64       `json:"candidate_count"`
+	CandidateDigest interface{} `json:"candidate_digest"`
 }
 
+// scope: tenant
+// Same WHERE as PreviewArchiveRetention (tenant-scoped candidate set), so the
+// confirmation evidence and the preview describe the same rows. The previous
+// port hashed every tenant's ids and ignored the cutoff.
 func (q *Queries) ArchiveRetentionCandidateDigest(ctx context.Context, arg ArchiveRetentionCandidateDigestParams) (ArchiveRetentionCandidateDigestRow, error) {
 	row := q.db.QueryRow(ctx, archiveRetentionCandidateDigest, arg.TenantID, arg.Cutoff)
 	var i ArchiveRetentionCandidateDigestRow
@@ -60,7 +73,8 @@ func (q *Queries) ArchiveRetentionCandidateDigest(ctx context.Context, arg Archi
 }
 
 const confirmArchiveRetentionPreview = `-- name: ConfirmArchiveRetentionPreview :exec
-UPDATE retention_previews SET confirmed_at=statement_timestamp() WHERE tenant_id= $1 AND id= $2 AND confirmed_at IS NULL
+
+UPDATE retention_previews SET confirmed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE tenant_id= ?1 AND id= ?2 AND confirmed_at IS NULL
 `
 
 type ConfirmArchiveRetentionPreviewParams struct {
@@ -68,15 +82,17 @@ type ConfirmArchiveRetentionPreviewParams struct {
 	ID       pgtype.UUID `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) ConfirmArchiveRetentionPreview(ctx context.Context, arg ConfirmArchiveRetentionPreviewParams) error {
 	_, err := q.db.Exec(ctx, confirmArchiveRetentionPreview, arg.TenantID, arg.ID)
 	return err
 }
 
 const getArchiveContent = `-- name: GetArchiveContent :one
-SELECT a.id,a.tenant_id,a.mailbox_id,a.path,coalesce(nullif(a.raw_sha256,''),c.original_sha256)::text AS raw_sha256,a.message_id,a.size_bytes,c.body_text,c.body_html,c.attachments,c.extraction_error
+
+SELECT a.id,a.tenant_id,a.mailbox_id,a.path,coalesce(nullif(a.raw_sha256,''),c.original_sha256) AS raw_sha256,a.message_id,a.size_bytes,c.body_text,c.body_html,c.attachments,c.extraction_error
 FROM archive_entries a JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
-WHERE a.tenant_id= $1 AND a.id= $2 AND a.deleted_at IS NULL AND c.purge_started_at IS NULL
+WHERE a.tenant_id= ?1 AND a.id= ?2 AND a.deleted_at IS NULL AND c.purge_started_at IS NULL
 `
 
 type GetArchiveContentParams struct {
@@ -98,6 +114,7 @@ type GetArchiveContentRow struct {
 	ExtractionError string      `json:"extraction_error"`
 }
 
+// scope: tenant
 func (q *Queries) GetArchiveContent(ctx context.Context, arg GetArchiveContentParams) (GetArchiveContentRow, error) {
 	row := q.db.QueryRow(ctx, getArchiveContent, arg.TenantID, arg.ID)
 	var i GetArchiveContentRow
@@ -118,10 +135,10 @@ func (q *Queries) GetArchiveContent(ctx context.Context, arg GetArchiveContentPa
 }
 
 const getArchiveOriginalForRecovery = `-- name: GetArchiveOriginalForRecovery :one
-SELECT a.id,a.tenant_id,a.mailbox_id,a.path,coalesce(nullif(a.raw_sha256,''),c.original_sha256)::text AS raw_sha256
+
+SELECT a.id,a.tenant_id,a.mailbox_id,a.path,coalesce(nullif(a.raw_sha256,''),c.original_sha256) AS raw_sha256
 FROM archive_entries a JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
-WHERE a.tenant_id= $1 AND a.id= $2 AND a.deleted_at IS NOT NULL AND c.purge_started_at IS NULL AND c.purged_at IS NULL
-FOR UPDATE OF a
+WHERE a.tenant_id= ?1 AND a.id= ?2 AND a.deleted_at IS NOT NULL AND c.purge_started_at IS NULL AND c.purged_at IS NULL
 `
 
 type GetArchiveOriginalForRecoveryParams struct {
@@ -137,6 +154,7 @@ type GetArchiveOriginalForRecoveryRow struct {
 	RawSha256 string      `json:"raw_sha256"`
 }
 
+// scope: tenant
 func (q *Queries) GetArchiveOriginalForRecovery(ctx context.Context, arg GetArchiveOriginalForRecoveryParams) (GetArchiveOriginalForRecoveryRow, error) {
 	row := q.db.QueryRow(ctx, getArchiveOriginalForRecovery, arg.TenantID, arg.ID)
 	var i GetArchiveOriginalForRecoveryRow
@@ -151,7 +169,8 @@ func (q *Queries) GetArchiveOriginalForRecovery(ctx context.Context, arg GetArch
 }
 
 const lockArchiveRetentionPreview = `-- name: LockArchiveRetentionPreview :one
-SELECT id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, expires_at, confirmed_at, authorization_grant_id FROM retention_previews WHERE tenant_id= $1 AND id= $2 AND created_by= $3 AND confirmed_at IS NULL AND expires_at>statement_timestamp() FOR UPDATE
+
+SELECT id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, coalesce(expires_at, 0) AS expires_at, coalesce(confirmed_at, 0) AS confirmed_at, authorization_grant_id FROM retention_previews WHERE tenant_id= ?1 AND id= ?2 AND created_by= ?3 AND confirmed_at IS NULL AND expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
 `
 
 type LockArchiveRetentionPreviewParams struct {
@@ -160,6 +179,7 @@ type LockArchiveRetentionPreviewParams struct {
 	CreatedBy int64       `json:"created_by"`
 }
 
+// scope: tenant
 func (q *Queries) LockArchiveRetentionPreview(ctx context.Context, arg LockArchiveRetentionPreviewParams) (RetentionPreviews, error) {
 	row := q.db.QueryRow(ctx, lockArchiveRetentionPreview, arg.TenantID, arg.ID, arg.CreatedBy)
 	var i RetentionPreviews
@@ -179,12 +199,20 @@ func (q *Queries) LockArchiveRetentionPreview(ctx context.Context, arg LockArchi
 }
 
 const previewArchiveRetention = `-- name: PreviewArchiveRetention :one
-INSERT INTO retention_previews(tenant_id,retention_days,candidate_count,candidate_digest,created_by,created_at,expires_at)
-SELECT $1,$2::integer,count(*),md5(coalesce(string_agg(id::text,',' ORDER BY id),'')),$3,statement_timestamp(),statement_timestamp()+interval '15 minutes'
+
+INSERT INTO retention_previews(id,tenant_id,retention_days,candidate_count,candidate_digest,created_by,created_at,expires_at)
+SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-'||substr('89ab',1+(abs(random())%4),1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))),
+ ?1,?2,count(*),
+ md5(coalesce((SELECT group_concat(id, ',') FROM (
+   SELECT a.id FROM archive_entries a
+   WHERE a.tenant_id=?1 AND NOT a.legal_hold AND a.deleted_at IS NULL
+    AND a.received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(?2*86400000000)
+   ORDER BY a.id)),'')),
+ ?3,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)+900000000000
 FROM archive_entries
-WHERE tenant_id= $1 AND NOT legal_hold AND deleted_at IS NULL
- AND received_at<statement_timestamp()-make_interval(days=> $2::integer)
-RETURNING id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, expires_at, confirmed_at, authorization_grant_id
+WHERE archive_entries.tenant_id= ?1 AND NOT archive_entries.legal_hold AND archive_entries.deleted_at IS NULL
+ AND archive_entries.received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(?2*86400000000)
+RETURNING id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, coalesce(expires_at, 0) AS expires_at, coalesce(confirmed_at, 0) AS confirmed_at, authorization_grant_id
 `
 
 type PreviewArchiveRetentionParams struct {
@@ -193,6 +221,12 @@ type PreviewArchiveRetentionParams struct {
 	CreatedBy     int64 `json:"created_by"`
 }
 
+// scope: tenant
+// The candidate set and its digest must be the same set: the previous port left
+// `-(0)` where make_interval(days=>retention_days) was, and the digest subquery
+// had no WHERE (whole-table, cross-tenant). Both are restored here from the PG
+// the UUID default the PG DDL carried (gen_random_uuid is not expressible in
+// the generated SQLite schema); it is a v4-shaped lowercase UUID text.
 func (q *Queries) PreviewArchiveRetention(ctx context.Context, arg PreviewArchiveRetentionParams) (RetentionPreviews, error) {
 	row := q.db.QueryRow(ctx, previewArchiveRetention, arg.TenantID, arg.RetentionDays, arg.CreatedBy)
 	var i RetentionPreviews
@@ -212,9 +246,10 @@ func (q *Queries) PreviewArchiveRetention(ctx context.Context, arg PreviewArchiv
 }
 
 const restoreArchiveCopy = `-- name: RestoreArchiveCopy :execrows
-UPDATE archive_entries a SET deleted_at=NULL
-WHERE a.tenant_id= $1 AND a.id= $2 AND a.deleted_at IS NOT NULL
- AND EXISTS(SELECT 1 FROM archive_content c WHERE c.entry_id=a.id AND c.tenant_id=a.tenant_id AND c.purge_started_at IS NULL AND c.purged_at IS NULL)
+
+UPDATE archive_entries SET deleted_at=NULL
+WHERE archive_entries.tenant_id= ?1 AND archive_entries.id= ?2 AND archive_entries.deleted_at IS NOT NULL
+ AND EXISTS(SELECT 1 FROM archive_content c WHERE c.entry_id=archive_entries.id AND c.tenant_id=archive_entries.tenant_id AND c.purge_started_at IS NULL AND c.purged_at IS NULL)
 `
 
 type RestoreArchiveCopyParams struct {
@@ -222,6 +257,7 @@ type RestoreArchiveCopyParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) RestoreArchiveCopy(ctx context.Context, arg RestoreArchiveCopyParams) (int64, error) {
 	result, err := q.db.Exec(ctx, restoreArchiveCopy, arg.TenantID, arg.ID)
 	if err != nil {
@@ -231,46 +267,48 @@ func (q *Queries) RestoreArchiveCopy(ctx context.Context, arg RestoreArchiveCopy
 }
 
 const searchArchiveContent = `-- name: SearchArchiveContent :many
-SELECT a.id,a.mailbox_id,a.message_id,a.subject,a.from_addr,a.to_addr,a.received_at,a.size_bytes,a.legal_hold,a.deleted_at
+
+SELECT a.id, a.mailbox_id, a.message_id, a.subject, a.from_addr, a.to_addr, a.received_at, a.size_bytes, a.legal_hold, coalesce(a.deleted_at, 0) AS deleted_at
 FROM archive_entries a JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
-WHERE a.tenant_id= $1 AND (a.deleted_at IS NOT NULL)= $2::boolean AND c.purge_started_at IS NULL
- AND ($3::text='' OR to_tsvector('simple',coalesce(a.subject,'')||' '||c.body_text) @@ plainto_tsquery('simple',$3::text)
- OR coalesce(a.subject,'') ILIKE '%'||replace(replace($3::text,'%','\%'),'_','\_')||'%'
- OR c.body_text ILIKE '%'||replace(replace($3::text,'%','\%'),'_','\_')||'%')
- AND ($4::bigint IS NULL OR a.mailbox_id=$4)
- AND ($5::text='' OR position(lower($5::text) IN lower(coalesce(a.from_addr,'')))>0)
- AND ($6::timestamptz IS NULL OR a.received_at>=$6)
- AND ($7::timestamptz IS NULL OR a.received_at<$7)
- AND ($8::timestamptz IS NULL OR (a.received_at,a.id)<($8,$9::bigint))
-ORDER BY a.received_at DESC,a.id DESC LIMIT $10::integer
+WHERE a.tenant_id= ?1 AND (a.deleted_at IS NOT NULL)=CAST(?2 AS BOOLEAN) AND c.purge_started_at IS NULL
+ AND (CAST(?3 AS TEXT)='' OR a.subject LIKE '%' || CAST(?3 AS TEXT) || '%' OR c.body_text LIKE '%' || CAST(?3 AS TEXT) || '%'
+ OR coalesce(a.subject,'') LIKE '%'||CAST(?3 AS TEXT)||'%'
+ OR c.body_text LIKE '%'||CAST(?3 AS TEXT)||'%')
+ AND (CAST(?4 AS INTEGER) IS NULL OR a.mailbox_id=CAST(?4 AS INTEGER))
+ AND (CAST(?5 AS TEXT)='' OR instr(lower(coalesce(a.from_addr,'')), lower(CAST(?5 AS TEXT)))>0)
+ AND (CAST(?6 AS INTEGER) IS NULL OR a.received_at>=CAST(?6 AS INTEGER))
+ AND (CAST(?7 AS INTEGER) IS NULL OR a.received_at<CAST(?7 AS INTEGER))
+ AND (CAST(?8 AS INTEGER) IS NULL OR (a.received_at,a.id)<(CAST(?8 AS INTEGER),CAST(?9 AS INTEGER)))
+ORDER BY a.received_at DESC,a.id DESC LIMIT CAST(?10 AS INTEGER)
 `
 
 type SearchArchiveContentParams struct {
-	TenantID       int64              `json:"tenant_id"`
-	IncludeDeleted bool               `json:"include_deleted"`
-	Query          string             `json:"query"`
-	MailboxID      pgtype.Int8        `json:"mailbox_id"`
-	FromAddr       string             `json:"from_addr"`
-	AfterTime      pgtype.Timestamptz `json:"after_time"`
-	BeforeTime     pgtype.Timestamptz `json:"before_time"`
-	CursorTime     pgtype.Timestamptz `json:"cursor_time"`
-	CursorID       pgtype.Int8        `json:"cursor_id"`
-	LimitCount     int32              `json:"limit_count"`
+	TenantID       int64         `json:"tenant_id"`
+	IncludeDeleted bool          `json:"include_deleted"`
+	Query          string        `json:"query"`
+	MailboxID      sql.NullInt64 `json:"mailbox_id"`
+	FromAddr       string        `json:"from_addr"`
+	AfterTime      sql.NullInt64 `json:"after_time"`
+	BeforeTime     sql.NullInt64 `json:"before_time"`
+	CursorTime     sql.NullInt64 `json:"cursor_time"`
+	CursorID       sql.NullInt64 `json:"cursor_id"`
+	LimitCount     int64         `json:"limit_count"`
 }
 
 type SearchArchiveContentRow struct {
-	ID         int64              `json:"id"`
-	MailboxID  pgtype.Int8        `json:"mailbox_id"`
-	MessageID  string             `json:"message_id"`
-	Subject    pgtype.Text        `json:"subject"`
-	FromAddr   pgtype.Text        `json:"from_addr"`
-	ToAddr     pgtype.Text        `json:"to_addr"`
-	ReceivedAt pgtype.Timestamptz `json:"received_at"`
-	SizeBytes  int64              `json:"size_bytes"`
-	LegalHold  bool               `json:"legal_hold"`
-	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
+	ID         int64       `json:"id"`
+	MailboxID  pgtype.Int8 `json:"mailbox_id"`
+	MessageID  string      `json:"message_id"`
+	Subject    pgtype.Text `json:"subject"`
+	FromAddr   pgtype.Text `json:"from_addr"`
+	ToAddr     pgtype.Text `json:"to_addr"`
+	ReceivedAt int64       `json:"received_at"`
+	SizeBytes  int64       `json:"size_bytes"`
+	LegalHold  bool        `json:"legal_hold"`
+	DeletedAt  int64       `json:"deleted_at"`
 }
 
+// scope: tenant
 func (q *Queries) SearchArchiveContent(ctx context.Context, arg SearchArchiveContentParams) ([]SearchArchiveContentRow, error) {
 	rows, err := q.db.Query(ctx, searchArchiveContent,
 		arg.TenantID,

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
@@ -38,7 +40,7 @@ func TestRetentionUpgradeStopsLegacyPolicyWithoutInventingGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := store.New(tx)
-	if _, err = q.CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: "full_content", Reason: "Legacy read authority only", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, GrantedBy: pgtype.Int8{Int64: user, Valid: true}}); err != nil {
+	if _, err = q.CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: "full_content", Reason: "Legacy read authority only", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), GrantedBy: pgtype.Int8{Int64: user, Valid: true}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = tx.Exec(ctx, "WITH p AS (INSERT INTO retention_previews(tenant_id,retention_days,candidate_count,candidate_digest,created_by,confirmed_at) VALUES($1,30,0,'old-preview',$2,now()) RETURNING id) INSERT INTO retention_policies(tenant_id,retention_days,action,active,created_by,confirmed_preview) SELECT $1,30,'soft_delete',true,$2,id FROM p", tenant, user); err != nil {

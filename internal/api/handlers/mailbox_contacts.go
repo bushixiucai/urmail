@@ -43,6 +43,7 @@ type contactRequest struct {
 }
 
 func (h MailboxContactsHandler) principal(c *gin.Context) (appcollab.Principal, bool) {
+	bindPlatformScope(c)
 	session, ok := middleware.GetMailboxSession(c)
 	if !ok || session.TenantID <= 0 || session.MailboxID <= 0 {
 		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
@@ -64,7 +65,7 @@ func (h MailboxContactsHandler) ListContacts(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		rows, err := q.PlatformListContactsPage(c, store.PlatformListContactsPageParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: cursor, Limit: int32(limit + 1)})
+		rows, err := q.PlatformListContactsPage(c.Request.Context(), store.PlatformListContactsPageParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: cursor, Limit: int32(limit + 1)})
 		if err != nil {
 			authError(c, 503, "CONTACTS_UNAVAILABLE")
 			return
@@ -370,7 +371,7 @@ func (h MailboxContactsHandler) CreateGroup(c *gin.Context) {
 		return
 	}
 	if req.AddressbookID == 0 {
-		book, err := h.Service.EnsureAddressbook(c, p, "Contacts")
+		book, err := h.Service.EnsureAddressbook(c.Request.Context(), p, "Contacts")
 		if err != nil {
 			authError(c, 503, "CONTACTS_UNAVAILABLE")
 			return

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -80,7 +82,7 @@ func (h *marketingFlowHandler) definition(c *gin.Context) (*store.Queries, store
 		return nil, store.MarketingFlowDefinitions{}, false
 	}
 	q := requestStore(c, h.store)
-	row, err := q.GetMarketingFlowDefinition(c, store.GetMarketingFlowDefinitionParams{TenantID: tenant, ID: id})
+	row, err := q.GetMarketingFlowDefinition(c.Request.Context(), store.GetMarketingFlowDefinitionParams{TenantID: tenant, ID: id})
 	if flowFailure(c, err) {
 		return nil, row, false
 	}
@@ -91,7 +93,7 @@ func (h *marketingFlowHandler) list(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.store).ListMarketingFlowDefinitions(c, tenant)
+	rows, err := requestStore(c, h.store).ListMarketingFlowDefinitions(c.Request.Context(), tenant)
 	if flowFailure(c, err) {
 		return
 	}
@@ -122,7 +124,7 @@ func (h *marketingFlowHandler) create(c *gin.Context) {
 		return
 	}
 	q := requestStore(c, h.store)
-	count, err := q.CountMarketingFlowDefinitions(c, tenant)
+	count, err := q.CountMarketingFlowDefinitions(c.Request.Context(), tenant)
 	if flowFailure(c, err) {
 		return
 	}
@@ -131,7 +133,7 @@ func (h *marketingFlowHandler) create(c *gin.Context) {
 		return
 	}
 	encoded, _ := json.Marshal(input.Draft)
-	row, err := q.CreateMarketingFlowDefinition(c, store.CreateMarketingFlowDefinitionParams{TenantID: tenant, Name: input.Name, Draft: encoded})
+	row, err := q.CreateMarketingFlowDefinition(c.Request.Context(), store.CreateMarketingFlowDefinitionParams{TenantID: tenant, Name: input.Name, Draft: encoded})
 	if flowFailure(c, err) {
 		return
 	}
@@ -162,7 +164,7 @@ func (h *marketingFlowHandler) save(c *gin.Context) {
 		return
 	}
 	encoded, _ := json.Marshal(input.Draft)
-	saved, err := q.UpdateMarketingFlowDefinition(c, store.UpdateMarketingFlowDefinitionParams{TenantID: row.TenantID, ID: row.ID, Name: input.Name, Draft: encoded, DraftRevision: input.ExpectedRevision})
+	saved, err := q.UpdateMarketingFlowDefinition(c.Request.Context(), store.UpdateMarketingFlowDefinitionParams{TenantID: row.TenantID, ID: row.ID, Name: input.Name, Draft: encoded, DraftRevision: input.ExpectedRevision})
 	if flowFailure(c, err) {
 		return
 	}
@@ -178,7 +180,7 @@ func resolveFlowTemplates(c *gin.Context, q *store.Queries, tenant int64, d flow
 		if n.Kind != "send" {
 			continue
 		}
-		template, err := q.GetMarketingFlowTemplate(c, store.GetMarketingFlowTemplateParams{TenantID: tenant, ID: n.TemplateID})
+		template, err := q.GetMarketingFlowTemplate(c.Request.Context(), store.GetMarketingFlowTemplateParams{TenantID: tenant, ID: n.TemplateID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			problems = append(problems, flow.NodeError{Node: n.ID, Field: "template_id", Code: "template_required"})
 			continue
@@ -210,7 +212,7 @@ func (h *marketingFlowHandler) preview(c *gin.Context) {
 		return
 	}
 	if input.ListID > 0 {
-		if _, err = q.GetMarketingFlowList(c, store.GetMarketingFlowListParams{TenantID: row.TenantID, ID: input.ListID}); flowFailure(c, err) {
+		if _, err = q.GetMarketingFlowList(c.Request.Context(), store.GetMarketingFlowListParams{TenantID: row.TenantID, ID: input.ListID}); flowFailure(c, err) {
 			return
 		}
 	}
@@ -278,7 +280,7 @@ func (h *marketingFlowHandler) publish(c *gin.Context) {
 		authError(c, 409, "FLOW_REVISION_CONFLICT")
 		return
 	}
-	existing, err := q.GetMarketingFlowVersionForRevision(c, store.GetMarketingFlowVersionForRevisionParams{TenantID: row.TenantID, DefinitionID: row.ID, DraftRevision: row.DraftRevision})
+	existing, err := q.GetMarketingFlowVersionForRevision(c.Request.Context(), store.GetMarketingFlowVersionForRevisionParams{TenantID: row.TenantID, DefinitionID: row.ID, DraftRevision: row.DraftRevision})
 	if err == nil {
 		if row.Status != "active" {
 			authError(c, 409, "FLOW_REVISION_CONFLICT")
@@ -304,7 +306,7 @@ func (h *marketingFlowHandler) publish(c *gin.Context) {
 		flowValidationErrors(c, problems)
 		return
 	}
-	channels, err := q.ListMarketingChannels(c, row.TenantID)
+	channels, err := q.ListMarketingChannels(c.Request.Context(), row.TenantID)
 	if flowFailure(c, err) {
 		return
 	}
@@ -316,30 +318,30 @@ func (h *marketingFlowHandler) publish(c *gin.Context) {
 		authError(c, 409, "MARKETING_UNAVAILABLE")
 		return
 	}
-	runtimeID, err := q.CreateMarketingRuntimeFlow(c, store.CreateMarketingRuntimeFlowParams{TenantID: row.TenantID, Name: row.Name})
+	runtimeID, err := q.CreateMarketingRuntimeFlow(c.Request.Context(), store.CreateMarketingRuntimeFlowParams{TenantID: row.TenantID, Name: row.Name})
 	if flowFailure(c, err) {
 		return
 	}
 	for i, n := range d.Nodes {
-		err = q.CreateMarketingRuntimeStep(c, store.CreateMarketingRuntimeStepParams{TenantID: row.TenantID, FlowID: runtimeID, StepKey: n.ID, Kind: n.Kind, NextKey: n.Next, OpenedKey: n.Otherwise, Position: int32(i), // #nosec G115 -- graph validation limits this index to nineteen.
+		err = q.CreateMarketingRuntimeStep(c.Request.Context(), store.CreateMarketingRuntimeStepParams{TenantID: row.TenantID, FlowID: runtimeID, StepKey: n.ID, Kind: n.Kind, NextKey: n.Next, OpenedKey: n.Otherwise, Position: int32(i), // #nosec G115 -- graph validation limits this index to nineteen.
 			WaitSeconds: n.WaitSeconds, ConditionField: n.Field, ConditionOperator: n.Operator, ConditionValue: n.Value})
 		if flowFailure(c, err) {
 			return
 		}
 		if n.Kind == "send" {
 			content := templates[n.ID]
-			err = q.CreateMarketingFlowContentSnapshot(c, store.CreateMarketingFlowContentSnapshotParams{TenantID: row.TenantID, RuntimeFlowID: runtimeID, StepKey: n.ID, TemplateID: n.TemplateID, Subject: content.Subject, TextBody: content.TextBody})
+			err = q.CreateMarketingFlowContentSnapshot(c.Request.Context(), store.CreateMarketingFlowContentSnapshotParams{TenantID: row.TenantID, RuntimeFlowID: runtimeID, StepKey: n.ID, TemplateID: n.TemplateID, Subject: content.Subject, TextBody: content.TextBody})
 			if flowFailure(c, err) {
 				return
 			}
 		}
 	}
 	actor, _ := middleware.GetUserID(c)
-	version, err := q.CreateMarketingFlowVersion(c, store.CreateMarketingFlowVersionParams{TenantID: row.TenantID, DefinitionID: row.ID, Version: row.PublishedVersion + 1, DraftRevision: row.DraftRevision, RuntimeFlowID: runtimeID, Definition: row.Draft, PublishedBy: actor})
+	version, err := q.CreateMarketingFlowVersion(c.Request.Context(), store.CreateMarketingFlowVersionParams{TenantID: row.TenantID, DefinitionID: row.ID, Version: row.PublishedVersion + 1, DraftRevision: row.DraftRevision, RuntimeFlowID: runtimeID, Definition: row.Draft, PublishedBy: actor})
 	if flowFailure(c, err) {
 		return
 	}
-	if err = q.PublishMarketingFlowDefinition(c, store.PublishMarketingFlowDefinitionParams{TenantID: row.TenantID, ID: row.ID, PublishedVersion: version.Version}); flowFailure(c, err) {
+	if err = q.PublishMarketingFlowDefinition(c.Request.Context(), store.PublishMarketingFlowDefinitionParams{TenantID: row.TenantID, ID: row.ID, PublishedVersion: version.Version}); flowFailure(c, err) {
 		return
 	}
 	if !h.audit(c, q, row, "published", gin.H{"version": version.Version, "draft_revision": row.DraftRevision}) {
@@ -352,10 +354,10 @@ func (h *marketingFlowHandler) deactivate(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := q.PauseMarketingFlowDefinition(c, store.PauseMarketingFlowDefinitionParams{TenantID: row.TenantID, ID: row.ID}); flowFailure(c, err) {
+	if err := q.PauseMarketingFlowDefinition(c.Request.Context(), store.PauseMarketingFlowDefinitionParams{TenantID: row.TenantID, ID: row.ID}); flowFailure(c, err) {
 		return
 	}
-	if err := q.PauseMarketingRuntimeFlows(c, store.PauseMarketingRuntimeFlowsParams{TenantID: row.TenantID, DefinitionID: row.ID}); flowFailure(c, err) {
+	if err := q.PauseMarketingRuntimeFlows(c.Request.Context(), store.PauseMarketingRuntimeFlowsParams{TenantID: row.TenantID, DefinitionID: row.ID}); flowFailure(c, err) {
 		return
 	}
 	if !h.audit(c, q, row, "deactivated", gin.H{"policy": "pause_all_existing_versions"}) {
@@ -384,7 +386,7 @@ func (h *marketingFlowHandler) versions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := q.ListMarketingFlowVersions(c, store.ListMarketingFlowVersionsParams{TenantID: row.TenantID, DefinitionID: row.ID, BeforeID: before})
+	rows, err := q.ListMarketingFlowVersions(c.Request.Context(), store.ListMarketingFlowVersionsParams{TenantID: row.TenantID, DefinitionID: row.ID, BeforeID: before})
 	if flowFailure(c, err) {
 		return
 	}
@@ -419,7 +421,7 @@ func (h *marketingFlowHandler) enroll(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	existing, err := q.GetMarketingFlowEntry(c, store.GetMarketingFlowEntryParams{TenantID: row.TenantID, DefinitionID: row.ID, EventKey: input.EventKey})
+	existing, err := q.GetMarketingFlowEntry(c.Request.Context(), store.GetMarketingFlowEntryParams{TenantID: row.TenantID, DefinitionID: row.ID, EventKey: input.EventKey})
 	if err == nil {
 		if existing.ListID != input.ListID {
 			authError(c, 409, "FLOW_EVENT_CONFLICT")
@@ -436,18 +438,18 @@ func (h *marketingFlowHandler) enroll(c *gin.Context) {
 		authError(c, 409, "FLOW_NOT_ACTIVE")
 		return
 	}
-	version, err := q.GetMarketingFlowVersion(c, store.GetMarketingFlowVersionParams{TenantID: row.TenantID, DefinitionID: row.ID, Version: row.PublishedVersion})
+	version, err := q.GetMarketingFlowVersion(c.Request.Context(), store.GetMarketingFlowVersionParams{TenantID: row.TenantID, DefinitionID: row.ID, Version: row.PublishedVersion})
 	if flowFailure(c, err) {
 		return
 	}
-	if _, err = q.GetMarketingFlowList(c, store.GetMarketingFlowListParams{TenantID: row.TenantID, ID: input.ListID}); flowFailure(c, err) {
+	if _, err = q.GetMarketingFlowList(c.Request.Context(), store.GetMarketingFlowListParams{TenantID: row.TenantID, ID: input.ListID}); flowFailure(c, err) {
 		return
 	}
-	contacts, err := q.ListMarketingFlowEligibleContacts(c, store.ListMarketingFlowEligibleContactsParams{TenantID: row.TenantID, ListID: input.ListID, FlowID: version.RuntimeFlowID})
+	contacts, err := q.ListMarketingFlowEligibleContacts(c.Request.Context(), store.ListMarketingFlowEligibleContactsParams{TenantID: row.TenantID, ListID: input.ListID, FlowID: version.RuntimeFlowID})
 	if flowFailure(c, err) {
 		return
 	}
-	count, err := q.CountMarketingFlowLiveInstances(c, row.TenantID)
+	count, err := q.CountMarketingFlowLiveInstances(c.Request.Context(), row.TenantID)
 	if flowFailure(c, err) {
 		return
 	}
@@ -456,7 +458,7 @@ func (h *marketingFlowHandler) enroll(c *gin.Context) {
 		return
 	}
 	recipientCount := int32(len(contacts)) // #nosec G115 -- the enrollment guard above limits this slice to 1000.
-	entry, err := q.CreateMarketingFlowEntry(c, store.CreateMarketingFlowEntryParams{TenantID: row.TenantID, DefinitionID: row.ID, VersionID: version.ID, EventKey: input.EventKey, ListID: input.ListID, RecipientCount: recipientCount})
+	entry, err := q.CreateMarketingFlowEntry(c.Request.Context(), store.CreateMarketingFlowEntryParams{TenantID: row.TenantID, DefinitionID: row.ID, VersionID: version.ID, EventKey: input.EventKey, ListID: input.ListID, RecipientCount: recipientCount})
 	if flowFailure(c, err) {
 		return
 	}
@@ -472,7 +474,7 @@ func (h *marketingFlowHandler) enroll(c *gin.Context) {
 			return
 		}
 		facts, _ := json.Marshal(map[string]string{"source": "contact_enrolled", "email_domain": strings.ToLower(address[domainIndex+1:]), "list_id": strconv.FormatInt(input.ListID, 10), "consented": "true"})
-		if _, err = q.CreateMarketingFlowInstance(c, store.CreateMarketingFlowInstanceParams{TenantID: row.TenantID, FlowID: version.RuntimeFlowID, Email: address, StepKey: d.Entry, EntryID: pgtype.Int8{Int64: entry.ID, Valid: true}, EventFacts: facts}); flowFailure(c, err) {
+		if _, err = q.CreateMarketingFlowInstance(c.Request.Context(), store.CreateMarketingFlowInstanceParams{TenantID: row.TenantID, FlowID: version.RuntimeFlowID, Email: address, StepKey: d.Entry, EntryID: pgtype.Int8{Int64: entry.ID, Valid: true}, EventFacts: facts}); flowFailure(c, err) {
 			return
 		}
 	}
@@ -495,7 +497,7 @@ func (h *marketingFlowHandler) instances(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	rows, err := q.ListMarketingFlowInstances(c, store.ListMarketingFlowInstancesParams{TenantID: row.TenantID, DefinitionID: row.ID, BeforeID: before, Email: email})
+	rows, err := q.ListMarketingFlowInstances(c.Request.Context(), store.ListMarketingFlowInstancesParams{TenantID: row.TenantID, DefinitionID: row.ID, BeforeID: before, Email: email})
 	if flowFailure(c, err) {
 		return
 	}
@@ -508,13 +510,13 @@ func (h *marketingFlowHandler) instances(c *gin.Context) {
 	for _, p := range rows {
 		state := "pending"
 		switch {
-		case p.StoppedAt.Valid:
+		case p.StoppedAt != 0:
 			state = "stopped"
 		case p.Unsubscribed:
 			state = "unsubscribed"
 		case p.DeliveryUncertain:
 			state = "uncertain"
-			if p.LeaseUntil.Valid && p.LeaseUntil.Time.After(time.Now()) {
+			if p.LeaseUntil != 0 && timeutil.FromMicro(p.LeaseUntil).After(time.Now()) {
 				state = "sending"
 			}
 		case p.Kind == "stop":
@@ -523,7 +525,7 @@ func (h *marketingFlowHandler) instances(c *gin.Context) {
 			state = "paused"
 		case p.LastError != "":
 			state = "failed"
-		case p.WaitUntil.Valid && p.WaitUntil.Time.After(time.Now()):
+		case p.WaitUntil != 0 && timeutil.FromMicro(p.WaitUntil).After(time.Now()):
 			state = "waiting"
 		}
 		instances = append(instances, gin.H{"id": p.ID, "email": p.Email, "node": p.StepKey, "version": p.Version, "state": state, "error_code": p.LastError, "wait_until": p.WaitUntil, "next_attempt_at": p.NextAttemptAt, "attempt_count": p.AttemptCount, "delivery_uncertain": p.DeliveryUncertain, "updated_at": p.UpdatedAt})
@@ -539,10 +541,10 @@ func (h *marketingFlowHandler) executions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if _, err := q.GetMarketingFlowInstance(c, store.GetMarketingFlowInstanceParams{TenantID: row.TenantID, DefinitionID: row.ID, ID: id}); flowFailure(c, err) {
+	if _, err := q.GetMarketingFlowInstance(c.Request.Context(), store.GetMarketingFlowInstanceParams{TenantID: row.TenantID, DefinitionID: row.ID, ID: id}); flowFailure(c, err) {
 		return
 	}
-	rows, err := q.ListMarketingFlowNodeExecutions(c, store.ListMarketingFlowNodeExecutionsParams{TenantID: row.TenantID, DefinitionID: row.ID, PositionID: id})
+	rows, err := q.ListMarketingFlowNodeExecutions(c.Request.Context(), store.ListMarketingFlowNodeExecutionsParams{TenantID: row.TenantID, DefinitionID: row.ID, PositionID: id})
 	if flowFailure(c, err) {
 		return
 	}
@@ -568,7 +570,7 @@ func (h *marketingFlowHandler) retry(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	retried, err := q.RetryMarketingFlowInstance(c, store.RetryMarketingFlowInstanceParams{PTenant: row.TenantID, PDefinition: row.ID, PPosition: id, PConfirmedNotAccepted: input.ConfirmedNotAccepted})
+	retried, err := q.RetryMarketingFlowInstance(c.Request.Context(), store.RetryMarketingFlowInstanceParams{PTenant: row.TenantID, PDefinition: row.ID, PPosition: id, PConfirmedNotAccepted: input.ConfirmedNotAccepted})
 	if flowFailure(c, err) {
 		return
 	}
@@ -590,7 +592,7 @@ func (h *marketingFlowHandler) stop(c *gin.Context) {
 	if !ok {
 		return
 	}
-	count, err := q.StopMarketingFlowInstance(c, store.StopMarketingFlowInstanceParams{TenantID: row.TenantID, DefinitionID: row.ID, ID: id})
+	count, err := q.StopMarketingFlowInstance(c.Request.Context(), store.StopMarketingFlowInstanceParams{TenantID: row.TenantID, DefinitionID: row.ID, ID: id})
 	if flowFailure(c, err) {
 		return
 	}
@@ -605,7 +607,7 @@ func (h *marketingFlowHandler) stop(c *gin.Context) {
 }
 func (h *marketingFlowHandler) audit(c *gin.Context, q *store.Queries, row store.MarketingFlowDefinitions, action string, detail gin.H) bool {
 	encoded, _ := json.Marshal(detail)
-	err := q.RecordMarketingFlowAudit(c, store.RecordMarketingFlowAuditParams{PTenant: row.TenantID, PDefinition: row.ID, PAction: action, PDetail: encoded})
+	err := q.RecordMarketingFlowAudit(c.Request.Context(), store.RecordMarketingFlowAuditParams{PTenant: row.TenantID, PDefinition: row.ID, PAction: action, PDetail: encoded})
 	return !flowFailure(c, err)
 }
 
@@ -623,11 +625,11 @@ func (h *marketingFlowHandler) version(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	version, err := q.GetMarketingFlowVersion(c, store.GetMarketingFlowVersionParams{TenantID: row.TenantID, DefinitionID: row.ID, Version: int32(number)})
+	version, err := q.GetMarketingFlowVersion(c.Request.Context(), store.GetMarketingFlowVersionParams{TenantID: row.TenantID, DefinitionID: row.ID, Version: int32(number)})
 	if flowFailure(c, err) {
 		return
 	}
-	templates, err := q.ListMarketingFlowPublishedContent(c, store.ListMarketingFlowPublishedContentParams{TenantID: row.TenantID, RuntimeFlowID: version.RuntimeFlowID})
+	templates, err := q.ListMarketingFlowPublishedContent(c.Request.Context(), store.ListMarketingFlowPublishedContentParams{TenantID: row.TenantID, RuntimeFlowID: version.RuntimeFlowID})
 	if flowFailure(c, err) {
 		return
 	}

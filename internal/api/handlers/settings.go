@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"regexp"
 	"sort"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -112,13 +115,16 @@ func (h *TenantHandler) UpdateSettings(c *gin.Context) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
+	tenantCtx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tid})
 	for _, key := range settingKeys(input.Settings) {
 		value := input.Settings[key]
 		var err error
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			err = q.DeleteTenantSetting(c, store.DeleteTenantSettingParams{ScopeID: tid, Key: key})
+			// DeleteTenantSetting is registered platform-scoped; the handler is
+			// the trusted entry and only ever passes the session's own tenant.
+			err = q.DeleteTenantSetting(platformCtx(c), store.DeleteTenantSettingParams{ScopeID: tid, Key: key})
 		} else {
-			_, err = q.UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: value})
+			_, err = q.UpsertTenantSetting(tenantCtx, store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: value})
 		}
 		if err != nil {
 			c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
@@ -134,7 +140,7 @@ func (h *PlatformHandler) Settings(c *gin.Context) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	rows, err := requestStore(c, store.New(h.Pool.Pool)).PlatformListSettings(c)
+	rows, err := requestStore(c, db.Queries(h.Pool.Pool)).PlatformListSettings(platformCtx(c))
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -168,9 +174,9 @@ func (h *PlatformHandler) UpdateSettings(c *gin.Context) {
 	for _, key := range settingKeys(input.Settings) {
 		value := input.Settings[key]
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			err = q.PlatformDeleteSetting(c, key)
+			err = q.PlatformDeleteSetting(c.Request.Context(), key)
 		} else {
-			err = q.PlatformUpsertSetting(c, store.PlatformUpsertSettingParams{Key: key, Value: value})
+			err = q.PlatformUpsertSetting(c.Request.Context(), store.PlatformUpsertSettingParams{Key: key, Value: value})
 		}
 		if err != nil {
 			c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
@@ -190,6 +196,7 @@ func (h *PlatformHandler) BrandSettings(c *gin.Context) { h.brandSettings(c, fal
 // UpdateBrandSettings atomically changes only the selected brand's overrides.
 func (h *PlatformHandler) UpdateBrandSettings(c *gin.Context) { h.brandSettings(c, true) }
 func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
+	bindPlatformScope(c)
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
@@ -210,7 +217,7 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 		return
 	}
 	defer rollback()
-	if _, err = q.PlatformLockBrandSettingsBrand(c, id); err != nil {
+	if _, err = q.PlatformLockBrandSettingsBrand(c.Request.Context(), id); err != nil {
 		status, code := 500, "DB_ERROR"
 		if errors.Is(err, pgx.ErrNoRows) {
 			status, code = 404, "NOT_FOUND"
@@ -222,9 +229,9 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 		for _, key := range settingKeys(input.Settings) {
 			value := input.Settings[key]
 			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-				err = q.PlatformDeleteBrandSetting(c, store.PlatformDeleteBrandSettingParams{ScopeID: id, Key: key})
+				err = q.PlatformDeleteBrandSetting(c.Request.Context(), store.PlatformDeleteBrandSettingParams{ScopeID: id, Key: key})
 			} else {
-				err = q.PlatformUpsertBrandSetting(c, store.PlatformUpsertBrandSettingParams{ScopeID: id, Key: key, Value: value})
+				err = q.PlatformUpsertBrandSetting(c.Request.Context(), store.PlatformUpsertBrandSettingParams{ScopeID: id, Key: key, Value: value})
 			}
 			if err != nil {
 				c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
@@ -232,7 +239,7 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 			}
 		}
 	}
-	rows, err := q.PlatformListBrandSettings(c, id)
+	rows, err := q.PlatformListBrandSettings(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return

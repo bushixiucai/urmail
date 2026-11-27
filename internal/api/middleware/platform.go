@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 )
 
 // PlatformAdminChecker reports whether the authenticated user is a platform
@@ -25,7 +27,11 @@ func RequirePlatformAdmin(checker PlatformAdminChecker) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 			return
 		}
-		admin, err := checker.CheckPlatformAdmin(c, userID)
+		platformCtx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{
+			Scope:   isolation.ScopePlatform,
+			ActorID: userID,
+		})
+		admin, err := checker.CheckPlatformAdmin(platformCtx, userID)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 			return

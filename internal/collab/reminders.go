@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domain "github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -35,6 +37,7 @@ func (w ReminderWorker) RunOnce(ctx context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	now := time.Now().UTC()
 	if w.Now != nil {
 		now = w.Now().UTC()
@@ -44,7 +47,7 @@ func (w ReminderWorker) RunOnce(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	cutoff, cutoffErr := q.PlatformCalendarRestoreCutoff(ctx)
 	if cutoffErr != nil && !errors.Is(cutoffErr, pgx.ErrNoRows) {
 		return cutoffErr
@@ -75,7 +78,7 @@ func (w ReminderWorker) RunOnce(ctx context.Context) error {
 				if fire.After(now.Add(time.Hour)) {
 					continue
 				}
-				if cutoff.Valid && fire.Before(cutoff.Time) && row.UpdatedAt.Time.Before(cutoff.Time) {
+				if cutoff != 0 && fire.Before(timeutil.FromMicro(cutoff)) && timeutil.FromMicro(row.UpdatedAt).Before(timeutil.FromMicro(cutoff)) {
 					continue
 				}
 				if fire.Before(now.Add(-24 * time.Hour)) {
@@ -87,7 +90,7 @@ func (w ReminderWorker) RunOnce(ctx context.Context) error {
 				if e != nil {
 					return e
 				}
-				if e = q.PlatformScheduleCalendarReminder(ctx, store.PlatformScheduleCalendarReminderParams{TenantID: row.TenantID, MailboxID: row.MailboxID, IdempotencyKey: key, Payload: payload, LeaseUntil: pgtype.Timestamptz{Time: fire, Valid: true}}); e != nil {
+				if e = q.PlatformScheduleCalendarReminder(ctx, store.PlatformScheduleCalendarReminderParams{TenantID: row.TenantID, MailboxID: row.MailboxID, IdempotencyKey: key, Payload: payload, LeaseUntil: timeutil.Micro(fire)}); e != nil {
 					return e
 				}
 			}

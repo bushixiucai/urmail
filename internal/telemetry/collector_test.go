@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
@@ -92,7 +93,7 @@ func TestCollectorCorrelatesAuthenticatedLifecycleAndNeverGuessesFrom(t *testing
 		t.Fatalf("source replay duplicated events: %d %v", count, err)
 	}
 	q := store.New(pool.Pool)
-	params := store.PlatformRecordCollectedDeliveryEventParams{Instance: "unknown/postfix", QueueID: "UNKNOWN", Sender: "spoof@example.test", SenderDomain: "example.test", Status: "unknown", OccurredAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}, SourceEventID: "same-unknown-source", LifecycleID: "unknown-life"}
+	params := store.PlatformRecordCollectedDeliveryEventParams{Instance: "unknown/postfix", QueueID: "UNKNOWN", Sender: "spoof@example.test", SenderDomain: "example.test", Status: "unknown", OccurredAt: timeutil.Micro(time.Now()), SourceEventID: "same-unknown-source", LifecycleID: "unknown-life"}
 	for i := 0; i < 2; i++ {
 		inserted, err := q.PlatformRecordCollectedDeliveryEvent(ctx, params)
 		if err != nil || inserted != int64(1-i) {
@@ -239,7 +240,7 @@ func TestCollectorBacklogDoesNotPretendObservationIsCurrent(t *testing.T) {
 	}
 	q := store.New(pool.Pool)
 	checkpoint, err := q.PlatformGetCollectorCheckpoint(ctx, "backlog")
-	if err != nil || checkpoint.ObservedAt.Valid {
+	if err != nil || checkpoint.ObservedAt != 0 {
 		t.Fatalf("partial source claimed freshness: %+v %v", checkpoint, err)
 	}
 	caughtUp := agentd.MailLogBatch{Identity: batch.Identity, StartOffset: batch.EndOffset, EndOffset: batch.EndOffset, ObservedAt: time.Now().UTC()}
@@ -247,7 +248,39 @@ func TestCollectorBacklogDoesNotPretendObservationIsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkpoint, err = q.PlatformGetCollectorCheckpoint(ctx, "backlog")
-	if err != nil || !checkpoint.ObservedAt.Valid {
+	if err != nil || checkpoint.ObservedAt == 0 {
 		t.Fatalf("caught-up source stayed unknown: %+v %v", checkpoint, err)
+	}
+}
+
+type singleBatchSource struct{ batch agentd.MailLogBatch }
+
+func (s singleBatchSource) Read(context.Context, string, int64) (agentd.MailLogBatch, error) {
+	return s.batch, nil
+}
+
+// TestCollectorPollPersistsCheckpointFromBackgroundScope proves the real Poll
+// entry (the scheduler call site, no caller scope) reads and durably advances
+// the platform checkpoint, while a tenant entry context still cannot.
+func TestCollectorPollPersistsCheckpointFromBackgroundScope(t *testing.T) {
+	pool, _ := collectorDatabase(t)
+	ctx := context.Background()
+	data := "2026-10-24T10:00:00Z host postfix/cleanup[2]: POLL1: message-id=<poll@example.test>\n"
+	source := singleBatchSource{batch: agentd.MailLogBatch{Identity: "poll-source", Data: data, StartOffset: 0, EndOffset: int64(len(data)), Reset: true, ObservedAt: time.Date(2026, 10, 24, 10, 10, 0, 0, time.UTC)}}
+	collector := &Collector{Pool: pool, Source: source, Stream: "poll-stream"}
+	if err := collector.Poll(ctx); err != nil {
+		t.Fatalf("background poll: %v", err)
+	}
+	var count int
+	var offset int64
+	if err := pool.QueryRow(ctx, `SELECT count(*), coalesce(max(byte_offset),-1) FROM collector_checkpoints WHERE stream='poll-stream'`).Scan(&count, &offset); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || offset != int64(len(data)) {
+		t.Fatalf("checkpoint count=%d offset=%d want 1/%d", count, offset, len(data))
+	}
+	tenantCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: 1})
+	if _, err := db.Querier(pool.Pool).PlatformGetCollectorCheckpoint(tenantCtx, "poll-stream"); !errors.Is(err, isolation.ErrPlatformScopeRequired) {
+		t.Fatalf("tenant entry context read a platform checkpoint: %v", err)
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 )
 
 const contextPlatformAuditCommitted = "urmail.platform_audit_committed"
@@ -25,6 +25,11 @@ func RequirePlatformTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 			c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 			return
 		}
+		actorID, _ := GetUserID(c)
+		c.Request = c.Request.WithContext(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{
+			Scope:   isolation.ScopePlatform,
+			ActorID: actorID,
+		}))
 		tx, err := pool.PlatformTx(c.Request.Context())
 		if err != nil {
 			c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
@@ -36,7 +41,7 @@ func RequirePlatformTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 		defer buffered.closeStream()
 		c.Writer = buffered
 		defer func() { c.Writer = original }()
-		q := store.New(tx)
+		q := db.Queries(tx)
 		c.Set(ContextQueries, q)
 		c.Set(contextTransaction, tx)
 		c.Next()

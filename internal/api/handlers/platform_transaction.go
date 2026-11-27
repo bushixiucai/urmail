@@ -26,5 +26,5 @@ func platformMutationQueries(c *gin.Context, pool *db.Pool) (*store.Queries, fun
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return store.New(tx), func() error { return tx.Commit(c.Request.Context()) }, func() { _ = tx.Rollback(context.Background()) }, nil
+	return db.Queries(tx), func() error { return tx.Commit(c.Request.Context()) }, func() { _ = tx.Rollback(context.Background()) }, nil
 }

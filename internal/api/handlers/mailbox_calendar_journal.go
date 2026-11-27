@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
@@ -52,8 +55,11 @@ func (h MailboxCalendarHandler) claimCalendarInvitation(ctx context.Context, p a
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	current, err := q.PlatformLockCalendarInvitationEvent(ctx, store.PlatformLockCalendarInvitationEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: row.ID})
+	q := db.Queries(tx)
+	// Platform-scoped journal rows; the transaction itself is tenant/mailbox
+	// scoped by MailboxTx.
+	qctx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	current, err := q.PlatformLockCalendarInvitationEvent(qctx, store.PlatformLockCalendarInvitationEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: row.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +68,7 @@ func (h MailboxCalendarHandler) claimCalendarInvitation(ctx context.Context, p a
 	}
 	hash := sha256.Sum256(fmt.Appendf(nil, "%d|%s|%d|%s", row.ID, row.Uid, row.Version, method))
 	key := hex.EncodeToString(hash[:])
-	prior, err := q.PlatformGetDataImportReceipt(ctx, store.PlatformGetDataImportReceiptParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Kind: "calendar_invitation", IdempotencyKey: key})
+	prior, err := q.PlatformGetDataImportReceipt(qctx, store.PlatformGetDataImportReceiptParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Kind: "calendar_invitation", IdempotencyKey: key})
 	if err == nil {
 		if prior.Status == "done" {
 			return nil, errInvitationAlreadySent
@@ -73,11 +79,11 @@ func (h MailboxCalendarHandler) claimCalendarInvitation(ctx context.Context, p a
 		return nil, err
 	}
 	if cancelEvent {
-		if _, err = q.PlatformDeleteEvent(ctx, store.PlatformDeleteEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: row.ID, Version: row.Version}); err != nil {
+		if _, err = q.PlatformDeleteEvent(qctx, store.PlatformDeleteEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: row.ID, Version: row.Version}); err != nil {
 			return nil, err
 		}
 	}
-	if n, e := q.PlatformBindOwnedCalendarOrganizer(ctx, store.PlatformBindOwnedCalendarOrganizerParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: row.ID}); e != nil {
+	if n, e := q.PlatformBindOwnedCalendarOrganizer(qctx, store.PlatformBindOwnedCalendarOrganizerParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: row.ID}); e != nil {
 		return nil, e
 	} else if n != 1 {
 		return nil, errors.New("calendar organizer differs from mailbox")
@@ -86,7 +92,7 @@ func (h MailboxCalendarHandler) claimCalendarInvitation(ctx context.Context, p a
 	if err != nil {
 		return nil, err
 	}
-	if err = q.PlatformClaimCalendarInvitation(ctx, store.PlatformClaimCalendarInvitationParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key, Payload: payload}); err != nil {
+	if err = q.PlatformClaimCalendarInvitation(qctx, store.PlatformClaimCalendarInvitationParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key, Payload: payload}); err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -98,7 +104,8 @@ func (h MailboxCalendarHandler) claimCalendarInvitation(ctx context.Context, p a
 			return err
 		}
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		n, err := store.New(tx).PlatformFinishCalendarInvitation(ctx, store.PlatformFinishCalendarInvitationParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key})
+		fctx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+		n, err := db.Queries(tx).PlatformFinishCalendarInvitation(fctx, store.PlatformFinishCalendarInvitationParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key})
 		if err != nil {
 			return err
 		}

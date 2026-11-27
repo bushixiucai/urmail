@@ -3,10 +3,16 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
+	"time"
+
+	"github.com/bushixiucai/urmail/internal/db/isolation"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -43,11 +49,11 @@ func NewTenantHandler(s TenantStore, p TenantPlatformStore) *TenantHandler {
 // fields the UI needs are exposed; brand/owner columns and raw settings JSON
 // from the store row stay server-side.
 type TenantResponse struct {
-	ID        int64              `json:"id"`
-	Name      string             `json:"name"`
-	Slug      string             `json:"slug"`
-	Status    string             `json:"status"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // TenantUsageResponse reports plan consumption for the current tenant.
@@ -93,16 +99,29 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		return
 	}
 
-	tenant, err := q.GetTenantByID(c, tenantID)
-	if err != nil {
+	// GetTenantByID is platform-scoped. The id comes from the authenticated
+	// session, so this read is a trusted platform entry; without the scope the
+	// isolation hook rejects it and the handler would misreport a 404.
+	tenant, err := q.GetTenantByID(platformCtx(c), tenantID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": gin.H{"code": "TENANT_NOT_FOUND", "message": "tenant.not_found"},
 		})
 		return
 	}
+	if err != nil {
+		// A scope or driver failure is not "missing": never disguise it as 404.
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
 
 	// 1. Fetch 3-layer settings: Platform (0), Brand (tenant.BrandID), Tenant (tenant.ID)
-	rawSettings, _ := q.ListSettingsByScopes(c, store.ListSettingsByScopesParams{
+	// ListSettingsByScopes merges brand+tenant rows (platform-domain by
+	// annotation); this route only feeds it the caller's own brand/tenant ids,
+	// so the elevation mirrors the dns_preflight platCtx precedent.
+	actorID, _ := middleware.GetUserID(c)
+	platCtx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: actorID})
+	rawSettings, _ := q.ListSettingsByScopes(platCtx, store.ListSettingsByScopesParams{
 		ScopeID:   tenant.BrandID,
 		ScopeID_2: tenant.ID,
 	})
@@ -127,7 +146,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	// with the platform/brand/tenant settings entries keyed "theme".
 	var theme *domainSettings.EffectiveTheme
 	if h.Platform != nil {
-		if brandRow, err := h.Platform.PlatformGetBrandThemeByTenant(c, tenantID); err == nil {
+		if brandRow, err := h.Platform.PlatformGetBrandThemeByTenant(platformCtx(c), tenantID); err == nil {
 			src := domainSettings.BrandThemeSource{
 				BrandID:      brandRow.BrandID,
 				BrandSlug:    brandRow.BrandSlug,
@@ -141,8 +160,8 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	}
 
 	// 2. Fetch resource usage. Limits come only from settings, never plans.
-	domainCount, _ := q.CountDomainsByTenant(c, tenantID)
-	mailboxCount, _ := q.CountMailboxesByTenant(c, tenantID)
+	domainCount, _ := q.CountDomainsByTenant(c.Request.Context(), tenantID)
+	mailboxCount, _ := q.CountMailboxesByTenant(c.Request.Context(), tenantID)
 
 	domainLimit := int32(-1)
 	mailboxLimit := int32(-1)
@@ -170,7 +189,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	if usageStore := requestStore[interface {
 		GetTenantStorageUsage(context.Context, int64) (store.GetTenantStorageUsageRow, error)
 	}](c, nil); usageStore != nil {
-		row, err := usageStore.GetTenantStorageUsage(c, tenantID)
+		row, err := usageStore.GetTenantStorageUsage(c.Request.Context(), tenantID)
 		if err == nil {
 			usage.StorageBytesAllocated = row.BytesAllocated
 			usage.StorageMeasuredAt = row.MeasuredAt
@@ -196,7 +215,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 			Name:      tenant.Name,
 			Slug:      tenant.Slug,
 			Status:    tenant.Status,
-			CreatedAt: tenant.CreatedAt,
+			CreatedAt: timeutil.FromMicro(tenant.CreatedAt),
 		},
 		Settings: mergedSettings,
 		Theme:    theme,

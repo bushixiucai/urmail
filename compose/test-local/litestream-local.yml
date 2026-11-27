@@ -1,0 +1,7 @@
+# LOCAL TEST litestream config: replicate to a local directory target.
+# The production file (compose/litestream.yml) targets S3.
+dbs:
+  - path: /srv/urmail/data/db/urmail.sqlite
+    replicas:
+      - type: file
+        path: /srv/urmail/data/litestream

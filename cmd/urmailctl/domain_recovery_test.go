@@ -12,6 +12,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
@@ -48,7 +49,7 @@ func TestRecoveryProofRejectsWrongIdentityAndExpiredCredential(t *testing.T) {
 // root-owned credential file. A local resolver stand-in exercises proof and
 // transaction boundaries without touching public DNS.
 func TestRecoveryProofVerifiesBeforeCanonicalWrite(t *testing.T) {
-	ctx := context.Background()
+	ctx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	dsn := testdb.New(t)
 	source, err := iofs.New(db.FS(), ".")
 	if err != nil {

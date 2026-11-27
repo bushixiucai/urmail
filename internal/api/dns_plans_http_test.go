@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
@@ -71,7 +73,7 @@ func TestDNSPlansProductionHTTPWithProviderStandIn(t *testing.T) {
 		if verifyErr != nil {
 			t.Fatal(verifyErr)
 		}
-		if _, err = q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedUser.PasswordHash, ExpectedVersion: verifiedUser.CredentialVersion, ID: middleware.HashSessionToken(item.token), UserID: item.user, TenantID: pgtype.Int8{Int64: item.tenant, Valid: true}, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
+		if _, err = q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedUser.PasswordHash, ExpectedVersion: verifiedUser.CredentialVersion, ID: middleware.HashSessionToken(item.token), UserID: item.user, TenantID: pgtype.Int8{Int64: item.tenant, Valid: true}, CsrfToken: "csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
@@ -43,15 +45,15 @@ func (h *MailboxNativeHandler) transferJournal(c *gin.Context, key, digest strin
 		return false
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if claim {
-		err = q.PlatformLockDataImport(ctx, store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10), IdempotencyKey: "transfer:" + key})
+		err = q.PlatformLockDataImport(platformCtx(c), store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10), IdempotencyKey: "transfer:" + key})
 		if err != nil {
 			authError(c, 503, "DB_ERROR")
 			return false
 		}
 	}
-	row, err := q.PlatformGetDataImportReceipt(ctx, store.PlatformGetDataImportReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Kind: "mail_transfer", IdempotencyKey: key})
+	row, err := q.PlatformGetDataImportReceipt(platformCtx(c), store.PlatformGetDataImportReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Kind: "mail_transfer", IdempotencyKey: key})
 	if err == nil {
 		var saved transferReceipt
 		if json.Unmarshal(row.Payload, &saved) != nil {
@@ -77,7 +79,7 @@ func (h *MailboxNativeHandler) transferJournal(c *gin.Context, key, digest strin
 		return true
 	}
 	raw, _ := json.Marshal(transferReceipt{Digest: digest})
-	err = q.PlatformClaimMailTransfer(ctx, store.PlatformClaimMailTransferParams{TenantID: session.TenantID, MailboxID: session.MailboxID, IdempotencyKey: key, Payload: raw})
+	err = q.PlatformClaimMailTransfer(platformCtx(c), store.PlatformClaimMailTransferParams{TenantID: session.TenantID, MailboxID: session.MailboxID, IdempotencyKey: key, Payload: raw})
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return false
@@ -106,6 +108,6 @@ func (h *MailboxNativeHandler) finishTransferJournal(c *gin.Context, key, digest
 	if certain {
 		status = "done"
 	}
-	count, err := store.New(tx).PlatformCompleteMailTransfer(ctx, store.PlatformCompleteMailTransferParams{TenantID: session.TenantID, MailboxID: session.MailboxID, IdempotencyKey: key, Payload: raw, Status: status})
+	count, err := db.Queries(tx).PlatformCompleteMailTransfer(platformCtx(c), store.PlatformCompleteMailTransferParams{TenantID: session.TenantID, MailboxID: session.MailboxID, IdempotencyKey: key, Payload: raw, Status: status})
 	return err == nil && count == 1 && tx.Commit(ctx) == nil
 }

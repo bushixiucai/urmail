@@ -10,9 +10,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
@@ -22,7 +23,7 @@ import (
 type aiQuotaResolution struct {
 	Source      string
 	Limits      aiPlanLimits
-	Start, End  pgtype.Timestamptz
+	Start, End  int64
 	Timezone    string
 	Independent bool
 }
@@ -47,8 +48,8 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 		}
 		result.Source = "configured_nonplatform"
 		result.Independent = true
-		result.Start = pgtype.Timestamptz{Time: start, Valid: true}
-		result.End = pgtype.Timestamptz{Time: end, Valid: true}
+		result.Start = timeutil.Micro(start)
+		result.End = timeutil.Micro(end)
 		result.Limits.AI.Calls = cfg.NonplatformCallLimit
 		result.Limits.AI.MailboxCalls = cfg.NonplatformMailboxCallLimit
 		result.Limits.AI.Concurrency = cfg.NonplatformConcurrencyLimit
@@ -81,8 +82,8 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 		// window; BYO/local calls keep their independent per-mode calendar.
 		result.Independent = cfg.Mode != "platform"
 		result.Timezone = loc.String()
-		result.Start = pgtype.Timestamptz{Time: start, Valid: true}
-		result.End = pgtype.Timestamptz{Time: end, Valid: true}
+		result.Start = timeutil.Micro(start)
+		result.End = timeutil.Micro(end)
 		result.Limits.AI.Calls = defaultLimit
 		result.Limits.AI.MailboxCalls = defaultLimit
 		result.Limits.AI.Concurrency = 2
@@ -145,8 +146,9 @@ func aiConfigurationQuotaFields(cfg store.AiProviderConfigs) gin.H {
 	return gin.H{"nonplatform_call_limit": cfg.NonplatformCallLimit, "nonplatform_mailbox_call_limit": cfg.NonplatformMailboxCallLimit, "nonplatform_concurrency_limit": cfg.NonplatformConcurrencyLimit, "quota_timezone": cfg.QuotaTimezone, "daily_token_limit": cfg.DailyTokenLimit, "daily_cost_micros": cfg.DailyCostMicros, "monthly_token_limit": cfg.MonthlyTokenLimit, "monthly_cost_micros": cfg.MonthlyCostMicros}
 }
 func writeAIQuotaStatus(c *gin.Context, q *store.Queries, cfg store.AiProviderConfigs, tenant, mailbox int64) error {
+	ctx := c.Request.Context()
 	now := time.Now().Truncate(time.Microsecond)
-	location, err := aiQuotaLocation(c, q, cfg, tenant)
+	location, err := aiQuotaLocation(ctx, q, cfg, tenant)
 	if err != nil {
 		return err
 	}
@@ -154,29 +156,29 @@ func writeAIQuotaStatus(c *gin.Context, q *store.Queries, cfg store.AiProviderCo
 	if err != nil {
 		return err
 	}
-	daily, err := budgetUsage(c, q, tenant, day, now)
+	daily, err := budgetUsage(ctx, q, tenant, day, now)
 	if err != nil {
 		return err
 	}
-	monthly, err := budgetUsage(c, q, tenant, month, now)
+	monthly, err := budgetUsage(ctx, q, tenant, month, now)
 	if err != nil {
 		return err
 	}
-	quota, quotaErr := resolveAIQuota(c, q, cfg, tenant, now)
+	quota, quotaErr := resolveAIQuota(ctx, q, cfg, tenant, now)
 	if quotaErr != nil && !errors.Is(quotaErr, errAIBudget) {
 		return quotaErr
 	}
 	entitlement := gin.H{"source": quota.Source, "available": quotaErr == nil && cfg.Enabled, "call_limit": int64(0), "mailbox_call_limit": int64(0), "concurrency_limit": int64(0), "timezone": location.String(), "period_start": nil, "period_end": nil, "calls_used": int64(0), "calls_remaining": int64(0), "mailbox_calls_used": nil, "mailbox_calls_remaining": nil, "concurrent_reserved": int64(0)}
 	if quotaErr == nil {
-		usage, e := q.PlatformAIQuotaUsage(c, store.PlatformAIQuotaUsageParams{TenantID: tenant, MailboxID: mailbox, IndependentWindow: quota.Independent, PeriodStart: quota.Start, PeriodEnd: quota.End})
+		usage, e := q.PlatformAIQuotaUsage(ctx, store.PlatformAIQuotaUsageParams{TenantID: tenant, MailboxID: mailbox, IndependentWindow: quota.Independent, PeriodStart: quota.Start, PeriodEnd: quota.End})
 		if e != nil {
 			return e
 		}
 		entitlement["call_limit"] = quota.Limits.AI.Calls
 		entitlement["mailbox_call_limit"] = quota.Limits.AI.MailboxCalls
 		entitlement["concurrency_limit"] = quota.Limits.AI.Concurrency
-		entitlement["period_start"] = quota.Start
-		entitlement["period_end"] = quota.End
+		entitlement["period_start"] = timeutil.FromMicro(quota.Start)
+		entitlement["period_end"] = timeutil.FromMicro(quota.End)
 		entitlement["calls_used"] = usage.CallsUsed
 		entitlement["calls_remaining"] = max(int64(0), quota.Limits.AI.Calls-usage.CallsUsed)
 		entitlement["concurrent_reserved"] = usage.ConcurrentReserved
@@ -205,6 +207,7 @@ func (h *AIConfigurationHandler) BudgetGet(c *gin.Context) { h.servePanelAIQuota
 // TenantBudgetGet is the explicit tenant route entrypoint.
 func (h *AIConfigurationHandler) TenantBudgetGet(c *gin.Context) { h.BudgetGet(c) }
 func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool) {
+	bindPlatformScope(c)
 	if h == nil || h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -229,21 +232,21 @@ func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	if err = q.PlatformLockBillingTenant(c, tenant); err != nil {
+	q := db.Queries(tx)
+	if err = q.PlatformLockBillingTenant(c.Request.Context(), tenant); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
 	if platform {
-		_, err = q.PlatformLockPlatformAdmin(c, actor)
+		_, err = q.PlatformLockPlatformAdmin(c.Request.Context(), actor)
 	} else {
-		_, err = q.PlatformLockAIQuotaTenantReader(c, store.PlatformLockAIQuotaTenantReaderParams{TenantID: tenant, ID: actor})
+		_, err = q.PlatformLockAIQuotaTenantReader(c.Request.Context(), store.PlatformLockAIQuotaTenantReaderParams{TenantID: tenant, ID: actor})
 	}
 	if err != nil {
 		authError(c, http.StatusForbidden, "FORBIDDEN")
 		return
 	}
-	cfg, err := q.PlatformGetAIProvider(c, tenant)
+	cfg, err := q.PlatformGetAIProvider(c.Request.Context(), tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 409, "AI_DISABLED")
 		return
@@ -257,6 +260,7 @@ func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool
 	}
 }
 func serveMailboxAIQuota(c *gin.Context, pool *db.Pool) {
+	bindPlatformScope(c)
 	if pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -272,17 +276,17 @@ func serveMailboxAIQuota(c *gin.Context, pool *db.Pool) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	if err = q.PlatformLockBillingTenant(c, session.TenantID); err != nil {
+	q := db.Queries(tx)
+	if err = q.PlatformLockBillingTenant(c.Request.Context(), session.TenantID); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	live, sessionErr := q.PlatformGetMailboxSession(c, session.TokenHash)
-	if sessionErr != nil || live.TenantID != session.TenantID || live.MailboxID != session.MailboxID || !live.ExpiresAt.Time.After(time.Now()) {
+	live, sessionErr := q.PlatformGetMailboxSession(c.Request.Context(), session.TokenHash)
+	if sessionErr != nil || live.TenantID != session.TenantID || live.MailboxID != session.MailboxID || !timeutil.FromMicro(live.ExpiresAt).After(time.Now()) {
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
 		return
 	}
-	cfg, err := q.PlatformGetAIProvider(c, session.TenantID)
+	cfg, err := q.PlatformGetAIProvider(c.Request.Context(), session.TenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 409, "AI_DISABLED")
 		return
@@ -290,7 +294,7 @@ func serveMailboxAIQuota(c *gin.Context, pool *db.Pool) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	cfg, err = mailboxQuotaTarget(c, q, cfg, session.TenantID, session.MailboxID)
+	cfg, err = mailboxQuotaTarget(c.Request.Context(), q, cfg, session.TenantID, session.MailboxID)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/onboarding"
@@ -60,12 +62,13 @@ func (h *DNSPlanHandler) prepareDNS(c *gin.Context) bool {
 	}
 	// This completed scalar query holds no transaction or advisory lock while
 	// calling the provider. RequireTenantTx checks the current role again later.
-	role, err := store.New(h.Service.Pool.Pool).GetUserRoleForTenant(c, store.GetUserRoleForTenantParams{UserID: uid, TenantID: tenant})
+	roleCtx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tenant, ActorID: uid})
+	role, err := db.Queries(h.Service.Pool.Pool).GetUserRoleForTenant(roleCtx, store.GetUserRoleForTenantParams{UserID: uid, TenantID: tenant})
 	if err != nil || (role != "owner" && role != "admin") {
 		authError(c, http.StatusForbidden, "FORBIDDEN")
 		return false
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(roleCtx, 45*time.Second)
 	defer cancel()
 	switch {
 	case c.Request.Method == http.MethodPut && strings.HasSuffix(c.FullPath(), "/dns/credentials"):
@@ -88,8 +91,9 @@ func (h *DNSPlanHandler) prepareDNS(c *gin.Context) bool {
 			return false
 		}
 		input.Zone = zoneName
-		d, err := store.New(h.Service.Pool.Pool).PlatformDNSDomain(ctx, store.PlatformDNSDomainParams{TenantID: tenant, ID: domain})
-		if err != nil || d.Status != "active" || !d.VerifiedAt.Valid || (d.Fqdn != input.Zone && !strings.HasSuffix(d.Fqdn, "."+input.Zone)) {
+		platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: uid})
+		d, err := db.Queries(h.Service.Pool.Pool).PlatformDNSDomain(platCtx, store.PlatformDNSDomainParams{TenantID: tenant, ID: domain})
+		if err != nil || d.Status != "active" || d.VerifiedAt == 0 || (d.Fqdn != input.Zone && !strings.HasSuffix(d.Fqdn, "."+input.Zone)) {
 			authError(c, http.StatusForbidden, "DNS_ZONE_UNAUTHORIZED")
 			return false
 		}
@@ -145,7 +149,7 @@ func (h *DNSPlanHandler) prepareDNS(c *gin.Context) bool {
 			authError(c, http.StatusBadRequest, "DNS_REVIEW_REQUIRED")
 			return false
 		}
-		p, err := store.New(h.Service.Pool.Pool).GetDNSPlan(ctx, store.GetDNSPlanParams{TenantID: tenant, ID: id})
+		p, err := db.Queries(h.Service.Pool.Pool).GetDNSPlan(ctx, store.GetDNSPlanParams{TenantID: tenant, ID: id})
 		if err != nil || p.DomainID != domain || p.Status != "uncertain" {
 			authError(c, http.StatusNotFound, "NOT_FOUND")
 			return false

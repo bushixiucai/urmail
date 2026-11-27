@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Building2, Lock, Mail } from "lucide-react";
 import { ApiRequestError } from "@/lib/api/client";
@@ -23,12 +23,24 @@ import { WebmailHelpPage } from "./webmail-help-page";
 export function MailboxLoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { native, loaded } = useMailboxNative();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Session-expiry recovery (REVIEW-FE-008): honour ?next= so re-login
+  // returns the user to the exact webmail route they were on. Only in-app
+  // webmail routes are accepted — never an off-origin or login-loop target.
+  const nextParam = searchParams.get("next");
+  const next =
+    nextParam &&
+    nextParam.startsWith("/webmail/") &&
+    !nextParam.startsWith("/webmail/login")
+      ? nextParam
+      : "/webmail/inbox";
 
   if (!loaded) {
     return (
@@ -47,7 +59,7 @@ export function MailboxLoginPage() {
   }
 
   if (hasMailboxSession()) {
-    return <Navigate to="/webmail/inbox" replace />;
+    return <Navigate to={next} replace />;
   }
 
   const onSubmit = async (e: FormEvent) => {
@@ -61,7 +73,7 @@ export function MailboxLoginPage() {
         remember,
       );
       setMailboxSession(session, remember);
-      navigate("/webmail/inbox", { replace: true });
+      navigate(next, { replace: true });
     } catch (err: unknown) {
       if (err instanceof ApiRequestError) {
         setError(

@@ -48,6 +48,9 @@ interface WebmailReadingPaneProps {
   message: MessageDetail | null;
   folderEnc: string;
   isLoading?: boolean;
+  isError?: boolean;
+  loadError?: Error | null;
+  onRetry?: () => void;
   isGlobalRemoteImagesAllowed?: boolean;
   isManualRemoteImagesAllowed?: boolean;
   /** Loaded members of the selected thread (oldest→newest optional). */
@@ -248,6 +251,11 @@ function SanitizedHtmlFrame({
         // allow-same-origin (alone, never with allow-scripts) so the parent
         // can measure the srcdoc body; the sanitizer-injected CSP meta keeps
         // the document inert, preserving the XSS defense line.
+        // O1 privacy posture (interview 2026-11-26, SSR-RENDER-PLAN-V2 §3):
+        // dual sanitization (server render-time + client worker pass) plus
+        // this same-origin sandboxed iframe is the CONFIRMED terminal
+        // design — keep both layers and this sandbox mode unless a new
+        // decision supersedes them.
         sandbox="allow-same-origin"
         referrerPolicy="no-referrer"
         className="w-full rounded border-0 bg-transparent"
@@ -267,6 +275,9 @@ export function WebmailReadingPane({
   message,
   folderEnc,
   isLoading = false,
+  isError = false,
+  loadError = null,
+  onRetry,
   isGlobalRemoteImagesAllowed = false,
   isManualRemoteImagesAllowed = false,
   threadMembers,
@@ -479,6 +490,7 @@ export function WebmailReadingPane({
   if (showReadingSkeleton) {
     return (
       <div
+        key="reading-skeleton"
         data-testid="webmail-reading-pane"
         className="flex-1 h-full bg-[var(--vellum-ground)] p-6"
       >
@@ -490,9 +502,42 @@ export function WebmailReadingPane({
     );
   }
 
+  if ((isError || loadError) && !message) {
+    return (
+      <div
+        key="reading-error"
+        data-testid="reading-load-error"
+        role="alert"
+        className="flex-1 h-full flex flex-col items-center justify-center gap-2 bg-[var(--vellum-ground)] text-xs text-[var(--vellum-ink-secondary)] px-6 text-center"
+      >
+        <div className="w-12 h-12 rounded-full bg-[var(--vellum-row-hover)] flex items-center justify-center mb-1">
+          <Mail className="w-6 h-6 text-[var(--vellum-ink-secondary)]" />
+        </div>
+        <p>
+          <span>
+            {t("webmail_next.detail_load_failed", {
+              defaultValue: "Couldn't load message.",
+            })}
+          </span>
+        </p>
+        {onRetry && (
+          <button
+            type="button"
+            data-testid="reading-retry-button"
+            onClick={onRetry}
+            className="px-3 py-1 rounded border border-[var(--vellum-border)] text-[var(--vellum-ink)] hover:bg-[var(--vellum-surface-muted)] transition-colors"
+          >
+            <span>{t("action.retry")}</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (!message) {
     return (
       <div
+        key="reading-empty"
         data-testid="webmail-reading-pane"
         className="flex-1 h-full flex flex-col items-center justify-center bg-[var(--vellum-ground)] text-xs text-[var(--vellum-ink-secondary)]"
       >

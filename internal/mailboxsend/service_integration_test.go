@@ -10,10 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/testdb"
@@ -147,7 +150,7 @@ func TestImmediateReceiptConcurrentReplayAndFrozenSubmission(t *testing.T) {
 	if created.Load() != 1 || submit.calls.Load() != 1 {
 		t.Fatalf("created=%d SMTP=%d", created.Load(), submit.calls.Load())
 	}
-	row, err := q.PlatformGetSendReceiptByKey(ctx, store.PlatformGetSendReceiptByKeyParams{TenantID: tenant, MailboxID: mailbox, RequestKey: "concurrent-send-0001"})
+	row, err := q.PlatformGetSendReceiptByKey(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptByKeyParams{TenantID: tenant, MailboxID: mailbox, RequestKey: "concurrent-send-0001"})
 	if err != nil || row.Status != "accepted" {
 		t.Fatalf("receipt %s %v", row.Status, err)
 	}
@@ -160,7 +163,7 @@ func TestImmediateReceiptConcurrentReplayAndFrozenSubmission(t *testing.T) {
 	if _, _, err = s.Prepare(ctx, tenant, mailbox, "different-send-0001", strings.Repeat("c", 64), "secret-password", out, ref, 0); !errors.Is(err, ErrDraftLocked) {
 		t.Fatalf("accepted draft resubmitted: %v", err)
 	}
-	if _, err = q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant + 1, MailboxID: mailbox, ID: row.ID}); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err = q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant + 1, MailboxID: mailbox, ID: row.ID}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatal("cross-tenant receipt exposed")
 	}
 	tx, err := app.MailboxTx(ctx, tenant, mailbox+1)
@@ -225,7 +228,7 @@ func TestImmediateCopyLostAppendAckSevenDaysAndManualRepair(t *testing.T) {
 	if _, err = s.StepCopy(ctx); err != nil {
 		t.Fatal(err)
 	}
-	row, err = q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
+	row, err = q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
 	if err != nil || row.SentCopyState != "held" || row.RawSecret == "" || row.SmtpSecret != "" {
 		t.Fatalf("expiry lost payload/credential: %+v %v", row, err)
 	}
@@ -238,7 +241,7 @@ func TestImmediateCopyLostAppendAckSevenDaysAndManualRepair(t *testing.T) {
 	if err = s.Repair(ctx, claim, client); err != nil {
 		t.Fatal(err)
 	}
-	row, err = q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
+	row, err = q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
 	if err != nil || row.SentCopyState != "complete" || row.RawSecret != "" || row.SmtpSecret != "" || row.CopyPendingSince != originalSince {
 		t.Fatal("manual copy repair did not preserve deadline/clean secrets")
 	}
@@ -264,7 +267,7 @@ func TestImmediateCrashRecoveryRestoreAndCredentialRevocation(t *testing.T) {
 	if _, err = s.StepCopy(ctx); err != nil {
 		t.Fatal(err)
 	}
-	row, err = q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
+	row, err = q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
 	if err != nil || row.Status != "uncertain" || row.SmtpSecret != "" || submit.calls.Load() != 0 {
 		t.Fatal("crashed submission was replayed or credentials survived")
 	}
@@ -282,14 +285,14 @@ func TestImmediateCrashRecoveryRestoreAndCredentialRevocation(t *testing.T) {
 	if _, err = s.StepCopy(ctx); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err = q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: accepted.ID})
+	accepted, err = q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: accepted.ID})
 	if err != nil || accepted.SentCopyState != "held" || accepted.SmtpSecret != "" || client.appends != 0 {
 		t.Fatal("revoked credentials reached IMAP")
 	}
 	if err = db.HoldRestoredSideEffects(ctx, p.Config().ConnConfig.ConnString(), "send-receipt-restore"); err != nil {
 		t.Fatal(err)
 	}
-	row, err = q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
+	row, err = q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
 	if err != nil || row.Status != "uncertain" || row.LastError != "RESTORE_RECONCILIATION_REQUIRED" || row.RawSecret == "" {
 		t.Fatal("restore did not preserve/hold uncertain material")
 	}
@@ -325,11 +328,11 @@ func TestSevenDayBoundaryDoesNotResetOnDefer(t *testing.T) {
 	if _, err = q.PlatformDeferSendCopy(ctx, store.PlatformDeferSendCopyParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID, ClaimToken: claim.ClaimToken}); err != nil {
 		t.Fatal(err)
 	}
-	current, err := q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
+	current, err := q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
 	if err != nil || current.CopyPendingSince != since || current.SentCopyState == "held" {
 		t.Fatal("defer reset deadline or held too early")
 	}
-	if !current.NextAttemptAt.Time.After(time.Now()) {
+	if !timeutil.FromMicro(current.NextAttemptAt).After(time.Now()) {
 		t.Fatal("copy did not back off")
 	}
 }
@@ -360,7 +363,7 @@ func TestExplicitNewAttemptCanReleaseOnlyMatchingUncertainDraft(t *testing.T) {
 	if err != nil || next.Status != "accepted" || submit.calls.Load() != 2 {
 		t.Fatal("explicit independent attempt not submitted once")
 	}
-	original, err = q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID})
+	original, err = q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID})
 	if err != nil || !original.DraftReleased || original.RawSecret != "" || original.SmtpSecret != "" {
 		t.Fatal("acknowledged attempt retained source lock or unnecessary recovery secrets")
 	}
@@ -409,7 +412,7 @@ func TestImmediateSMTPAcceptanceBeforeDatabaseLossRecoversUncertainWithoutRetry(
 	t.Cleanup(fresh.Close)
 	s.Pool = fresh
 	q := store.New(fresh.Pool)
-	stored, err := q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
+	stored, err := q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
 	if err != nil || stored.Status != "submitting" || stored.RawSecret == "" {
 		t.Fatal("pre-SMTP recovery intention lost")
 	}
@@ -419,7 +422,7 @@ func TestImmediateSMTPAcceptanceBeforeDatabaseLossRecoversUncertainWithoutRetry(
 	if _, err = s.StepCopy(ctx); err != nil {
 		t.Fatal(err)
 	}
-	stored, err = q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
+	stored, err = q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
 	if err != nil || stored.Status != "uncertain" || submit.calls.Load() != 1 {
 		t.Fatal("recovery blindly repeated accepted SMTP submission")
 	}
@@ -445,7 +448,7 @@ func TestAutomaticCopyRevocationDuringFindCannotAppend(t *testing.T) {
 	if _, err = s.StepCopy(ctx); !errors.Is(err, webmail.ErrSentCopyPending) {
 		t.Fatalf("revoked copy repair error=%v", err)
 	}
-	current, err := q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
+	current, err := q.PlatformGetSendReceipt(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
 	if err != nil || current.SentCopyState != "held" || current.SmtpSecret != "" || current.RawSecret == "" || client.appends != 0 {
 		t.Fatal("revoked automatic copy reached APPEND or lost recovery material")
 	}

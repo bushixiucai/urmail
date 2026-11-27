@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
@@ -31,7 +33,7 @@ func TestDeliveryEventDedupeIsTenantScopedAndReplaySafe(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback(ctx)
-		count, err := store.New(tx).RecordDeliveryEvent(ctx, store.RecordDeliveryEventParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, Instance: "postfix", QueueID: "QID-123", Sender: "sender@example.net", SenderDomain: "example.net", Recipient: pgtype.Text{String: "user@dest.test", Valid: true}, RecipientDomain: pgtype.Text{String: "dest.test", Valid: true}, Status: "sent", OccurredAt: pgtype.Timestamptz{Time: base, Valid: true}})
+		count, err := store.New(tx).RecordDeliveryEvent(ctx, store.RecordDeliveryEventParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, Instance: "postfix", QueueID: "QID-123", Sender: "sender@example.net", SenderDomain: "example.net", Recipient: pgtype.Text{String: "user@dest.test", Valid: true}, RecipientDomain: pgtype.Text{String: "dest.test", Valid: true}, Status: "sent", OccurredAt: timeutil.Micro(base)})
 		if err != nil {
 			t.Fatal(err)
 		}

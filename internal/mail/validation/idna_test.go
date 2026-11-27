@@ -189,7 +189,7 @@ func TestNormalizeEmailEAIBoundary(t *testing.T) {
 // xn-- TLDs — EVIDENCE_REVIEW E-10) but still rejects forged punycode and
 // raw Unicode, which must go through NormalizeDomain first.
 func TestHostnameAcceptsValidIDNALabels(t *testing.T) {
-	for _, good := range []string{"xn--bcher-kva.example", "mail.xn--r8jz45g.xn--zckzah", "box.urmail.cn", "example.com"} {
+	for _, good := range []string{"xn--bcher-kva.example", "mail.xn--r8jz45g.xn--zckzah", "mail.example.test", "example.com"} {
 		if !validation.IsValidHostname(good) {
 			t.Errorf("IsValidHostname(%q) = false; want true", good)
 		}
@@ -215,7 +215,7 @@ func TestHostnameAcceptsValidIDNALabels(t *testing.T) {
 // TestPreexistingValidInputsUnchanged is the explicit regression gate: every
 // input the old validators accepted still passes after the IDN/EAI split.
 func TestPreexistingValidInputsUnchanged(t *testing.T) {
-	hosts := []string{"example.com", "sub.example.com", "box.urmail.cn", "a-b.c-d.io", "x1.example.com"}
+	hosts := []string{"example.com", "sub.example.com", "mail.example.test", "a-b.c-d.io", "x1.example.com"}
 	for _, h := range hosts {
 		if !validation.IsValidHostname(h) {
 			t.Errorf("regression: IsValidHostname(%q) = false", h)

@@ -24,6 +24,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/certs"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
@@ -74,6 +75,11 @@ type LegacyAccessStore interface {
 	AuditLegacyCredentialUse(context.Context, store.AuditLegacyCredentialUseParams) error
 }
 
+// tenantCtx binds the compatibility tenant for tenant-scoped legacy reads.
+func (h *LegacyHandler) tenantCtx(c *gin.Context) context.Context {
+	return isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: h.TenantID})
+}
+
 func (h *LegacyHandler) authorize(c *gin.Context) bool {
 	if !middleware.CanonicalHostAllowed(c) {
 		authError(c, http.StatusForbidden, "FORBIDDEN")
@@ -98,7 +104,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 			return false
 		}
 		token := strings.TrimSpace(c.GetHeader("Authorization")[7:])
-		session, err := access.GetLegacySession(c, middleware.HashSessionToken(token))
+		session, err := access.GetLegacySession(h.tenantCtx(c), middleware.HashSessionToken(token))
 		if err != nil {
 			authError(c, http.StatusUnauthorized, "MFA_REQUIRED")
 			return false
@@ -137,7 +143,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 		if access == nil {
 			return reject("INVALID_CREDENTIALS")
 		}
-		credential, err := access.AuthenticateApplicationCredential(c, store.AuthenticateApplicationCredentialParams{TokenHash: middleware.HashSessionToken(password), Email: email})
+		credential, err := access.AuthenticateApplicationCredential(platformCtx(c), store.AuthenticateApplicationCredentialParams{TokenHash: middleware.HashSessionToken(password), Email: email})
 		if err != nil {
 			return reject("INVALID_CREDENTIALS")
 		}
@@ -161,7 +167,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 		reservation.CompleteSuccess()
 		return true
 	}
-	user, err := h.Auth.GetUserByEmail(c, email)
+	user, err := h.Auth.GetUserByEmail(platformCtx(c), email)
 	if err != nil {
 		if _, available := panelPasswordMatches(c, password, dummyPasswordHash); !available {
 			return false
@@ -178,7 +184,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 	if user.MfaEnabled {
 		return reject("MFA_REQUIRED")
 	}
-	admin, err := h.Auth.CheckPlatformAdmin(c, user.ID)
+	admin, err := h.Auth.CheckPlatformAdmin(platformCtx(c), user.ID)
 	if err != nil || !admin {
 		return reject("FORBIDDEN")
 	}
@@ -197,7 +203,7 @@ func (h *LegacyHandler) auditLegacyAccess(c *gin.Context, access LegacyAccessSto
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return false
 	}
-	err := access.AuditLegacyCredentialUse(c, store.AuditLegacyCredentialUseParams{ActorUserID: pgtype.Int8{Int64: userID, Valid: true}, Action: "legacy.authorize " + c.Request.Method + " " + c.FullPath(), TargetID: pgtype.Text{String: target, Valid: true}})
+	err := access.AuditLegacyCredentialUse(h.tenantCtx(c), store.AuditLegacyCredentialUseParams{ActorUserID: pgtype.Int8{Int64: userID, Valid: true}, Action: "legacy.authorize " + c.Request.Method + " " + c.FullPath(), TargetID: pgtype.Text{String: target, Valid: true}})
 	if err != nil {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return false
@@ -237,12 +243,12 @@ func (h *LegacyHandler) MailUsers(c *gin.Context) {
 	if !h.authorize(c) {
 		return
 	}
-	boxes, err := h.Store.ListMailboxesByTenant(c, h.TenantID)
+	boxes, err := h.Store.ListMailboxesByTenant(c.Request.Context(), h.TenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db"})
 		return
 	}
-	domains, _ := h.Store.ListDomainsByTenant(c, h.TenantID)
+	domains, _ := h.Store.ListDomainsByTenant(c.Request.Context(), h.TenantID)
 	byID := make(map[int64]string, len(domains))
 	for _, d := range domains {
 		byID[d.ID] = d.Fqdn
@@ -272,7 +278,7 @@ func (h *LegacyHandler) MailDomains(c *gin.Context) {
 	if !h.authorize(c) {
 		return
 	}
-	domains, err := h.Store.ListDomainsByTenant(c, h.TenantID)
+	domains, err := h.Store.ListDomainsByTenant(c.Request.Context(), h.TenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db"})
 		return
@@ -294,12 +300,12 @@ func (h *LegacyHandler) MailAliases(c *gin.Context) {
 	if !h.authorize(c) {
 		return
 	}
-	aliases, err := h.Store.ListAliasesByTenant(c, h.TenantID)
+	aliases, err := h.Store.ListAliasesByTenant(c.Request.Context(), h.TenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db"})
 		return
 	}
-	domains, _ := h.Store.ListDomainsByTenant(c, h.TenantID)
+	domains, _ := h.Store.ListDomainsByTenant(c.Request.Context(), h.TenantID)
 	byID := make(map[int64]string, len(domains))
 	for _, d := range domains {
 		byID[d.ID] = d.Fqdn
@@ -332,7 +338,7 @@ func (h *LegacyHandler) AddMailUser(c *gin.Context) {
 		return
 	}
 	local, fqdn := email[:at], email[at+1:]
-	domain, err := h.Store.GetDomainByFQDN(c, store.GetDomainByFQDNParams{TenantID: h.TenantID, Fqdn: fqdn})
+	domain, err := h.Store.GetDomainByFQDN(c.Request.Context(), store.GetDomainByFQDNParams{TenantID: h.TenantID, Fqdn: fqdn})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
 		return
@@ -342,7 +348,7 @@ func (h *LegacyHandler) AddMailUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash"})
 		return
 	}
-	box, err := h.Store.CreateMailbox(c, store.CreateMailboxParams{
+	box, err := h.Store.CreateMailbox(c.Request.Context(), store.CreateMailboxParams{
 		TenantID:     h.TenantID,
 		DomainID:     domain.ID,
 		LocalPart:    local,
@@ -371,7 +377,7 @@ func (h *LegacyHandler) AddMailAlias(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	domain, err := h.Store.GetDomainByFQDN(c, store.GetDomainByFQDNParams{
+	domain, err := h.Store.GetDomainByFQDN(c.Request.Context(), store.GetDomainByFQDNParams{
 		TenantID: h.TenantID,
 		Fqdn:     address[at+1:],
 	})
@@ -379,7 +385,7 @@ func (h *LegacyHandler) AddMailAlias(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
 		return
 	}
-	alias, err := h.Store.CreateAlias(c, store.CreateAliasParams{
+	alias, err := h.Store.CreateAlias(c.Request.Context(), store.CreateAliasParams{
 		TenantID:  h.TenantID,
 		DomainID:  domain.ID,
 		LocalPart: address[:at],
@@ -400,12 +406,12 @@ func (h *LegacyHandler) RemoveMailUser(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(c.PostForm("email")))
-	box, err := h.Store.GetMailboxByAddress(c, store.GetMailboxByAddressParams{TenantID: h.TenantID, Address: email})
+	box, err := h.Store.GetMailboxByAddress(c.Request.Context(), store.GetMailboxByAddressParams{TenantID: h.TenantID, Address: email})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "mailbox not found"})
 		return
 	}
-	if err := h.Store.DeleteMailbox(c, store.DeleteMailboxParams{TenantID: h.TenantID, ID: box.ID}); err != nil {
+	if err := h.Store.DeleteMailbox(c.Request.Context(), store.DeleteMailboxParams{TenantID: h.TenantID, ID: box.ID}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 		return
 	}
@@ -423,7 +429,7 @@ func (h *LegacyHandler) SetMailUserPassword(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	box, err := h.Store.GetMailboxByAddress(c, store.GetMailboxByAddressParams{TenantID: h.TenantID, Address: email})
+	box, err := h.Store.GetMailboxByAddress(c.Request.Context(), store.GetMailboxByAddressParams{TenantID: h.TenantID, Address: email})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "mailbox not found"})
 		return
@@ -433,7 +439,7 @@ func (h *LegacyHandler) SetMailUserPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash"})
 		return
 	}
-	if _, err := h.Store.UpdateMailboxPassword(c, store.UpdateMailboxPasswordParams{
+	if _, err := h.Store.UpdateMailboxPassword(c.Request.Context(), store.UpdateMailboxPasswordParams{
 		TenantID: h.TenantID, ID: box.ID, PasswordHash: hash,
 	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
@@ -453,19 +459,19 @@ func (h *LegacyHandler) RemoveMailAlias(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	domain, err := h.Store.GetDomainByFQDN(c, store.GetDomainByFQDNParams{TenantID: h.TenantID, Fqdn: address[at+1:]})
+	domain, err := h.Store.GetDomainByFQDN(c.Request.Context(), store.GetDomainByFQDNParams{TenantID: h.TenantID, Fqdn: address[at+1:]})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
 		return
 	}
-	aliases, err := h.Store.ListAliasesByTenant(c, h.TenantID)
+	aliases, err := h.Store.ListAliasesByTenant(c.Request.Context(), h.TenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db"})
 		return
 	}
 	for _, alias := range aliases {
 		if alias.DomainID == domain.ID && alias.LocalPart == address[:at] {
-			if err := h.Store.DeleteAlias(c, store.DeleteAliasParams{TenantID: h.TenantID, ID: alias.ID}); err != nil {
+			if err := h.Store.DeleteAlias(c.Request.Context(), store.DeleteAliasParams{TenantID: h.TenantID, ID: alias.ID}); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 				return
 			}
@@ -575,7 +581,7 @@ func (h *LegacyHandler) MFAStatus(c *gin.Context) {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
 	}
-	user, err := reader.GetUserByID(c, userID)
+	user, err := reader.GetUserByID(c.Request.Context(), userID)
 	if err != nil {
 		authError(c, http.StatusUnauthorized, "UNAUTHORIZED")
 		return

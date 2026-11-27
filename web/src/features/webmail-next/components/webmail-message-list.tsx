@@ -35,6 +35,7 @@ import type {
 } from "@/features/webmail/mailbox-api";
 import type { DensityMode, WebmailItem } from "../types";
 import { decodeFolderName } from "../lib/folder-names";
+import { THREAD_WEAK_AGGREGATION_THRESHOLD } from "../lib/thread-members-api";
 
 /** Cross-folder result rows from other boxes are excluded from selection
  * and folder-scoped quick actions so bulk ops can never touch a same-
@@ -370,6 +371,52 @@ export function WebmailMessageList({
     return () => element.removeEventListener("scroll", onScroll);
   }, [onNearEnd, items.length]);
 
+  // Session-expiry return-to-position (REVIEW-FE-008): persist the browsing
+  // folder's scroll offset so returning after re-login lands where the user
+  // was. Throttled writes; keyed per folder; search views are excluded.
+  const savedScrollFolderRef = useRef<string | null>(null);
+  useEffect(() => {
+    const element = parentRef.current;
+    if (!element || !activeFolderEnc || isSearchView) return;
+    let timer = 0;
+    const onScroll = () => {
+      if (timer) return;
+      timer = window.setTimeout(() => {
+        timer = 0;
+        try {
+          window.sessionStorage.setItem(
+            `urmail.webmail.list-scroll:${activeFolderEnc}`,
+            String(Math.round(element.scrollTop)),
+          );
+        } catch {
+          // Storage is optional.
+        }
+      }, 300);
+    };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      element.removeEventListener("scroll", onScroll);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [activeFolderEnc, isSearchView]);
+
+  useEffect(() => {
+    if (!activeFolderEnc || isSearchView) return;
+    if (savedScrollFolderRef.current === activeFolderEnc) return;
+    const element = parentRef.current;
+    if (!element || isInitialLoading || items.length === 0) return;
+    savedScrollFolderRef.current = activeFolderEnc;
+    try {
+      const raw = window.sessionStorage.getItem(
+        `urmail.webmail.list-scroll:${activeFolderEnc}`,
+      );
+      const top = raw == null ? NaN : Number(raw);
+      if (Number.isFinite(top) && top > 0) element.scrollTop = top;
+    } catch {
+      // Storage is optional.
+    }
+  }, [activeFolderEnc, isSearchView, isInitialLoading, items.length]);
+
   const loadedLabel =
     messages.length > 0
       ? t("webmail_next.loaded_range", {
@@ -493,10 +540,25 @@ export function WebmailMessageList({
       onToggleThread={(event) => {
         event.stopPropagation();
         if (!item.threadId) return;
+        // Q3 (interview 2026-11-26): this D-D conditional — fully loaded
+        // → inline expansion, missing members → reading stack — is the
+        // CONFIRMED terminal state; do not re-apply V0620 §7's original
+        // "remove inline entirely" draft.
         // D-D (C1): inline expansion only when every member of the thread
         // is already loaded in the list; otherwise the pill opens the
         // reading stack, which progressively loads the missing members.
         const loaded = loadedThreadCounts.get(item.threadId) ?? 0;
+        // Q4 giant-thread exemption (interview 2026-11-26): threads above
+        // the server weak threshold (weak_aggregation, >20 members) never
+        // inline-expand — children stay collapsed by default and the pill
+        // remains the reading-stack entry.
+        if (
+          item.weakAggregation ||
+          (item.threadCount ?? 0) > THREAD_WEAK_AGGREGATION_THRESHOLD
+        ) {
+          rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc);
+          return;
+        }
         if ((item.threadCount ?? 0) > loaded) {
           rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc);
           return;
@@ -725,7 +787,7 @@ export function WebmailMessageList({
                 type="button"
                 onClick={onRefresh}
                 disabled={isRefreshing}
-                className={`p-1.5 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
+                className={`touch-target p-1.5 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
                   isRefreshing ? "animate-spin" : ""
                 }`}
                 aria-label={t("webmail_next.refresh")}
@@ -745,22 +807,27 @@ export function WebmailMessageList({
       >
         {items.length === 0 ? (
           showInitialSkeleton ? (
-            <MailListSkeleton
-              testId="list-initial-skeleton"
-              rows={8}
-              rowHeight={rowHeight}
-            />
+            <div key="list-skeleton">
+              <MailListSkeleton
+                testId="list-initial-skeleton"
+                rows={8}
+                rowHeight={rowHeight}
+              />
+            </div>
           ) : loadError ? (
             <div
+              key="list-error"
               data-testid="list-load-error"
               role="alert"
               className="h-full flex flex-col items-center justify-center gap-2 text-xs text-[var(--vellum-ink-secondary)] px-6 text-center"
             >
               <Mail className="w-6 h-6 opacity-40" />
               <p>
-                {t("webmail_next.list_load_failed", {
-                  defaultValue: "Couldn't load messages.",
-                })}
+                <span>
+                  {t("webmail_next.list_load_failed", {
+                    defaultValue: "Couldn't load messages.",
+                  })}
+                </span>
               </p>
               {onRefresh && (
                 <button
@@ -768,31 +835,41 @@ export function WebmailMessageList({
                   onClick={onRefresh}
                   className="px-3 py-1 rounded border border-[var(--vellum-border)] text-[var(--vellum-ink)] hover:bg-[var(--vellum-surface-muted)] transition-colors"
                 >
-                  {t("action.retry")}
+                  <span>{t("action.retry")}</span>
                 </button>
               )}
             </div>
+          ) : isInitialLoading ? (
+            // REVIEW-UIUX-015: data has not arrived and the skeleton delay
+            // has not elapsed — stay blank instead of flashing "empty folder"
+            // on a slow first load.
+            <div key="list-loading" data-testid="list-loading" />
           ) : isSearchView ? (
-            <WebmailEmptyState
-              testId="empty-search"
-              icon={SearchX}
-              title={t("webmail_next.empty_search_title")}
-              description={t("webmail_next.empty_search_body")}
-              actionLabel={t("webmail_next.empty_search_action")}
-              onAction={onClearSearch}
-            />
+            <div key="list-empty-search" className="h-full">
+              <WebmailEmptyState
+                testId="empty-search"
+                icon={SearchX}
+                title={t("webmail_next.empty_search_title")}
+                description={t("webmail_next.empty_search_body")}
+                actionLabel={t("webmail_next.empty_search_action")}
+                onAction={onClearSearch}
+              />
+            </div>
           ) : (
-            <WebmailEmptyState
-              testId="empty-folder"
-              icon={Inbox}
-              title={t("webmail_next.empty_folder_title")}
-              description={t("webmail_next.empty_folder_body")}
-              actionLabel={t("webmail_next.empty_folder_action")}
-              onAction={onCompose}
-            />
+            <div key="list-empty-folder" className="h-full">
+              <WebmailEmptyState
+                testId="empty-folder"
+                icon={Inbox}
+                title={t("webmail_next.empty_folder_title")}
+                description={t("webmail_next.empty_folder_body")}
+                actionLabel={t("webmail_next.empty_folder_action")}
+                onAction={onCompose}
+              />
+            </div>
           )
         ) : virtualItems.length > 0 ? (
           <div
+            key="list-virtual"
             style={{
               height: virtualizer.getTotalSize(),
               position: "relative",
@@ -820,11 +897,13 @@ export function WebmailMessageList({
             })}
           </div>
         ) : (
-          items.map((item) => (
-            <div key={rowKey(item)} className="contents">
-              {renderMessageRow(item)}
-            </div>
-          ))
+          <div key="list-flat">
+            {items.map((item) => (
+              <div key={rowKey(item)} className="contents">
+                {renderMessageRow(item)}
+              </div>
+            ))}
+          </div>
         )}
         {allCaughtUp && (
           <div

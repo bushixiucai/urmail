@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformClaimCalendarInvitation = `-- name: PlatformClaimCalendarInvitation :exec
@@ -225,12 +223,12 @@ ORDER BY id LIMIT $6
 `
 
 type PlatformListCalendarEventsPageParams struct {
-	TenantID   int64              `json:"tenant_id"`
-	MailboxID  int64              `json:"mailbox_id"`
-	ID         int64              `json:"id"`
-	RangeEnd   pgtype.Timestamptz `json:"range_end"`
-	RangeStart pgtype.Timestamptz `json:"range_start"`
-	PageLimit  int32              `json:"page_limit"`
+	TenantID   int64 `json:"tenant_id"`
+	MailboxID  int64 `json:"mailbox_id"`
+	ID         int64 `json:"id"`
+	RangeEnd   int64 `json:"range_end"`
+	RangeStart int64 `json:"range_start"`
+	PageLimit  int32 `json:"page_limit"`
 }
 
 func (q *Queries) PlatformListCalendarEventsPage(ctx context.Context, arg PlatformListCalendarEventsPageParams) ([]MailboxEvents, error) {
@@ -411,11 +409,11 @@ type PlatformListDataImportReceiptsParams struct {
 }
 
 type PlatformListDataImportReceiptsRow struct {
-	ID             int64              `json:"id"`
-	Kind           string             `json:"kind"`
-	IdempotencyKey string             `json:"idempotency_key"`
-	Payload        []byte             `json:"payload"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ID             int64  `json:"id"`
+	Kind           string `json:"kind"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Payload        []byte `json:"payload"`
+	CreatedAt      int64  `json:"created_at"`
 }
 
 func (q *Queries) PlatformListDataImportReceipts(ctx context.Context, arg PlatformListDataImportReceiptsParams) ([]PlatformListDataImportReceiptsRow, error) {
@@ -490,19 +488,10 @@ func (q *Queries) PlatformLockCalendarInvitationEvent(ctx context.Context, arg P
 	return i, err
 }
 
-const platformLockDataImport = `-- name: PlatformLockDataImport :exec
-SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text || ':' || $3::text, 782314))
-`
-
 type PlatformLockDataImportParams struct {
 	TenantID       string `json:"tenant_id"`
 	MailboxID      string `json:"mailbox_id"`
 	IdempotencyKey string `json:"idempotency_key"`
-}
-
-func (q *Queries) PlatformLockDataImport(ctx context.Context, arg PlatformLockDataImportParams) error {
-	_, err := q.db.Exec(ctx, platformLockDataImport, arg.TenantID, arg.MailboxID, arg.IdempotencyKey)
-	return err
 }
 
 const platformRemoveContactGroupMember = `-- name: PlatformRemoveContactGroupMember :execrows

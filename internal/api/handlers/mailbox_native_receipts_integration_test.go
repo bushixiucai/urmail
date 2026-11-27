@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/mailboxsend"
@@ -206,7 +206,7 @@ func TestScheduledUncertainAcknowledgementRequiresOwnerAndConfirmation(t *testin
 		t.Fatal(e)
 	}
 	q := store.New(h.Pool.Pool)
-	row, e := q.PlatformCreateMailboxScheduledSend(ctx, store.PlatformCreateMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: "Drafts", DraftUid: 42, DraftUidvalidity: 9, SendAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, SmtpSecret: "sealed-fixture", IdempotencyKey: "acknowledgement-fixture-0001", RequestHash: "fixture"})
+	row, e := q.PlatformCreateMailboxScheduledSend(ctx, store.PlatformCreateMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: "Drafts", DraftUid: 42, DraftUidvalidity: 9, SendAt: timeutil.Micro(time.Now().Add(time.Hour)), SmtpSecret: "sealed-fixture", IdempotencyKey: "acknowledgement-fixture-0001", RequestHash: "fixture"})
 	if e != nil {
 		t.Fatal(e)
 	}

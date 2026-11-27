@@ -21,7 +21,7 @@ func TestPipelineTriggerAndDebounce(t *testing.T) {
 
 func testPipelineTriggerAndDebounce(t *testing.T) {
 	cfg := &config.Config{
-		MyHostname:    "box.urmail.cn",
+		MyHostname:    "mail.example.test",
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
 		DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",
@@ -87,7 +87,7 @@ func testPipelineTriggerAndDebounce(t *testing.T) {
 }
 
 func TestPipelineRetriesWithoutAnotherTriggerAndClearsFailure(t *testing.T) {
-	cfg := &config.Config{MyHostname: "box.urmail.cn", PrimaryDomain: "urmail.cn", StorageRoot: "/var/mail", DatabaseURL: "host=127.0.0.1 dbname=urmail", ListenAddr: "127.0.0.1:8080"}
+	cfg := &config.Config{MyHostname: "mail.example.test", PrimaryDomain: "urmail.cn", StorageRoot: "/var/mail", DatabaseURL: "host=127.0.0.1 dbname=urmail", ListenAddr: "127.0.0.1:8080"}
 	p := reconcile.NewPipeline(cfg, &mockQuerier{}, "192.0.2.1", []string{"ns.urmail.cn"})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -126,7 +126,7 @@ func TestPipelineRetriesWithoutAnotherTriggerAndClearsFailure(t *testing.T) {
 // vhosts without their own generated files.
 func TestRenderOnceIsDeterministicDryRun(t *testing.T) {
 	cfg := &config.Config{
-		MyHostname:    "box.urmail.cn",
+		MyHostname:    "mail.example.test",
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
 		DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",
@@ -156,7 +156,7 @@ func TestRenderOnceIsDeterministicDryRun(t *testing.T) {
 
 func TestRenderCycleIndivisibleWithSpamPolicies(t *testing.T) {
 	cfg := &config.Config{
-		MyHostname:    "box.urmail.cn",
+		MyHostname:    "mail.example.test",
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
 		DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",
@@ -203,7 +203,7 @@ func TestRenderCycleIndivisibleWithSpamPolicies(t *testing.T) {
 
 func TestReconcileAndWaitRequiresDomainAndApplier(t *testing.T) {
 	cfg := &config.Config{
-		MyHostname:    "box.urmail.cn",
+		MyHostname:    "mail.example.test",
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
 		DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",

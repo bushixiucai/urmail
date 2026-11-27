@@ -10,6 +10,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/sieve"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -32,7 +33,9 @@ func (s StoreMailboxRules) Sieve(ctx context.Context, tenantID, mailboxID int64)
 	if s.Pool == nil {
 		return "", "", pgx.ErrNoRows
 	}
-	row, err := store.New(s.Pool).PlatformGetMailboxSieve(ctx, store.PlatformGetMailboxSieveParams{TenantID: tenantID, ID: mailboxID})
+	// The managed-sieve statements are platform-scoped; this adapter is the
+	// trusted seam (the handler has already authorized the mailbox session).
+	row, err := db.Queries(s.Pool).PlatformGetMailboxSieve(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetMailboxSieveParams{TenantID: tenantID, ID: mailboxID})
 	if err != nil {
 		return "", "", err
 	}
@@ -45,7 +48,7 @@ func (s StoreMailboxRules) SaveSieve(ctx context.Context, tenantID, mailboxID in
 	if s.Pool == nil {
 		return false, pgx.ErrNoRows
 	}
-	n, err := store.New(s.Pool).PlatformSetMailboxSieve(ctx, store.PlatformSetMailboxSieveParams{
+	n, err := db.Queries(s.Pool).PlatformSetMailboxSieve(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformSetMailboxSieveParams{
 		TenantID:       tenantID,
 		ID:             mailboxID,
 		SieveScript:    pgtype.Text{String: script, Valid: true},

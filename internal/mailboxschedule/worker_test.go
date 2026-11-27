@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -174,7 +175,7 @@ func (s *fakeSubmitter) Send(_ context.Context, _, _ string, msg webmail.Outgoin
 }
 
 func workerFixture() (*Worker, *fakeStore, *fakeIMAP, *fakeSubmitter) {
-	st := &fakeStore{row: store.MailboxScheduledSends{ID: 1, TenantID: 1, MailboxID: 1, DraftFolder: "Drafts", DraftUid: 42, DraftUidvalidity: 9, Status: "pending", SmtpSecret: "enc:fixture", SendAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}}}
+	st := &fakeStore{row: store.MailboxScheduledSends{ID: 1, TenantID: 1, MailboxID: 1, DraftFolder: "Drafts", DraftUid: 42, DraftUidvalidity: 9, Status: "pending", SmtpSecret: "enc:fixture", SendAt: timeutil.Micro(time.Now())}}
 	imap := &fakeIMAP{validity: 9}
 	submit := &fakeSubmitter{}
 	return NewWorker(Options{Store: st, Secrets: fakeSecrets{plain: "password"}, Dialer: fakeDialer{imap}, Submitter: submit}), st, imap, submit

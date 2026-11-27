@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -93,9 +94,12 @@ func normalize(intent Intent) (Intent, error) {
 }
 
 func begin(ctx context.Context, pool *db.Pool, intent Intent) (pgx.Tx, Review, error) {
-	if pool == nil || pool.Role() != db.RolePlatform {
+	if pool == nil || !pool.IsPlatform() {
 		return nil, Review{}, ErrAuthority
 	}
+	// This maintenance entry owns the platform pool; its locks and reads are
+	// platform-scoped, and callers (CLI/scheduler) carry no DB scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	intent, err := normalize(intent)
 	if err != nil {
 		return nil, Review{}, err
@@ -105,7 +109,7 @@ func begin(ctx context.Context, pool *db.Pool, intent Intent) (pgx.Tx, Review, e
 		return nil, Review{}, ErrRejected
 	}
 	fail := func(e error) (pgx.Tx, Review, error) { rollback(tx); return nil, Review{}, e }
-	q := store.New(tx)
+	q := db.Queries(tx)
 	alias, err := q.PlatformLockAliasSenderTarget(ctx, store.PlatformLockAliasSenderTargetParams{ActorID: intent.ActorID, TenantID: intent.TenantID, AliasID: intent.AliasID})
 	if err != nil {
 		return fail(ErrAuthority)
@@ -159,6 +163,8 @@ func Apply(ctx context.Context, pool *db.Pool, intent Intent, expected string) (
 }
 
 func apply(ctx context.Context, pool *db.Pool, intent Intent, expected string, commit func(pgx.Tx) error) (Result, error) {
+	// The apply transaction writes platform-scoped alias and audit rows.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if len(expected) != 64 || strings.Trim(expected, "0123456789abcdef") != "" {
 		return Result{}, ErrInput
 	}
@@ -171,7 +177,7 @@ func apply(ctx context.Context, pool *db.Pool, intent Intent, expected string, c
 	if expected != review.Digest {
 		return result, ErrStale
 	}
-	q := store.New(tx)
+	q := db.Queries(tx)
 	n, err := q.PlatformSetAliasSenderLogins(ctx, store.PlatformSetAliasSenderLoginsParams{TenantID: review.Intent.TenantID, AliasID: review.Intent.AliasID, SenderLogins: review.Intent.SenderLogins})
 	if err != nil || n != 1 {
 		return result, ErrRejected

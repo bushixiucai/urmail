@@ -29,7 +29,7 @@ vi.mock("@/app/auth-context", () => ({
   useAuth: () => ({
     user: {
       id: 1,
-      email: "admin@urmail.cn",
+      email: "admin@example.test",
       display_name: "Admin",
       locale: "zh-CN",
     },

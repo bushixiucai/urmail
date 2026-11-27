@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
@@ -13,7 +14,7 @@ import (
 func TestLegacyTOTPMigrationIsEncryptedAuditedAndIdempotent(t *testing.T) {
 	dsn := testdb.New(t)
 	testdb.MigrateTo(t, dsn, 80)
-	ctx := context.Background()
+	ctx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	pool, err := db.OpenPlatform(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +65,7 @@ func TestLegacyTOTPMigrationIsEncryptedAuditedAndIdempotent(t *testing.T) {
 func TestLegacyTOTPMigrationRollsBackBadSeedAndAuditFailure(t *testing.T) {
 	dsn := testdb.New(t)
 	testdb.MigrateTo(t, dsn, 80)
-	ctx := context.Background()
+	ctx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	pool, err := db.OpenPlatform(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)

@@ -11,6 +11,69 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Boot-failure fallback (global-review 追加②): if the entry/vendor
+      // module graph fails to load (H2 break, stale deploy hash, network
+      // cut), the root stays empty and the SPA can never render. This plain
+      // script runs outside the module graph, detects the failure and shows
+      // a full-page error state with a reload button. Minimal by design.
+      (function () {
+        var armed = true;
+        var SHOWN = "urmail-boot-failure";
+        function show(reason) {
+          if (!armed) return;
+          armed = false;
+          var root = document.getElementById("root");
+          if (root && root.childElementCount > 0) return; // app booted fine
+          var el = document.createElement("div");
+          el.setAttribute("data-testid", "boot-failure-overlay");
+          el.setAttribute("role", "alert");
+          el.style.cssText =
+            "position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;" +
+            "align-items:center;justify-content:center;gap:12px;background:#f9f9fb;" +
+            "color:#1f2937;font:14px/1.6 system-ui,-apple-system,sans-serif;padding:24px;text-align:center";
+          el.innerHTML =
+            '<div style="font-size:16px;font-weight:600">页面资源加载失败</div>' +
+            '<div style="max-width:420px">应用静态资源未能加载，可能是网络中断或版本刚更新。请重试加载。</div>' +
+            '<button type="button" data-testid="boot-failure-reload" style="margin-top:4px;padding:8px 20px;border:0;border-radius:8px;' +
+            'background:#2563eb;color:#fff;font-size:14px;font-weight:600;cursor:pointer">重新加载</button>';
+          el.querySelector("button").addEventListener("click", function () {
+            window.location.reload();
+          });
+          document.body.appendChild(el);
+          if (reason) console.error("[urmail] boot failure:", reason);
+        }
+        window.__urmailBootFailure = function () {
+          show("explicit");
+        };
+        // 1. Static subresource failures (entry/vendor CSS/JS), capture phase.
+        window.addEventListener(
+          "error",
+          function (event) {
+            var target = event.target;
+            if (
+              target &&
+              (target.tagName === "SCRIPT" || target.tagName === "LINK")
+            ) {
+              show(target.src || target.href || "subresource");
+            }
+          },
+          true,
+        );
+        // 2. Watchdog: module code that boots renders into #root and flips
+        //    the flag; an empty root seconds later means the graph never ran.
+        window.__urmailBooted = false;
+        setTimeout(function () {
+          var root = document.getElementById("root");
+          if (
+            !window.__urmailBooted &&
+            (!root || root.childElementCount === 0)
+          ) {
+            show("watchdog");
+          }
+        }, 8000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

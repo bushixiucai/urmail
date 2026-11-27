@@ -126,6 +126,17 @@ jobs:
           restore-keys: |
             gobin-${{ runner.os }}-${{ runner.arch }}-
 
+      # The Go suite includes internal/api/sqlite_slice1_browser_test.go, which
+      # starts the real Vite dev server from web/ (`./node_modules/.bin/vite`).
+      # Install the web dependencies in this job; the test is not skipped.
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - name: Verify go.mod is tidy
         run: |
           go mod tidy
@@ -137,19 +148,50 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # B1 keeps PostgreSQL and SQLite sqlc outputs in separate configs and
+      # generated package directories. The check regenerates both into private
+      # scratch paths, compares them to their own checked-in outputs, and compiles
+      # both packages; SQLite generation must never write over PostgreSQL output.
       - name: sqlc drift check
         run: |
           bash scripts/ci-go-install.sh github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
-          "$(go env GOPATH)/bin/sqlc" generate
-          git diff --exit-code -- internal/store
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          make sqlc-check
+          git diff --exit-code -- internal/store/generated
 
-      - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+
+      # Phase 1 S0: deprecated DB functions must stay unreferenced in code.
+      # Gate modes need no catalog dump (no database in this job); the decoy
+      # self-test proves the exclusion rules do not hollow out the gate.
+      - name: Deprecated function gate
+        run: |
+          python3 -I scripts/classify-port-surface.py --repo . --check-deprecated
+          python3 -I scripts/classify-port-surface.py --repo . --self-test-deprecated
+
+      - name: Snapshot Go package list
+        run: go list ./... > /tmp/go-packages.txt
 
       - name: golangci-lint
         run: |
           bash scripts/ci-go-install.sh github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
           "$(go env GOPATH)/bin/golangci-lint" run --timeout=10m
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            pw-${{ runner.os }}-
+
+      - name: Install web dependencies and browser
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out $(cat /tmp/go-packages.txt)
 
       - name: Message catalogue consistency
         run: go run ./cmd/i18ncheck
@@ -209,7 +251,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # The core shard measured 24m04s on run 45483768583 and was cancelled by
+    # the 25 minute job timeout before it finished; 40 minutes covers the
+    # cold-cache case without weakening any test.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -217,6 +262,7 @@ jobs:
           - handlers
           - data
           - platform
+          - onboarding
           - core
     services:
       postgres:
@@ -254,6 +300,26 @@ jobs:
           key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
           restore-keys: |
             gocache-${{ runner.os }}-${{ runner.arch }}-
+
+      # The core shard runs internal/api, whose browser test starts the real
+      # Vite dev server from web/ (`./node_modules/.bin/vite`).
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install web dependencies (browser test starts Vite)
+        working-directory: web
+        run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            pw-${{ runner.os }}-
+      - name: Install browser for the SQLite browser test
+        working-directory: web
+        run: npx playwright install --with-deps chromium
 
       - name: Install recovery test tools
         run: sudo apt-get update && sudo apt-get install -y age postgresql-client-16
@@ -616,34 +682,13 @@ jobs:
       - name: Audit locked npm dependencies
         run: npm audit --prefix web --audit-level=moderate --registry=https://registry.npmjs.org
 
-  compose-smoke:
-    # Phase 2: prove the compose distribution boots (build + up + healthz 200).
-    # Tag-triggered only — the PR/main fast set must not pay for this job.
+  compose_smoke:
     name: Compose smoke
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Prepare .env
-        run: |
-          cp .env.example .env
-          sed -i "s/^URMAIL_PG_PASSWORD=.*/URMAIL_PG_PASSWORD=ci-smoke-$(openssl rand -hex 12)/" .env
-          sed -i "s/^URMAIL_MYHOSTNAME=.*/URMAIL_MYHOSTNAME=ci-smoke.invalid/" .env
-          sed -i "s|^URMAIL_PRIMARY_DOMAIN=.*|URMAIL_PRIMARY_DOMAIN=ci-smoke.invalid|" .env
-      - name: Compose build
-        run: docker compose build
-      - name: Compose up
-        run: docker compose up -d
-      - name: Wait for healthz 200
-        timeout-minutes: 10
-        run: |
-          deadline=$(( $(date +%s) + 540 ))
-          until docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz | grep -q '"status":"ok"'; do
-            [ "$(date +%s)" -lt "$deadline" ] || { docker compose logs urmaild >&2; exit 1; }
-            sleep 5
-          done
-          docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
-      - name: Compose down (cleanup)
-        if: always()
-        run: docker compose down -v
+      - name: Build and smoke-test compose stack
+        run: bash scripts/ci-compose-smoke.sh

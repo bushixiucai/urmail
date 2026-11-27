@@ -2,6 +2,33 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [Unreleased]
+
+Phase 1 SQLite 单引擎运行时基础能力、隔离契约与 CI 全链路收口（S0–S5 / S7；S6 auth 快照、S7.5 SQLite restore 接线与 S8 生产切换为后续切片）。
+
+### 数据层与隔离
+- 新增 SQLite 单引擎连接工厂（`internal/sqlitedb/open.go`）：强制每连接 `PRAGMA foreign_keys=ON`、`busy_timeout=5000`、`journal_mode=WAL`、`synchronous=NORMAL`，启动 `OpenExisting` 校验 `PRAGMA user_version = 7` 与 `schema_migrations` 无 dirty 行。
+- 落地 `migrations_sqlite/`（`0001_init.sql`–`0007_backup_offsite_state.sql`），含 5 张 append-only 表（`audit_logs`、`announcements`、`channels`、`ai_usage_requests`、`delivery_events`）的 `RAISE(ABORT)` 引擎级触发器。
+- 落地 `internal/db/isolation` 方法级作用域装饰器（覆盖 `store.Querier` 703 个方法），对缺少租户上下文或跨租户参数直接拒绝并纳入 PR CI 快集回归。
+
+### 备份与首启准备
+- 新增 `urmailctl` SQLite `VACUUM INTO` 快照能力（`cmd/urmailctl/backup_sqlite.go`），在 `wal_checkpoint(TRUNCATE)` 后生成独立快照并校验 `integrity_check=ok` 与 `user_version=7`；`backupauto` 保留 `metadata-only` 与 `local-mail-and-metadata` 完整集合校验语义，`preflightFreshBackup` 在 SQLite 单引擎下保持 fail-closed。
+- 新增 `urmailctl config prepare --first-boot` 离线首启配置准备入口（`cmd/urmailctl/config_prepare.go`），在已有升级围栏或已渲染 manifest 时硬拒绝，不放宽常规升级门禁。
+- SQLite `urmailctl restore` 当前保持 fail-closed 拒绝（`cmd/urmailctl/restore_database.go`），待后续 S6/S7.5 交付。
+
+### CI 与构建
+- 运行时镜像（`Dockerfile`）补齐 `dovecot-sieve` 以支持 `compile:sieve`；全量 CI（run `45572290894`）17 个 job 全绿。
+
+## [0.6.27] - 日期待定
+
+会话视图体验收口：方向①②访谈四项决策落地。无数据库迁移。
+
+### 会话（Thread）
+
+- 系统发件人真链会话保留归组，子行默认收起（内联子行仅在显式点击会话徽标后展开）；内联展开的子行中，发件地址或显示名命中自动发件人标记（mailer-daemon/noreply/no-reply/donotreply/auto-responder/postmaster 等，与后端 `internal/webmail/threading.go` 同一清单）的退信行「回复」前缀以更小字号（11px）与弱化灰字渲染，普通子行样式不变。
+- 巨线程弱聚合措辞：服务端盖章 `weak_aggregation`（>20 封）的会话，列表会话徽标与会话栈主题条计数徽标由纯数字切换为「相关 N 封」弱化措辞（i18n `webmail_next.thread_related_count`，zh「相关 {{count}} 封」/ en "{{count}} related messages"）；弱聚合会话点击会话徽标不再内联展开子行，直接打开会话栈，子行保持默认收起，徽标/栈入口保留。
+- 列表内联展开维持已追认的条件版终态（成员全载内联展开、缺载进栈），正文渲染隐私纵深维持双层消毒 + same-origin 无脚本 iframe；两项均仅在代码内标注决策，无行为变更。
+
 ## [0.6.26] - 日期待定
 
 热修补丁：升级前新鲜备份 pre-flight 与手动备份落库。无数据库迁移。
@@ -170,7 +197,7 @@ UIUX 评审批次 1 + 钓鱼红条接线。含数据库迁移（0159，新表 ma
 ### 验收
 
 - v0.6.14 定向复测可放量（QA：两项阻断修复确认、translate 200/20.7s、渲染/线程回归全绿）
-- 红条最终验收：探针二号（tiger 信箱保留样本，score=0.99）随本版部署后由 QA 执行；UIUX 批次 1 视觉回归同步
+- 红条最终验收：探针二号（超管信箱保留样本，score=0.99）随本版部署后由 QA 执行；UIUX 批次 1 视觉回归同步
 
 ## [0.6.14] - 2026-11-09
 

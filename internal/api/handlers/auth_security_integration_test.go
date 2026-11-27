@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -54,7 +56,7 @@ func TestPanelLateLoginWaitsForPasswordRotationAndRejectsOldProof(t *testing.T) 
 	if err = pool.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('blocked-login@example.test',$1) RETURNING id", oldHash).Scan(&uid); err != nil {
 		t.Fatal(err)
 	}
-	args := store.CreateSessionParams{ID: "current", UserID: uid, ExpectedHash: oldHash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}
+	args := store.CreateSessionParams{ID: "current", UserID: uid, ExpectedHash: oldHash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}
 	if _, err = q.CreateSession(ctx, args); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +129,7 @@ func TestPanelRehashWaitsForPasswordRotationWithoutOverwritingNewPassword(t *tes
 	if err = pool.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('blocked-rehash@example.test',$1) RETURNING id", oldHash).Scan(&uid); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = q.CreateSession(ctx, store.CreateSessionParams{ID: "current", UserID: uid, ExpectedHash: oldHash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
+	if _, err = q.CreateSession(ctx, store.CreateSessionParams{ID: "current", UserID: uid, ExpectedHash: oldHash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}); err != nil {
 		t.Fatal(err)
 	}
 	rotation, err := pool.Begin(ctx)
@@ -198,7 +200,7 @@ func TestPanelCredentialRotationIsAtomicAndRejectsLateLogin(t *testing.T) {
 	if err = pool.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('rotation@example.test',$1) RETURNING id", oldHash).Scan(&uid); err != nil {
 		t.Fatal(err)
 	}
-	args := store.CreateSessionParams{ID: "current", UserID: uid, ExpectedHash: oldHash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}
+	args := store.CreateSessionParams{ID: "current", UserID: uid, ExpectedHash: oldHash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}
 	if _, err = q.CreateSession(ctx, args); err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +274,7 @@ func TestMFAChangesRevokeSessionsAndRejectNewPlaintext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args := store.CreateSessionParams{ID: "current", UserID: uid, ExpectedHash: hash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}
+	args := store.CreateSessionParams{ID: "current", UserID: uid, ExpectedHash: hash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}
 	if _, err = q.CreateSession(ctx, args); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +322,7 @@ func TestCredentialMutationsRevalidateAuthenticatedSession(t *testing.T) {
 	if err = pool.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('revoked-request@example.test',$1) RETURNING id", hash).Scan(&uid); err != nil {
 		t.Fatal(err)
 	}
-	create := store.CreateSessionParams{ID: "revoked", UserID: uid, ExpectedHash: hash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}
+	create := store.CreateSessionParams{ID: "revoked", UserID: uid, ExpectedHash: hash, ExpectedVersion: 0, CsrfToken: "csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}
 	if _, err = q.CreateSession(ctx, create); err != nil {
 		t.Fatal(err)
 	}

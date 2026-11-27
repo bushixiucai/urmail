@@ -3,6 +3,9 @@ package handlers
 import (
 	"encoding/json"
 	"net/netip"
+	"time"
+
+	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -24,7 +27,7 @@ type auditResponse struct {
 	TargetType  pgtype.Text          `json:"target_type"`
 	TargetID    pgtype.Text          `json:"target_id"`
 	Detail      *auditResponseDetail `json:"detail"`
-	CreatedAt   pgtype.Timestamptz   `json:"created_at"`
+	CreatedAt   time.Time            `json:"created_at"`
 }
 
 // auditResponses returns only the list contract's outcome metadata as JSON,
@@ -48,7 +51,7 @@ func auditResponses(rows []store.AuditLogs) []auditResponse {
 				safe = &detail
 			}
 		}
-		result = append(result, auditResponse{ID: row.ID, TenantID: row.TenantID, ActorUserID: row.ActorUserID, ActorIP: row.ActorIp, Action: row.Action, TargetType: row.TargetType, TargetID: row.TargetID, Detail: safe, CreatedAt: row.CreatedAt})
+		result = append(result, auditResponse{ID: row.ID, TenantID: row.TenantID, ActorUserID: row.ActorUserID, ActorIP: row.ActorIp, Action: row.Action, TargetType: row.TargetType, TargetID: row.TargetID, Detail: safe, CreatedAt: timeutil.FromMicro(row.CreatedAt)})
 	}
 	return result
 }

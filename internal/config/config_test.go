@@ -247,3 +247,87 @@ func TestDNSListenersExcludeWildcardResolverStubAndDeduplicate(t *testing.T) {
 		}
 	}
 }
+
+func unsetEnvForTest(t *testing.T, keys ...string) {
+	t.Helper()
+	for _, key := range keys {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unsetenv %s: %v", key, err)
+		}
+	}
+}
+
+func TestLoadSQLiteSingleEngineContract(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "urmail.sqlite")
+	envFile := filepath.Join(dir, "urmaild.env")
+	if err := os.WriteFile(envFile, []byte("URMAIL_SQLITE_PATH="+dbPath+"\nURMAIL_POLICY_ENABLED=true\n"), 0o600); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+
+	t.Setenv("URMAIL_ENV_FILE", envFile)
+	unsetEnvForTest(t,
+		"URMAIL_DB_ENGINE",
+		"URMAIL_SQLITE_PATH",
+		"URMAIL_DATABASE_URL",
+		"URMAIL_DATABASE_URL_PLATFORM",
+		"URMAIL_DATABASE_URL_MIGRATE",
+		"URMAIL_DATABASE_URL_DOVECOT",
+	)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("valid SQLite config rejected: %v", err)
+	}
+	if !cfg.IsSQLite() || cfg.SQLitePath != dbPath {
+		t.Fatalf("unexpected SQLite config: isSQLite=%v path=%q", cfg.IsSQLite(), cfg.SQLitePath)
+	}
+
+	// Mixing any PostgreSQL URL with SQLite must fail.
+	for _, key := range []string{
+		"URMAIL_DATABASE_URL",
+		"URMAIL_DATABASE_URL_PLATFORM",
+		"URMAIL_DATABASE_URL_MIGRATE",
+		"URMAIL_DATABASE_URL_DOVECOT",
+	} {
+		t.Run("reject_mixed_"+key, func(t *testing.T) {
+			t.Setenv(key, "postgres://user@localhost/urmail")
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "single-engine") {
+				t.Fatalf("expected single-engine rejection for %s, got %v", key, err)
+			}
+		})
+	}
+
+	// Explicit sqlite engine without path must fail.
+	t.Run("reject_missing_sqlite_path", func(t *testing.T) {
+		missingEnv := filepath.Join(dir, "missing-path.env")
+		if err := os.WriteFile(missingEnv, []byte("URMAIL_DB_ENGINE=sqlite\nURMAIL_POLICY_ENABLED=true\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("URMAIL_ENV_FILE", missingEnv)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "URMAIL_SQLITE_PATH") {
+			t.Fatalf("expected missing URMAIL_SQLITE_PATH error, got %v", err)
+		}
+	})
+
+	// Explicit postgres engine with SQLite path must fail.
+	t.Run("reject_postgres_with_sqlite_path", func(t *testing.T) {
+		t.Setenv("URMAIL_ENV_FILE", envFile)
+		t.Setenv("URMAIL_DB_ENGINE", "postgres")
+		t.Setenv("URMAIL_DATABASE_URL", "postgres://app@localhost/urmail")
+		t.Setenv("URMAIL_DATABASE_URL_PLATFORM", "postgres://platform@localhost/urmail")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "single-engine") {
+			t.Fatalf("expected postgres+sqlite rejection, got %v", err)
+		}
+	})
+
+	// Unknown DB engine must fail.
+	t.Run("reject_unknown_engine", func(t *testing.T) {
+		t.Setenv("URMAIL_ENV_FILE", envFile)
+		t.Setenv("URMAIL_DB_ENGINE", "mysql")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "URMAIL_DB_ENGINE") {
+			t.Fatalf("expected unknown engine rejection, got %v", err)
+		}
+	})
+}

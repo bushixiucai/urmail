@@ -45,6 +45,69 @@ linters:
         linters:
           - gosec
           - errcheck
+      # G304/G703: every flagged site validates its path immediately before
+      # use (pathWithin for walked query dirs, absolute+clean checks for the
+      # sqlite CLI path, staging lock and sidecar removal); gosec's taint
+      # analysis cannot see those guards, so the findings are excluded per site.
+      - path: internal/datamigrate/precheck\.go
+        linters: [gosec]
+        text: "G304"
+      - path: internal/datamigrate/staging\.go
+        linters: [gosec]
+        text: "G304|G703"
+      - path: cmd/urmailctl/sqlite_cmd\.go
+        linters: [gosec]
+        text: "G703"
+      # G703: createSQLiteSnapshot refuses a non-clean absolute target before
+      # MkdirAll/Stat; VACUUM INTO binds the path as a parameter.
+      - path: cmd/urmailctl/backup_sqlite\.go
+        linters: [gosec]
+        text: "G703"
+      # The type-map path is validated as a clean absolute path in LoadTypeMap
+      # before the open; gosec's taint model does not track that guard.
+      - path: internal/datamigrate/typemap\.go
+        linters: [gosec]
+        text: "G304"
+      # Probe returns a nil handle with no error on purpose: the assertion under
+      # test is that the caller fails closed on exactly that shape.
+      - path: internal/store/pg_dialect_test\.go
+        linters: [nilnil]
+      # G122: the walk itself is over operator-configured query directories and
+      # every opened entry is re-checked with pathWithin; os.Root would change
+      # the walk API for no additional guarantee here.
+      - path: internal/datamigrate/precheck\.go
+        linters: [gosec]
+        text: "G122"
+      # nil,nil is the contract in these two files: a validator with nothing to
+      # refuse and a SQL NULL/numeric conversion both succeed with no value.
+      - path: internal/datamigrate/(recall|verify)\.go
+        linters: [nilnil]
+      # md5 is not used as a security primitive: sqlitedb registers it as the
+      # PG-compatible md5(text) SQL function for equality checks written before
+      # the engine split. Replacing it would change stored digests.
+      - path: internal/sqlitedb/open\.go
+        linters: [gosec]
+        text: "G401|G501"
+      # G101 false positives: these are SQL statement constants whose text
+      # contains the words password/credential; no credential value is embedded.
+      - path: internal/store/sqlite_methods\.go
+        linters: [gosec]
+        text: "G101"
+      # SQL NULL is the correct Go value for a missing setting/digest: these
+      # UDFs must return (nil, nil) so SQLite sees NULL, exactly as PostgreSQL
+      # does; a sentinel error would turn SQL NULL into a statement failure.
+      - path: internal/sqlitedb/current_setting\.go
+        linters: [nilnil]
+      - path: internal/sqlitedb/open\.go
+        linters: [nilnil]
+      - path: internal/datamigrate/convert\.go
+        linters: [nilnil]
+      # Test helpers keep testing.T first by convention and fill table
+      # callbacks with unused parameters; both rules stay on for product code.
+      - path: _test\.go
+        linters:
+          - revive
+        text: "unused-parameter|context-as-argument"
 
 formatters:
   exclusions:

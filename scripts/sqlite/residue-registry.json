@@ -1,0 +1,9 @@
+{
+  "note": "S2 残留登记（文件:方法:行）；rewrite_verify 断言 scan==registry。db-function-call 替代物见 dfn-calls.json。",
+  "classes": {
+    "db-function-call": []
+  },
+  "totals": {
+    "db-function-call": 0
+  }
+}

@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -243,8 +244,9 @@ func decodeAttendees(raw []byte) ([]string, map[string]string) {
 	return emails, status
 }
 
-func timestamptz(t time.Time) pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
+// timestamptz returns the SQLite microsecond encoding of a calendar time.
+func timestamptz(t time.Time) int64 {
+	return timeutil.Micro(t.UTC())
 }
 
 func newEventUID() (string, error) {
@@ -281,7 +283,7 @@ func IsConflict(err error) bool {
 }
 
 // Timestamp keeps event bounds explicit at the API edge.
-func Timestamp(t pgtype.Timestamptz) pgtype.Timestamptz { return t }
+func Timestamp(t int64) int64 { return t }
 
 // GroupMemberStore implements the corresponding domain rule.
 type GroupMemberStore interface {
@@ -318,7 +320,7 @@ func EventFromRow(row store.MailboxEvents) (collab.Event, []string, error) {
 	}
 	event, err := collab.NormalizeEvent(collab.Event{
 		UID: row.Uid, Organizer: row.Organizer, Sequence: int(row.Sequence), ReminderMinutes: reminders, Overrides: overrides, Summary: row.Summary, Description: row.Description, Location: row.Location,
-		StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time, AllDay: row.AllDay,
+		StartsAt: timeutil.FromMicro(row.StartsAt), EndsAt: timeutil.FromMicro(row.EndsAt), AllDay: row.AllDay,
 		Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status,
 		Attendees: emails, AttendeeStatus: status,
 	})

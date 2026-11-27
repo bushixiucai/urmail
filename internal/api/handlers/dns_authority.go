@@ -46,11 +46,11 @@ func (h *DNSAuthorityHandler) domain(c *gin.Context) (store.GetDomainByIDRow, bo
 		authError(c, 503, "DNS_AUTHORITY_UNAVAILABLE")
 		return empty, false
 	}
-	domain, err := requestStore(c, store.New(h.App)).GetDomainByID(c.Request.Context(), store.GetDomainByIDParams{TenantID: tenant, ID: id})
+	domain, err := requestStore(c, db.Queries(h.App)).GetDomainByID(c.Request.Context(), store.GetDomainByIDParams{TenantID: tenant, ID: id})
 	if supportError(c, err) {
 		return empty, false
 	}
-	if domain.Mode != "managed" || domain.Status != "active" || !domain.VerifiedAt.Valid {
+	if domain.Mode != "managed" || domain.Status != "active" || domain.VerifiedAt == 0 {
 		authError(c, 409, "DNS_AUTHORITY_MANAGED_REQUIRED")
 		return empty, false
 	}

@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/marketing"
@@ -51,7 +52,7 @@ func (h *MarketingHandler) Channels(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Store).ListMarketingChannels(c, tenant)
+	rows, err := requestStore(c, h.Store).ListMarketingChannels(c.Request.Context(), tenant)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -85,7 +86,7 @@ func (h *MarketingHandler) ConfigureChannel(c *gin.Context) {
 		if !valid {
 			return
 		}
-		existing, err := q.PlatformGetMarketingChannel(c, channelID)
+		existing, err := q.PlatformGetMarketingChannel(c.Request.Context(), channelID)
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && existing.TenantID != tenant {
 			authError(c, http.StatusNotFound, "NOT_FOUND")
 			return
@@ -100,7 +101,7 @@ func (h *MarketingHandler) ConfigureChannel(c *gin.Context) {
 				authError(c, http.StatusConflict, "MARKETING_CHANNEL_UNSUPPORTED")
 				return
 			}
-			updated, err := q.PlatformUpdateMarketingChannel(c, store.PlatformUpdateMarketingChannelParams{TenantID: tenant, ID: channelID, Name: existing.Name, Kind: existing.Kind, SenderAddress: existing.SenderAddress, EncryptedConfig: existing.EncryptedConfig, Enabled: false})
+			updated, err := q.PlatformUpdateMarketingChannel(c.Request.Context(), store.PlatformUpdateMarketingChannelParams{TenantID: tenant, ID: channelID, Name: existing.Name, Kind: existing.Kind, SenderAddress: existing.SenderAddress, EncryptedConfig: existing.EncryptedConfig, Enabled: false})
 			if supportError(c, err) {
 				return
 			}
@@ -139,7 +140,7 @@ func (h *MarketingHandler) ConfigureChannel(c *gin.Context) {
 		if !valid {
 			return
 		}
-		updated, updateErr := requestStore(c, h.Platform).PlatformUpdateMarketingChannel(c, store.PlatformUpdateMarketingChannelParams{TenantID: tenant, ID: channelID, Name: input.Name, Kind: input.Kind, SenderAddress: input.SMTP.From, EncryptedConfig: encrypted, Enabled: enabled})
+		updated, updateErr := requestStore(c, h.Platform).PlatformUpdateMarketingChannel(c.Request.Context(), store.PlatformUpdateMarketingChannelParams{TenantID: tenant, ID: channelID, Name: input.Name, Kind: input.Kind, SenderAddress: input.SMTP.From, EncryptedConfig: encrypted, Enabled: enabled})
 		if errors.Is(updateErr, pgx.ErrNoRows) {
 			authError(c, http.StatusNotFound, "NOT_FOUND")
 			return
@@ -151,7 +152,7 @@ func (h *MarketingHandler) ConfigureChannel(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"channel": updated, "capability_available": input.Kind == "dedicated_gateway"})
 		return
 	}
-	row, err := requestStore(c, h.Platform).PlatformCreateMarketingChannel(c, store.PlatformCreateMarketingChannelParams{TenantID: tenant, Name: input.Name, Kind: input.Kind, SenderAddress: input.SMTP.From, EncryptedConfig: encrypted, Enabled: enabled})
+	row, err := requestStore(c, h.Platform).PlatformCreateMarketingChannel(c.Request.Context(), store.PlatformCreateMarketingChannelParams{TenantID: tenant, Name: input.Name, Kind: input.Kind, SenderAddress: input.SMTP.From, EncryptedConfig: encrypted, Enabled: enabled})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -168,7 +169,7 @@ func (h *MarketingHandler) Templates(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Store).ListMarketingTemplates(c, tenant)
+	rows, err := requestStore(c, h.Store).ListMarketingTemplates(c.Request.Context(), tenant)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -191,7 +192,7 @@ func (h *MarketingHandler) CreateTemplate(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	row, err := requestStore(c, h.Store).CreateMarketingTemplate(c, store.CreateMarketingTemplateParams{TenantID: tenant, Name: input.Name, Subject: input.Subject, TextBody: input.TextBody})
+	row, err := requestStore(c, h.Store).CreateMarketingTemplate(c.Request.Context(), store.CreateMarketingTemplateParams{TenantID: tenant, Name: input.Name, Subject: input.Subject, TextBody: input.TextBody})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -205,7 +206,7 @@ func (h *MarketingHandler) Lists(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Store).ListMarketingLists(c, tenant)
+	rows, err := requestStore(c, h.Store).ListMarketingLists(c.Request.Context(), tenant)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -226,7 +227,7 @@ func (h *MarketingHandler) CreateList(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	row, err := requestStore(c, h.Store).CreateMarketingList(c, store.CreateMarketingListParams{TenantID: tenant, Name: input.Name})
+	row, err := requestStore(c, h.Store).CreateMarketingList(c.Request.Context(), store.CreateMarketingListParams{TenantID: tenant, Name: input.Name})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -244,7 +245,7 @@ func (h *MarketingHandler) Contacts(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Store).ListMarketingContacts(c, store.ListMarketingContactsParams{TenantID: tenant, ListID: id})
+	rows, err := requestStore(c, h.Store).ListMarketingContacts(c.Request.Context(), store.ListMarketingContactsParams{TenantID: tenant, ListID: id})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -306,7 +307,7 @@ func (h *MarketingHandler) ImportContacts(c *gin.Context) {
 	}
 	q := requestStore(c, h.Store)
 	for _, contact := range input.Contacts {
-		_, err := q.UpsertMarketingContact(c, store.UpsertMarketingContactParams{TenantID: tenant, ListID: id, Email: strings.ToLower(contact.Email), ConsentSource: contact.ConsentSource, OptedIn: contact.OptedIn})
+		_, err := q.UpsertMarketingContact(c.Request.Context(), store.UpsertMarketingContactParams{TenantID: tenant, ListID: id, Email: strings.ToLower(contact.Email), ConsentSource: contact.ConsentSource, OptedIn: contact.OptedIn})
 		if err != nil {
 			if respondConstraintError(c, err) {
 				return
@@ -324,7 +325,7 @@ func (h *MarketingHandler) Campaigns(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Store).ListMarketingCampaigns(c, tenant)
+	rows, err := requestStore(c, h.Store).ListMarketingCampaigns(c.Request.Context(), tenant)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -348,7 +349,7 @@ func (h *MarketingHandler) CreateCampaign(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	row, err := requestStore(c, h.Store).CreateMarketingCampaign(c, store.CreateMarketingCampaignParams{TenantID: tenant, Name: input.Name, ChannelID: input.ChannelID, TemplateID: input.TemplateID, ListID: input.ListID})
+	row, err := requestStore(c, h.Store).CreateMarketingCampaign(c.Request.Context(), store.CreateMarketingCampaignParams{TenantID: tenant, Name: input.Name, ChannelID: input.ChannelID, TemplateID: input.TemplateID, ListID: input.ListID})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -377,7 +378,7 @@ func (h *MarketingHandler) ConfirmCampaign(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	result, err := requestStore(c, h.Store).ScheduleMarketingCampaign(c, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: id, ScheduledAt: pgtype.Timestamptz{Time: input.ScheduledAt.UTC(), Valid: true}})
+	result, err := requestStore(c, h.Store).ScheduleMarketingCampaign(platformCtx(c), store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: id, ScheduledAt: timeutil.Micro(input.ScheduledAt.UTC())})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -410,7 +411,7 @@ func (h *MarketingHandler) ChangeCampaign(c *gin.Context) {
 		return
 	}
 	q := requestStore(c, h.Store)
-	row, err := q.ChangeMarketingCampaignState(c, store.ChangeMarketingCampaignStateParams{TenantID: tenant, ID: id, Status: input.Status})
+	row, err := q.ChangeMarketingCampaignState(c.Request.Context(), store.ChangeMarketingCampaignStateParams{TenantID: tenant, ID: id, Status: input.Status})
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, http.StatusConflict, "MARKETING_STATE_CONFLICT")
 		return
@@ -433,7 +434,7 @@ func (h *MarketingHandler) Recipients(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Store).ListMarketingRecipients(c, store.ListMarketingRecipientsParams{TenantID: tenant, CampaignID: id})
+	rows, err := requestStore(c, h.Store).ListMarketingRecipients(c.Request.Context(), store.ListMarketingRecipientsParams{TenantID: tenant, CampaignID: id})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return

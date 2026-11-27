@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/jackc/pgx/v5"
@@ -73,8 +75,8 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 	canonical, _ := json.Marshal(req)
 	sum := sha256.Sum256(canonical)
 	digest := hex.EncodeToString(sum[:])
-	q := store.New(h.Pool.Pool)
-	prior, err := q.PlatformGetSendReceiptByKey(c.Request.Context(), store.PlatformGetSendReceiptByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, RequestKey: key})
+	q := db.Queries(h.Pool.Pool)
+	prior, err := q.PlatformGetSendReceiptByKey(platformCtx(c), store.PlatformGetSendReceiptByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, RequestKey: key})
 	if err == nil {
 		if prior.RequestHash != digest {
 			authError(c, 409, "IDEMPOTENCY_CONFLICT")

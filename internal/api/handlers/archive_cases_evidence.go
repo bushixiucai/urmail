@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -24,6 +26,8 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	archivestore "github.com/bushixiucai/urmail/internal/archive"
 	"github.com/bushixiucai/urmail/internal/archiveevidence"
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -48,7 +52,7 @@ func (h *archiveCases) prepareEvidence(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	approved, err := q.ArchiveCasesApproval(c, store.ArchiveCasesApprovalParams{TenantID: t, InvestigationID: row.ID, ID: id})
+	approved, err := q.ArchiveCasesApproval(c.Request.Context(), store.ArchiveCasesApprovalParams{TenantID: t, InvestigationID: row.ID, ID: id})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -57,12 +61,12 @@ func (h *archiveCases) prepareEvidence(c *gin.Context) {
 		authError(c, 403, "FORBIDDEN")
 		return
 	}
-	visible, err := q.ArchiveCasesExportVisible(c, store.ArchiveCasesExportVisibleParams{T: t, A: id, U: u})
+	visible, err := q.ArchiveCasesExportVisible(c.Request.Context(), store.ArchiveCasesExportVisibleParams{T: t, A: id, U: u})
 	if err != nil || !visible || input.Digest != approved.SourceDigest {
 		authError(c, 409, "ARCHIVE_CASE_STALE")
 		return
 	}
-	existing, err := q.ArchiveCasesGetEvidence(c, store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: id})
+	existing, err := q.ArchiveCasesGetEvidence(c.Request.Context(), store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: id})
 	if err == nil {
 		c.JSON(200, gin.H{"manifest_sha256": existing.ManifestSha256, "approval_id": id})
 		return
@@ -71,14 +75,14 @@ func (h *archiveCases) prepareEvidence(c *gin.Context) {
 		archiveCaseError(c, err)
 		return
 	}
-	sources, err := q.ArchiveCasesSources(c, store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
+	sources, err := q.ArchiveCasesSources(c.Request.Context(), store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
 	}
-	document := archiveevidence.Document{Version: 1, TenantID: t, CaseID: row.ID, CaseVersion: row.Version, Title: row.Title, Purpose: row.Purpose, ApprovalID: id, SourceDigest: approved.SourceDigest, RequesterID: approved.RequesterUserID, ApproverID: approved.ApproverUserID.Int64, ExporterID: u, ApprovedAt: approved.DecidedAt.Time.UTC().Format(time.RFC3339Nano), GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	document := archiveevidence.Document{Version: 1, TenantID: t, CaseID: row.ID, CaseVersion: row.Version, Title: row.Title, Purpose: row.Purpose, ApprovalID: id, SourceDigest: approved.SourceDigest, RequesterID: approved.RequesterUserID, ApproverID: approved.ApproverUserID.Int64, ExporterID: u, ApprovedAt: timeutil.FromMicro(approved.DecidedAt).UTC().Format(time.RFC3339Nano), GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	for _, s := range sources {
-		if s.DeletedAt.Valid {
+		if s.DeletedAt != 0 {
 			authError(c, 409, "ARCHIVE_CASE_STALE")
 			return
 		}
@@ -91,7 +95,7 @@ func (h *archiveCases) prepareEvidence(c *gin.Context) {
 	}
 	hash := sha256.Sum256(body)
 	digest := hex.EncodeToString(hash[:])
-	_, err = q.ArchiveCasesSaveEvidence(c, store.ArchiveCasesSaveEvidenceParams{TenantID: t, ApprovalID: id, CreatedBy: u, Manifest: body, ManifestSha256: digest})
+	_, err = q.ArchiveCasesSaveEvidence(c.Request.Context(), store.ArchiveCasesSaveEvidenceParams{TenantID: t, ApprovalID: id, CreatedBy: u, Manifest: body, ManifestSha256: digest})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -111,7 +115,7 @@ func (h *archiveCases) currentEvidencePermission(ctx context.Context, t, request
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	allowed, err := store.New(tx).ArchiveCasesExportVisible(ctx, store.ArchiveCasesExportVisibleParams{T: t, A: request, U: u})
+	allowed, err := db.Queries(tx).ArchiveCasesExportVisible(ctx, store.ArchiveCasesExportVisibleParams{T: t, A: request, U: u})
 	if err != nil {
 		return err
 	}
@@ -177,7 +181,7 @@ func (h *archiveCases) downloadPackage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	evidence, err := q.ArchiveCasesGetEvidence(c, store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: id})
+	evidence, err := q.ArchiveCasesGetEvidence(c.Request.Context(), store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: id})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -220,7 +224,7 @@ func (h *archiveCases) downloadPackage(c *gin.Context) {
 			release()
 		}
 	}()
-	sources, err := q.ArchiveCasesSources(c, store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
+	sources, err := q.ArchiveCasesSources(c.Request.Context(), store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -272,7 +276,7 @@ func (h *archiveCases) downloadPackage(c *gin.Context) {
 	}
 	for i, s := range sources {
 		expected := doc.Files[i]
-		if expected.EntryID != s.ID || expected.SHA256 != s.RawSha256 || expected.Size != s.SizeBytes || s.DeletedAt.Valid || !s.MailboxID.Valid {
+		if expected.EntryID != s.ID || expected.SHA256 != s.RawSha256 || expected.Size != s.SizeBytes || s.DeletedAt != 0 || !s.MailboxID.Valid {
 			_ = writer.Close()
 			authError(c, 409, "ARCHIVE_CASE_STALE")
 			return
@@ -332,10 +336,13 @@ func (h *archiveCases) downloadPackage(c *gin.Context) {
 	}
 	stream := &evidenceDownload{source: packageFile, size: stat.Size(), release: release, guard: evidenceGuardedReader{ctx: c.Request.Context(), source: packageFile, check: check}}
 	stream.complete = func(success bool, count int64) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		// The custody outcome must be written even after the client is gone,
+		// so it gets a detached context that still carries the platform scope
+		// the audit statement requires.
+		ctx, cancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform}), 2*time.Second)
 		defer cancel()
 		detail, _ := json.Marshal(map[string]any{"actor_id": u, "case_id": row.ID, "approval_id": id, "manifest_sha256": evidence.ManifestSha256, "bytes": count, "completed": success})
-		_, _ = store.New(h.Platform.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: t, Valid: true}, Action: "archive.evidence_transfer_finished", TargetType: pgtype.Text{String: "archive_approval", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: detail})
+		_, _ = db.Queries(h.Platform.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: t, Valid: true}, Action: "archive.evidence_transfer_finished", TargetType: pgtype.Text{String: "archive_approval", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: detail})
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=evidence-case-%d-approval-%d.zip", row.ID, id))
 	c.Header("Cache-Control", "no-store")

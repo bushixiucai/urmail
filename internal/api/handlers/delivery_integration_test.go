@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
@@ -61,7 +63,7 @@ func TestQueueTenantScopeUsesAuthenticatedContextAndRedactsRecipients(t *testing
 		t.Fatal(err)
 	}
 	arrival := time.Now().UTC().Truncate(time.Second)
-	if err := q.PlatformPutDeliveryQueueContext(ctx, store.PlatformPutDeliveryQueueContextParams{Stream: "node", Instance: "node/postfix", QueueID: "OWNED", LifecycleID: "life", AuthenticatedMailbox: "a@a.example.test", StartedAt: pgtype.Timestamptz{Time: arrival, Valid: true}}); err != nil {
+	if err := q.PlatformPutDeliveryQueueContext(ctx, store.PlatformPutDeliveryQueueContextParams{Stream: "node", Instance: "node/postfix", QueueID: "OWNED", LifecycleID: "life", AuthenticatedMailbox: "a@a.example.test", StartedAt: timeutil.Micro(arrival)}); err != nil {
 		t.Fatal(err)
 	}
 	reader := fixedQueueReader{Snapshot: agentd.QueueSnapshot{ObservedAt: arrival, Entries: []agentd.QueueEntry{
@@ -116,7 +118,7 @@ func TestDeliveryHealthUsesFinalRecipientsFreshnessAndExcludesFutureUnknown(t *t
 		known        bool
 	}{{"one", "deferred", now.Add(-2 * time.Minute), true}, {"one", "sent", now.Add(-time.Minute), true}, {"two", "bounced", now.Add(-time.Minute), true}, {"three", "expired", now.Add(-time.Minute), true}, {"four", "deferred", now.Add(-time.Minute), true}, {"future", "sent", now.Add(time.Hour), true}, {"unknown", "sent", now.Add(-time.Minute), false}}
 	for index, event := range events {
-		_, err := q.PlatformRecordCollectedDeliveryEvent(ctx, store.PlatformRecordCollectedDeliveryEventParams{TenantID: pgtype.Int8{Int64: tenant, Valid: event.known}, Instance: "health/postfix", QueueID: event.life, Recipient: pgtype.Text{String: "recipient@external.test", Valid: true}, Status: event.status, OccurredAt: pgtype.Timestamptz{Time: event.when, Valid: true}, SourceEventID: fmt.Sprintf("health-%d", index), LifecycleID: event.life})
+		_, err := q.PlatformRecordCollectedDeliveryEvent(ctx, store.PlatformRecordCollectedDeliveryEventParams{TenantID: pgtype.Int8{Int64: tenant, Valid: event.known}, Instance: "health/postfix", QueueID: event.life, Recipient: pgtype.Text{String: "recipient@external.test", Valid: true}, Status: event.status, OccurredAt: timeutil.Micro(event.when), SourceEventID: fmt.Sprintf("health-%d", index), LifecycleID: event.life})
 		if err != nil {
 			t.Fatal(err)
 		}

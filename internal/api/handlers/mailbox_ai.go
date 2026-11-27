@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -21,6 +23,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/ai"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -84,6 +87,10 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if s == nil || s.Pool == nil || len(key) < 16 || len(key) > 200 {
 		return nil, ai.ResultMeta{}, ai.ErrProviderDisabled
 	}
+	// This entry owns the platform pool: the intent, reservation, settlement
+	// and quota statements are platform-scoped by design, while the mailbox
+	// session and target checks below authorize the caller.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	targetDigest := ""
 	if len(expectedConfiguration) == 1 {
 		targetDigest = expectedConfiguration[0]
@@ -106,11 +113,11 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 		return nil, ai.ResultMeta{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockBillingTenant(ctx, principal.TenantID); err != nil {
 		return nil, ai.ResultMeta{}, err
 	}
-	if session, sessionErr := q.PlatformGetMailboxSession(ctx, principal.SessionHash); sessionErr != nil || session.TenantID != principal.TenantID || session.MailboxID != principal.MailboxID || !session.ExpiresAt.Time.After(time.Now()) || !mailboxprincipal.ValidReference(principal.Scope, principal.Folder, principal.MessageUid, principal.UidValidity) {
+	if session, sessionErr := q.PlatformGetMailboxSession(ctx, principal.SessionHash); sessionErr != nil || session.TenantID != principal.TenantID || session.MailboxID != principal.MailboxID || !timeutil.FromMicro(session.ExpiresAt).After(time.Now()) || !mailboxprincipal.ValidReference(principal.Scope, principal.Folder, principal.MessageUid, principal.UidValidity) {
 		return nil, ai.ResultMeta{}, ai.ErrUnauthorized
 	}
 	// Result cache (TECH §4): a validated answer for the identical
@@ -191,8 +198,8 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 			quota = aiQuotaResolution{
 				Source:      "personal_byok",
 				Independent: true,
-				Start:       pgtype.Timestamptz{Time: budgetNow.Add(-time.Minute), Valid: true},
-				End:         pgtype.Timestamptz{Time: budgetNow.Add(time.Minute), Valid: true},
+				Start:       timeutil.Micro(budgetNow.Add(-time.Minute)),
+				End:         timeutil.Micro(budgetNow.Add(time.Minute)),
 			}
 			quota.Limits.AI.Calls = 60
 			quota.Limits.AI.MailboxCalls = 60
@@ -268,7 +275,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if err != nil {
 		return nil, ai.ResultMeta{}, err
 	}
-	reservation, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: key, InputDigest: hash, AccountedAt: pgtype.Timestamptz{Time: budgetNow, Valid: true}, IndependentWindow: quota.Independent, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit})
+	reservation, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: key, InputDigest: hash, AccountedAt: timeutil.Micro(budgetNow), IndependentWindow: quota.Independent, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ai.ResultMeta{}, errAIBudget
 	}
@@ -303,9 +310,11 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 			status = "completed"
 		}
 	}
-	settleCtx, settleCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// The settlement outlives the request, so it cannot reuse ctx's
+	// cancellation; it still needs the platform scope this ledger requires.
+	settleCtx, settleCancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform}), 5*time.Second)
 	defer settleCancel()
-	finished, finishErr := store.New(s.Pool).PlatformFinishAIRequest(settleCtx, store.PlatformFinishAIRequestParams{TenantID: principal.TenantID, ID: reservation.ID, Status: status, ActualTokens: actualTokens, ActualCostMicros: actualCost, Result: result})
+	finished, finishErr := db.Queries(s.Pool).PlatformFinishAIRequest(settleCtx, store.PlatformFinishAIRequestParams{TenantID: principal.TenantID, ID: reservation.ID, Status: status, ActualTokens: actualTokens, ActualCostMicros: actualCost, Result: result})
 	if finishErr != nil || finished != 1 {
 		return nil, ai.ResultMeta{}, errAIBudget
 	}
@@ -335,7 +344,7 @@ func persistPhishingFinding(ctx context.Context, pool *db.Pool, principal store.
 	if err != nil {
 		return err
 	}
-	if err = store.New(tx).PlatformUpsertMailboxPhishingFinding(ctx, store.PlatformUpsertMailboxPhishingFindingParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, Folder: principal.Folder, UidValidity: principal.UidValidity, Uid: principal.MessageUid, InputDigest: digest, Result: result}); err != nil {
+	if err = db.Queries(tx).PlatformUpsertMailboxPhishingFinding(ctx, store.PlatformUpsertMailboxPhishingFindingParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, Folder: principal.Folder, UidValidity: principal.UidValidity, Uid: principal.MessageUid, InputDigest: digest, Result: result}); err != nil {
 		_ = tx.Rollback(ctx)
 		return err
 	}
@@ -353,6 +362,7 @@ type AIConfigurationHandler struct {
 
 // Get returns redacted provider configuration.
 func (h *AIConfigurationHandler) Get(c *gin.Context) {
+	bindPlatformScope(c)
 	if h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -362,7 +372,7 @@ func (h *AIConfigurationHandler) Get(c *gin.Context) {
 		authError(c, 401, "UNAUTHORIZED")
 		return
 	}
-	cfg, err := store.New(h.Pool).PlatformGetAIProvider(c, tid)
+	cfg, err := db.Queries(h.Pool).PlatformGetAIProvider(c.Request.Context(), tid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"configuration": gin.H{"enabled": false, "mode": "local", "provider": "ollama", "local_only": true}, "cloud_endpoints": safelyListedEndpoints(h.CloudEndpoints), "local_endpoints": safelyListedEndpoints(h.LocalEndpoints)})
 		return
@@ -375,7 +385,7 @@ func (h *AIConfigurationHandler) Get(c *gin.Context) {
 	for key, value := range aiConfigurationQuotaFields(cfg) {
 		configuration[key] = value
 	}
-	policy, policyErr := aiTargetPolicy(c, store.New(h.Pool), cfg)
+	policy, policyErr := aiTargetPolicy(c.Request.Context(), db.Queries(h.Pool), cfg)
 	if policyErr != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -385,6 +395,7 @@ func (h *AIConfigurationHandler) Get(c *gin.Context) {
 
 // Put updates a tenant-owned provider through the scoped DB function.
 func (h *AIConfigurationHandler) Put(c *gin.Context) {
+	bindPlatformScope(c)
 	if h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -434,13 +445,13 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 			if eps == nil {
 				eps = []string{}
 			}
-			if err := tenantQueries.PlatformConfigureTenantAIGovernance(c, store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
+			if err := tenantQueries.PlatformConfigureTenantAIGovernance(c.Request.Context(), store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
 				authError(c, 503, "DB_ERROR")
 				return
 			}
 		}
 		if input.ActiveService != "" {
-			if err := tenantQueries.PlatformSetActiveAIService(c, store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
+			if err := tenantQueries.PlatformSetActiveAIService(c.Request.Context(), store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
 				authError(c, 503, "DB_ERROR")
 				return
 			}
@@ -468,7 +479,7 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 		authError(c, 503, "AI_DISABLED")
 		return
 	}
-	q := store.New(h.Pool)
+	q := db.Queries(h.Pool)
 	encrypted := ""
 	if input.Key != "" {
 		var err error
@@ -477,7 +488,7 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 			authError(c, 503, "AI_DISABLED")
 			return
 		}
-	} else if previous, err := q.PlatformGetAIProvider(c, tid); err == nil {
+	} else if previous, err := q.PlatformGetAIProvider(c.Request.Context(), tid); err == nil {
 		if (previous.EnterpriseProvider == input.Provider || previous.Provider == input.Provider) && (strings.TrimRight(previous.EnterpriseEndpoint, "/") == strings.TrimRight(input.Endpoint, "/") || strings.TrimRight(previous.Endpoint, "/") == strings.TrimRight(input.Endpoint, "/")) {
 			if previous.EnterpriseEncryptedKey != "" {
 				encrypted = previous.EnterpriseEncryptedKey
@@ -496,7 +507,7 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 			return
 		}
 	}
-	err := tenantQueries.PlatformConfigureTenantAI(c, store.PlatformConfigureTenantAIParams{Mode: input.Mode, Provider: input.Provider, Endpoint: strings.TrimRight(input.Endpoint, "/"), Model: input.Model, EncryptedKey: encrypted, Enabled: input.Enabled, LocalOnly: input.LocalOnly})
+	err := tenantQueries.PlatformConfigureTenantAI(c.Request.Context(), store.PlatformConfigureTenantAIParams{Mode: input.Mode, Provider: input.Provider, Endpoint: strings.TrimRight(input.Endpoint, "/"), Model: input.Model, EncryptedKey: encrypted, Enabled: input.Enabled, LocalOnly: input.LocalOnly})
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -510,13 +521,13 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 		if eps == nil {
 			eps = []string{}
 		}
-		if err := tenantQueries.PlatformConfigureTenantAIGovernance(c, store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
+		if err := tenantQueries.PlatformConfigureTenantAIGovernance(c.Request.Context(), store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
 	}
 	if input.ActiveService != "" {
-		if err := tenantQueries.PlatformSetActiveAIService(c, store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
+		if err := tenantQueries.PlatformSetActiveAIService(c.Request.Context(), store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
@@ -526,6 +537,7 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 
 // Usage lists accounting metadata without email or model output.
 func (h *AIConfigurationHandler) Usage(c *gin.Context) {
+	bindPlatformScope(c)
 	if h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -535,7 +547,7 @@ func (h *AIConfigurationHandler) Usage(c *gin.Context) {
 		authError(c, 401, "UNAUTHORIZED")
 		return
 	}
-	rows, err := store.New(h.Pool).PlatformAIUsage(c, tid)
+	rows, err := db.Queries(h.Pool).PlatformAIUsage(c.Request.Context(), tid)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -563,6 +575,7 @@ func (h *AIConfigurationHandler) Usage(c *gin.Context) {
 
 // PlatformPut configures platform-funded models and explicit accounting rates.
 func (h *AIConfigurationHandler) PlatformPut(c *gin.Context) {
+	bindPlatformScope(c)
 	tid, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || tid <= 0 {
 		authError(c, 400, "INVALID_PARAMS")
@@ -596,12 +609,12 @@ func (h *AIConfigurationHandler) PlatformPut(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	encrypted := ""
 	credential := input.Key
 	if credential != "" {
 		encrypted, err = h.Secrets.EncryptString(credential)
-	} else if previous, lookup := q.PlatformGetAIProvider(c, tid); lookup == nil && previous.Mode == "platform" && previous.Provider == input.Provider && previous.Endpoint == strings.TrimRight(input.Endpoint, "/") {
+	} else if previous, lookup := q.PlatformGetAIProvider(c.Request.Context(), tid); lookup == nil && previous.Mode == "platform" && previous.Provider == input.Provider && previous.Endpoint == strings.TrimRight(input.Endpoint, "/") {
 		encrypted = previous.EncryptedKey
 		credential, err = h.Secrets.DecryptString(encrypted)
 	}
@@ -615,13 +628,13 @@ func (h *AIConfigurationHandler) PlatformPut(c *gin.Context) {
 			return
 		}
 	}
-	if _, err = q.PlatformSetAIProvider(c, store.PlatformSetAIProviderParams{TenantID: tid, Mode: "platform", Provider: input.Provider, Endpoint: strings.TrimRight(input.Endpoint, "/"), Model: input.Model, EncryptedKey: encrypted, Enabled: input.Enabled, InputMicrosPerMillion: input.InputRate, OutputMicrosPerMillion: input.OutputRate, CostCurrency: input.Currency}); err != nil {
+	if _, err = q.PlatformSetAIProvider(c.Request.Context(), store.PlatformSetAIProviderParams{TenantID: tid, Mode: "platform", Provider: input.Provider, Endpoint: strings.TrimRight(input.Endpoint, "/"), Model: input.Model, EncryptedKey: encrypted, Enabled: input.Enabled, InputMicrosPerMillion: input.InputRate, OutputMicrosPerMillion: input.OutputRate, CostCurrency: input.Currency}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
 	uid, ok := middleware.GetUserID(c)
 	detail, _ := json.Marshal(gin.H{"status": 200, "outcome": "succeeded", "provider": input.Provider, "enabled": input.Enabled})
-	if _, err = q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, ActorUserID: pgtype.Int8{Int64: uid, Valid: ok}, Action: "ai.platform.configure", TargetType: pgtype.Text{String: "tenant", Valid: true}, Detail: detail}); err != nil {
+	if _, err = q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, ActorUserID: pgtype.Int8{Int64: uid, Valid: ok}, Action: "ai.platform.configure", TargetType: pgtype.Text{String: "tenant", Valid: true}, Detail: detail}); err != nil {
 		authError(c, 503, "AUDIT_UNAVAILABLE")
 		return
 	}
@@ -654,6 +667,7 @@ type AIHealthHandler struct {
 
 // Health forwards only the diagnostic capability, never the configuration pool.
 func (h *AIConfigurationHandler) Health(c *gin.Context) {
+	bindPlatformScope(c)
 	diagnostic := AIHealthHandler{HealthRepository: h.HealthRepository, Secrets: h.Secrets, CloudEndpoints: h.CloudEndpoints, LocalEndpoints: h.LocalEndpoints, FetchHealthModels: h.FetchHealthModels}
 	diagnostic.Health(c)
 }
@@ -801,6 +815,7 @@ func (h *AIHealthHandler) Health(c *gin.Context) {
 // ResolveUsage requires a platform operator to supply explicit observed usage;
 // missing usage never releases a reservation automatically.
 func (h *AIConfigurationHandler) ResolveUsage(c *gin.Context) {
+	bindPlatformScope(c)
 	if h.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
@@ -829,16 +844,16 @@ func (h *AIConfigurationHandler) ResolveUsage(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	if err = q.PlatformLockBillingTenant(c, tid); err != nil {
+	q := db.Queries(tx)
+	if err = q.PlatformLockBillingTenant(c.Request.Context(), tid); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if err = q.PlatformExpireAIReservations(c, tid); err != nil {
+	if err = q.PlatformExpireAIReservations(c.Request.Context(), tid); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	row, err := q.PlatformResolveAIUsage(c, store.PlatformResolveAIUsageParams{TenantID: tid, ID: id, Status: input.Status, ActualTokens: pgtype.Int8{Int64: *input.Tokens, Valid: true}, ActualCostMicros: pgtype.Int8{Int64: *input.Cost, Valid: true}, ReviewReason: pgtype.Text{String: strings.TrimSpace(input.Reason), Valid: true}, ReviewedBy: pgtype.Int8{Int64: uid, Valid: true}, CostCurrency: input.Currency})
+	row, err := q.PlatformResolveAIUsage(c.Request.Context(), store.PlatformResolveAIUsageParams{TenantID: tid, ID: id, Status: input.Status, ActualTokens: pgtype.Int8{Int64: *input.Tokens, Valid: true}, ActualCostMicros: pgtype.Int8{Int64: *input.Cost, Valid: true}, ReviewReason: pgtype.Text{String: strings.TrimSpace(input.Reason), Valid: true}, ReviewedBy: pgtype.Int8{Int64: uid, Valid: true}, CostCurrency: input.Currency})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			authError(c, 409, "AI_REVIEW_CONFLICT")
@@ -852,7 +867,7 @@ func (h *AIConfigurationHandler) ResolveUsage(c *gin.Context) {
 		return
 	}
 	detail, _ := json.Marshal(gin.H{"status": 200, "outcome": "succeeded", "request_id": id, "resolution": input.Status, "tokens": *input.Tokens, "cost_micros": *input.Cost, "cost_currency": input.Currency, "reason": strings.TrimSpace(input.Reason)})
-	if _, err = q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, ActorUserID: pgtype.Int8{Int64: uid, Valid: true}, Action: "ai.usage.reviewed", TargetType: pgtype.Text{String: "ai_request", Valid: true}, Detail: detail}); err != nil {
+	if _, err = q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, ActorUserID: pgtype.Int8{Int64: uid, Valid: true}, Action: "ai.usage.reviewed", TargetType: pgtype.Text{String: "ai_request", Valid: true}, Detail: detail}); err != nil {
 		authError(c, 503, "AUDIT_UNAVAILABLE")
 		return
 	}

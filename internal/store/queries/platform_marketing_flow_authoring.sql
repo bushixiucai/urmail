@@ -1,45 +1,48 @@
 -- name: PlatformMarketingFlowIsVersioned :one
-SELECT EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=$1 AND v.runtime_flow_id=$2)::boolean AS versioned;
+-- scope: platform
+
+SELECT EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.runtime_flow_id=?2) AS versioned;
 
 -- name: PlatformGetMarketingFlowSnapshotContent :one
-SELECT subject,text_body FROM marketing_flow_content_snapshots WHERE tenant_id=$1 AND runtime_flow_id=$2 AND step_key=$3;
+-- scope: platform
+
+SELECT subject,text_body FROM marketing_flow_content_snapshots WHERE tenant_id=?1 AND runtime_flow_id=?2 AND step_key=?3;
 
 -- name: PlatformCheckMarketingFlowLease :one
+-- scope: platform
+
 SELECT EXISTS(SELECT 1 FROM marketing_flow_positions p JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
-WHERE p.tenant_id=$1 AND p.flow_id=$2 AND p.email=$3 AND p.lease_owner=$4 AND p.lease_fence=$5 AND p.lease_until>now() AND p.stopped_at IS NULL AND f.status='active')::boolean AS allowed;
+WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AND p.lease_owner=?4 AND p.lease_fence=?5 AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND p.stopped_at IS NULL AND f.status='active') AS allowed;
 
 -- name: PlatformVersionedMarketingFlowMayAdvance :one
-SELECT CASE WHEN EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=$1 AND v.runtime_flow_id=$2)
-THEN urmail_mail_allowed($1)
+-- scope: platform
+
+SELECT CASE WHEN EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.runtime_flow_id=?2)
+THEN EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=?1 AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready')))
 AND EXISTS(SELECT 1 FROM marketing_flow_positions p JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
 JOIN marketing_flow_entries e ON e.tenant_id=p.tenant_id AND e.id=p.entry_id
 JOIN marketing_contacts c ON c.tenant_id=p.tenant_id AND c.list_id=e.list_id AND c.email=p.email
-WHERE p.tenant_id=$1 AND p.flow_id=$2 AND p.email=$3 AND NOT p.unsubscribed AND p.stopped_at IS NULL AND f.status='active' AND c.opted_in)
-AND NOT EXISTS(SELECT 1 FROM marketing_suppressions sup WHERE sup.tenant_id=$1 AND sup.email=$3)
-ELSE urmail_marketing_flow_may_advance($1,$2,$3) END::boolean AS allowed;
+WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AND NOT p.unsubscribed AND p.stopped_at IS NULL AND f.status='active' AND c.opted_in)
+AND NOT EXISTS(SELECT 1 FROM marketing_suppressions sup WHERE sup.tenant_id=?1 AND sup.email=?3)
+ELSE (EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=?1 AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready'))) AND EXISTS(SELECT 1 FROM marketing_flow_positions fp WHERE fp.tenant_id=?1 AND fp.flow_id=?2 AND fp.email=?3 AND NOT fp.unsubscribed) AND NOT EXISTS(SELECT 1 FROM marketing_suppressions ms WHERE ms.tenant_id=?1 AND ms.email=?3)) END AS allowed;
 
--- name: PlatformCommitMarketingFlowFenced :one
-SELECT urmail_commit_marketing_flow_fenced($1,$2,$3,$4,$5,$6,$7,$8)::text AS result;
+-- PlatformCommitMarketingFlowFenced 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_commit_marketing_flow_fenced = fence 校验 + 确认则清预留/uncertain + 流程活动/steps 校验 + 委托 step 提交
 
--- name: PlatformBeginMarketingFlowSend :one
-SELECT urmail_begin_marketing_flow_send($1,$2,$3,$4,$5,$6)::text AS result;
+-- PlatformBeginMarketingFlowSend 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_begin_marketing_flow_send = worker 角色 + 租约/fence + uncertain/reserved + 退订/抑制/权益/限额/通道/含 verified 的发件人 + 配额窗口预留
 
--- name: PlatformReleaseMarketingFlowReservation :one
-SELECT urmail_release_marketing_flow_reservation($1,$2,$3,$4,$5)::boolean AS released;
+-- PlatformReleaseMarketingFlowReservation 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_release_marketing_flow_reservation = 租约/fence + 释放配额预留 + 清 delivery_uncertain/flow_reserved/flow_window_id
 
 -- name: PlatformMarkMarketingFlowUncertainFenced :execrows
-UPDATE marketing_flow_positions SET delivery_uncertain=true,last_error='delivery_uncertain',updated_at=now()
-WHERE tenant_id=$1 AND flow_id=$2 AND email=$3 AND lease_owner=$4 AND lease_fence=$5 AND lease_until>now();
+-- scope: platform
 
--- name: PlatformRecordMarketingFlowExecution :execrows
-WITH recorded AS (
-INSERT INTO marketing_flow_node_executions(tenant_id,position_id,lease_fence,node_key,status,error_code)
-SELECT p.tenant_id,p.id,p.lease_fence,sqlc.arg(node_key)::text,sqlc.arg(status)::text,sqlc.arg(error_code)::text
-FROM marketing_flow_positions p WHERE p.tenant_id=sqlc.arg(tenant_id)::bigint AND p.flow_id=sqlc.arg(flow_id)::bigint AND p.email=sqlc.arg(email)::text
-AND p.lease_owner=sqlc.arg(lease_owner)::text AND p.lease_fence=sqlc.arg(lease_fence)::bigint AND p.lease_until>now()
-AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id)
-ON CONFLICT(tenant_id,position_id,lease_fence) DO NOTHING RETURNING position_id
-)
-UPDATE marketing_flow_positions SET attempt_count=attempt_count+1,last_error=sqlc.arg(error_code)::text,
-next_attempt_at=now()+make_interval(secs=>sqlc.arg(retry_seconds)::int),updated_at=now()
-WHERE tenant_id=sqlc.arg(tenant_id)::bigint AND id IN(SELECT position_id FROM recorded);
+UPDATE marketing_flow_positions SET delivery_uncertain=true,last_error='delivery_uncertain',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND lease_owner=?4 AND lease_fence=?5 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000);
+
+-- PlatformRecordMarketingFlowNodeExecution 在 S7 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 与手写版等价（INSERT ... SELECT ... ON CONFLICT DO NOTHING；手写版的 $4..$8 参数位正确）。
+
+-- PlatformBumpMarketingFlowAttempt 在 S7 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 与手写版等价（attempt_count+1、last_error、next_attempt_at 退避，返回 RowsAffected）。

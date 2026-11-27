@@ -56,7 +56,7 @@ func TestThreadSubjectFallbackFarApartDatesStaySeparate(t *testing.T) {
 }
 
 // Same subject and the same sole sender: pure same-sender overlap is not
-// conversation evidence any more (Tiger decision v0.6.20 C1), so two
+// conversation evidence any more (产品决策 v0.6.20 C1), so two
 // broadcasts from one sender stay separate even under the same subject.
 func TestThreadSubjectFallbackSameSenderStaysSeparate(t *testing.T) {
 	msgs := []MessageSummary{
@@ -232,7 +232,7 @@ func TestApplyThreadsWithCountsUsesServerThreadSizes(t *testing.T) {
 	}
 }
 
-// Giant threads stamp WeakAggregation and EarlierCount (Tiger decision
+// Giant threads stamp WeakAggregation and EarlierCount (产品决策
 // v0.6.20 C1: newest-20 window plus an "earlier" summary bar). The count of
 // exactly 20 stays a hard thread.
 func TestApplyThreadsWithCountsWeakAggregation(t *testing.T) {

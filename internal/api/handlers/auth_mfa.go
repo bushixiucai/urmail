@@ -203,7 +203,8 @@ func (h *AuthHandler) MFASetup(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	user, err := h.Store.GetUserByID(c, userID)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByID(authCtx, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
 		return
@@ -231,7 +232,7 @@ func (h *AuthHandler) MFASetup(c *gin.Context) {
 			return
 		}
 	}
-	if _, err = h.Store.PlatformChangePanelMFA(c, store.PlatformChangePanelMFAParams{UserID: userID, ExpectedVersion: user.CredentialVersion, Secret: pgtype.Text{String: storedSecret, Valid: true}, Enabled: false, Codes: []byte("[]"), KeepSession: keepSessionID(c)}); err != nil {
+	if _, err = h.Store.PlatformChangePanelMFA(authCtx, store.PlatformChangePanelMFAParams{UserID: userID, ExpectedVersion: user.CredentialVersion, Secret: pgtype.Text{String: storedSecret, Valid: true}, Enabled: false, Codes: []byte("[]"), KeepSession: keepSessionID(c)}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
@@ -259,7 +260,8 @@ func (h *AuthHandler) MFAEnable(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	user, err := h.Store.GetUserByID(c, userID)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByID(authCtx, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
 		return
@@ -302,7 +304,7 @@ func (h *AuthHandler) MFAEnable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
 		return
 	}
-	if _, err = h.Store.PlatformChangePanelMFA(c, store.PlatformChangePanelMFAParams{UserID: userID, ExpectedVersion: user.CredentialVersion, Secret: user.MfaSecret, Enabled: true, Codes: hashesJSON, KeepSession: keepSessionID(c)}); err != nil {
+	if _, err = h.Store.PlatformChangePanelMFA(authCtx, store.PlatformChangePanelMFAParams{UserID: userID, ExpectedVersion: user.CredentialVersion, Secret: user.MfaSecret, Enabled: true, Codes: hashesJSON, KeepSession: keepSessionID(c)}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
@@ -330,7 +332,8 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	user, err := h.Store.GetUserByID(c, userID)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByID(authCtx, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
 		return
@@ -370,7 +373,7 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 		authenticated = validateTOTP(req.Code, mfaSecret)
 	}
 	if !authenticated {
-		n, err := h.Store.ConsumeRecoveryCode(c, store.ConsumeRecoveryCodeParams{
+		n, err := h.Store.ConsumeRecoveryCode(authCtx, store.ConsumeRecoveryCodeParams{
 			ID:      userID,
 			Column2: hashRecoveryCode(req.Code),
 		})
@@ -383,7 +386,7 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 		}
 	}
 
-	if _, err = h.Store.PlatformChangePanelMFA(c, store.PlatformChangePanelMFAParams{UserID: userID, ExpectedVersion: user.CredentialVersion, Secret: pgtype.Text{}, Enabled: false, Codes: []byte("[]"), KeepSession: keepSessionID(c)}); err != nil {
+	if _, err = h.Store.PlatformChangePanelMFA(authCtx, store.PlatformChangePanelMFAParams{UserID: userID, ExpectedVersion: user.CredentialVersion, Secret: pgtype.Text{}, Enabled: false, Codes: []byte("[]"), KeepSession: keepSessionID(c)}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
@@ -431,7 +434,8 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 	}
 	defer reservation.Discard()
 
-	user, err := h.Store.GetUserByID(c, pending.UserID)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByID(authCtx, pending.UserID)
 	if err != nil || !user.MfaEnabled || user.CredentialVersion != pending.CredentialVersion {
 		pendingMFATokens.take(req.MFAToken)
 		reservation.RecordFailure()
@@ -451,7 +455,7 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 		authenticated = validateTOTP(req.Code, mfaSecret)
 	}
 	if !authenticated {
-		n, err := h.Store.ConsumeRecoveryCode(c, store.ConsumeRecoveryCodeParams{
+		n, err := h.Store.ConsumeRecoveryCode(authCtx, store.ConsumeRecoveryCodeParams{
 			ID:      pending.UserID,
 			Column2: hashRecoveryCode(req.Code),
 		})
@@ -484,7 +488,7 @@ func (h *AuthHandler) MFAStatus(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	user, err := h.Store.GetUserByID(c, userID)
+	user, err := h.Store.GetUserByID(authScopeContext(c), userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
 		return

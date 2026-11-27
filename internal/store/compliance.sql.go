@@ -12,10 +12,11 @@ import (
 )
 
 const clearArchiveEntryLegalHold = `-- name: ClearArchiveEntryLegalHold :one
+
 UPDATE archive_entries
 SET legal_hold = false
-WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+WHERE tenant_id = ?1 AND id = ?2
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 `
 
 type ClearArchiveEntryLegalHoldParams struct {
@@ -23,6 +24,7 @@ type ClearArchiveEntryLegalHoldParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) ClearArchiveEntryLegalHold(ctx context.Context, arg ClearArchiveEntryLegalHoldParams) (ArchiveEntries, error) {
 	row := q.db.QueryRow(ctx, clearArchiveEntryLegalHold, arg.TenantID, arg.ID)
 	var i ArchiveEntries
@@ -46,9 +48,10 @@ func (q *Queries) ClearArchiveEntryLegalHold(ctx context.Context, arg ClearArchi
 }
 
 const getArchiveEntryByID = `-- name: GetArchiveEntryByID :one
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 FROM archive_entries
-WHERE tenant_id = $1 AND id = $2
+WHERE tenant_id = ?1 AND id = ?2
 `
 
 type GetArchiveEntryByIDParams struct {
@@ -56,6 +59,7 @@ type GetArchiveEntryByIDParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetArchiveEntryByID(ctx context.Context, arg GetArchiveEntryByIDParams) (ArchiveEntries, error) {
 	row := q.db.QueryRow(ctx, getArchiveEntryByID, arg.TenantID, arg.ID)
 	var i ArchiveEntries
@@ -79,9 +83,10 @@ func (q *Queries) GetArchiveEntryByID(ctx context.Context, arg GetArchiveEntryBy
 }
 
 const getArchiveEntryLegalHold = `-- name: GetArchiveEntryLegalHold :one
+
 SELECT legal_hold
 FROM archive_entries
-WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
+WHERE tenant_id = ?1 AND id = ?2 AND deleted_at IS NULL
 `
 
 type GetArchiveEntryLegalHoldParams struct {
@@ -89,6 +94,7 @@ type GetArchiveEntryLegalHoldParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetArchiveEntryLegalHold(ctx context.Context, arg GetArchiveEntryLegalHoldParams) (bool, error) {
 	row := q.db.QueryRow(ctx, getArchiveEntryLegalHold, arg.TenantID, arg.ID)
 	var legal_hold bool
@@ -98,28 +104,30 @@ func (q *Queries) GetArchiveEntryLegalHold(ctx context.Context, arg GetArchiveEn
 
 const insertArchiveEntry = `-- name: InsertArchiveEntry :one
 
+
 INSERT INTO archive_entries (
     tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 `
 
 type InsertArchiveEntryParams struct {
-	TenantID   int64              `json:"tenant_id"`
-	MailboxID  pgtype.Int8        `json:"mailbox_id"`
-	MessageID  string             `json:"message_id"`
-	Path       string             `json:"path"`
-	Subject    pgtype.Text        `json:"subject"`
-	FromAddr   pgtype.Text        `json:"from_addr"`
-	ToAddr     pgtype.Text        `json:"to_addr"`
-	ReceivedAt pgtype.Timestamptz `json:"received_at"`
-	SizeBytes  int64              `json:"size_bytes"`
-	LegalHold  bool               `json:"legal_hold"`
+	TenantID   int64       `json:"tenant_id"`
+	MailboxID  pgtype.Int8 `json:"mailbox_id"`
+	MessageID  string      `json:"message_id"`
+	Path       string      `json:"path"`
+	Subject    pgtype.Text `json:"subject"`
+	FromAddr   pgtype.Text `json:"from_addr"`
+	ToAddr     pgtype.Text `json:"to_addr"`
+	ReceivedAt int64       `json:"received_at"`
+	SizeBytes  int64       `json:"size_bytes"`
+	LegalHold  bool        `json:"legal_hold"`
 }
 
 // Archive / legal hold (tenant-scoped). M3 review P2-3: the tables existed
 // without any queries; writes are wired by the platform side later.
+// scope: tenant
 func (q *Queries) InsertArchiveEntry(ctx context.Context, arg InsertArchiveEntryParams) (ArchiveEntries, error) {
 	row := q.db.QueryRow(ctx, insertArchiveEntry,
 		arg.TenantID,
@@ -154,19 +162,21 @@ func (q *Queries) InsertArchiveEntry(ctx context.Context, arg InsertArchiveEntry
 }
 
 const listArchiveEntriesByTenant = `-- name: ListArchiveEntriesByTenant :many
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 FROM archive_entries
-WHERE tenant_id = $1 AND deleted_at IS NULL
+WHERE tenant_id = ?1 AND deleted_at IS NULL
 ORDER BY received_at DESC, id DESC
-LIMIT $2 OFFSET $3
+LIMIT ?2 OFFSET ?3
 `
 
 type ListArchiveEntriesByTenantParams struct {
 	TenantID int64 `json:"tenant_id"`
-	Limit    int32 `json:"limit"`
-	Offset   int32 `json:"offset"`
+	Limit    int64 `json:"limit"`
+	Offset   int64 `json:"offset"`
 }
 
+// scope: tenant
 func (q *Queries) ListArchiveEntriesByTenant(ctx context.Context, arg ListArchiveEntriesByTenantParams) ([]ArchiveEntries, error) {
 	rows, err := q.db.Query(ctx, listArchiveEntriesByTenant, arg.TenantID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -203,11 +213,13 @@ func (q *Queries) ListArchiveEntriesByTenant(ctx context.Context, arg ListArchiv
 }
 
 const listMailboxesWithLegalHold = `-- name: ListMailboxesWithLegalHold :many
+
 SELECT DISTINCT mailbox_id
 FROM archive_entries
-WHERE tenant_id = $1 AND legal_hold = true AND mailbox_id IS NOT NULL AND deleted_at IS NULL
+WHERE tenant_id = ?1 AND legal_hold = true AND mailbox_id IS NOT NULL AND deleted_at IS NULL
 `
 
+// scope: tenant
 func (q *Queries) ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error) {
 	rows, err := q.db.Query(ctx, listMailboxesWithLegalHold, tenantID)
 	if err != nil {
@@ -229,10 +241,11 @@ func (q *Queries) ListMailboxesWithLegalHold(ctx context.Context, tenantID int64
 }
 
 const setArchiveEntryLegalHold = `-- name: SetArchiveEntryLegalHold :one
+
 UPDATE archive_entries
 SET legal_hold = true, deleted_at = NULL
-WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+WHERE tenant_id = ?1 AND id = ?2
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 `
 
 type SetArchiveEntryLegalHoldParams struct {
@@ -240,6 +253,7 @@ type SetArchiveEntryLegalHoldParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEntryLegalHoldParams) (ArchiveEntries, error) {
 	row := q.db.QueryRow(ctx, setArchiveEntryLegalHold, arg.TenantID, arg.ID)
 	var i ArchiveEntries
@@ -260,20 +274,4 @@ func (q *Queries) SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEn
 		&i.RawSha256,
 	)
 	return i, err
-}
-
-const softDeleteArchiveEntry = `-- name: SoftDeleteArchiveEntry :one
-SELECT result::bigint AS id FROM urmail_soft_delete_archive($1::bigint,$2::bigint) AS result WHERE result IS NOT NULL
-`
-
-type SoftDeleteArchiveEntryParams struct {
-	TenantID int64 `json:"tenant_id"`
-	ID       int64 `json:"id"`
-}
-
-func (q *Queries) SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error) {
-	row := q.db.QueryRow(ctx, softDeleteArchiveEntry, arg.TenantID, arg.ID)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
 }

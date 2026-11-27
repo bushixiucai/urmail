@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/timeutil"
+
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
@@ -38,7 +40,7 @@ func TestRetentionManagementRequiresIndependentOwnerGrantAndVersion(t *testing.T
 			t.Fatal(err)
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		row, err := store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: admin, Scope: scope, Reason: "Explicit bounded authority for an administrator", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, GrantedBy: pgtype.Int8{Int64: owner, Valid: true}})
+		row, err := store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: admin, Scope: scope, Reason: "Explicit bounded authority for an administrator", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), GrantedBy: pgtype.Int8{Int64: owner, Valid: true}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -65,7 +67,7 @@ func TestRetentionManagementRequiresIndependentOwnerGrantAndVersion(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: admin, Scope: "retention_manage", Reason: "Admin cannot self-grant", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, GrantedBy: pgtype.Int8{Int64: admin, Valid: true}}); err == nil {
+	if _, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: admin, Scope: "retention_manage", Reason: "Admin cannot self-grant", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), GrantedBy: pgtype.Int8{Int64: admin, Valid: true}}); err == nil {
 		t.Fatal("administrator self-granted destructive authority")
 	}
 	_ = tx.Rollback(ctx)

@@ -10,6 +10,13 @@ import { mailboxRequest } from "@/features/webmail/mailbox-api";
 
 export const THREAD_LOAD_STEP = 20;
 
+/** Server WeakAggregationThreshold (internal/webmail/threading.go): threads
+ * above this size carry the weak_aggregation stamp — weakened "related
+ * count" wording (contract §7-6) and no inline expansion; the pill stays
+ * the reading-stack entry (Q4 giant-thread exemption, interview
+ * 2026-11-26). */
+export const THREAD_WEAK_AGGREGATION_THRESHOLD = 20;
+
 /**
  * Stable member identity across folders: numeric uids are only unique per
  * folder (Sent 148 and INBOX 148 are different mails and may sit in the

@@ -1,4 +1,11 @@
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailMessageList } from "./webmail-message-list";
 import type { MessageSummary } from "@/features/webmail/mailbox-api";
@@ -695,5 +702,271 @@ describe("keyboard & mixed select-all (QA sequence ③④)", () => {
     );
     fireEvent.click(screen.getByTestId("select-all-button"));
     expect(onSelectionCountChange).toHaveBeenLastCalledWith(2);
+  });
+});
+
+describe("Q4 giant-thread exemption (interview 2026-11-26)", () => {
+  const weakRow = (uid: number, hour: number): MessageSummary => ({
+    uid,
+    subject: `weak thread ${uid}`,
+    from: [{ name: "Alice", email: "alice@example.com" }],
+    date: new Date(2026, 10, 6, 9, hour).toISOString(),
+    flags: [],
+    size: 1,
+    thread_id: 7,
+    thread_count: 3,
+    weak_aggregation: true,
+  });
+
+  it("routes a weak giant thread to the stack even when fully loaded", () => {
+    const onSelectMessage = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={[weakRow(301, 2), weakRow(302, 1), weakRow(303, 0)]}
+        activeUid={null}
+        onSelectMessage={onSelectMessage}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    // All 3 members are loaded → D-D alone would inline-expand; the weak
+    // stamp forces the reading stack and no child rows render.
+    fireEvent.click(screen.getByTestId("thread-toggle-7"));
+    expect(onSelectMessage).toHaveBeenCalledTimes(1);
+    expect(onSelectMessage).toHaveBeenCalledWith(301, undefined);
+    expect(screen.queryByTestId("mail-row-302")).toBeNull();
+  });
+
+  it("shows the weakened related-count wording on a weak thread pill", () => {
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={[weakRow(305, 0)]}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("webmail_next.thread_related_count")).toBeTruthy();
+  });
+
+  it("routes threads above the weak threshold to the stack even when fully loaded", () => {
+    const msgs = Array.from({ length: 21 }, (_, i) => ({
+      uid: 400 + i,
+      subject: `giant ${i}`,
+      from: [{ name: "Alice", email: "alice@example.com" }],
+      date: new Date(2026, 10, 6, 10, i).toISOString(),
+      flags: ["\\Seen"],
+      size: 1,
+      thread_id: 9,
+      thread_count: 21,
+    })) as MessageSummary[];
+    const onSelectMessage = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={msgs}
+        activeUid={null}
+        onSelectMessage={onSelectMessage}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    // 21/21 loaded → D-D alone would inline-expand; the >20 threshold
+    // (server WeakAggregationThreshold) forces the stack instead.
+    fireEvent.click(screen.getByTestId("thread-toggle-9"));
+    expect(onSelectMessage).toHaveBeenCalledTimes(1);
+    expect(onSelectMessage).toHaveBeenCalledWith(420, undefined);
+    expect(screen.queryByTestId("mail-row-401")).toBeNull();
+  });
+
+  it("transitions cleanly from loading skeleton to 502 loadError to retry recovery", async () => {
+    vi.useFakeTimers();
+    try {
+      const onRefresh = vi.fn();
+      const baseProps = {
+        folderName: "Inbox",
+        activeUid: null,
+        onSelectMessage: vi.fn(),
+        density: "comfortable" as const,
+        sort: "date" as const,
+        order: "desc" as const,
+        onSortChange: vi.fn(),
+        onRefresh,
+      };
+      const { rerender } = render(
+        <WebmailMessageList
+          {...baseProps}
+          messages={[]}
+          isInitialLoading={true}
+          loadError={null}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(screen.getByTestId("list-initial-skeleton")).toBeTruthy();
+
+      rerender(
+        <WebmailMessageList
+          {...baseProps}
+          messages={[]}
+          isInitialLoading={false}
+          loadError={new Error("502 Bad Gateway")}
+        />,
+      );
+      expect(screen.getByTestId("list-load-error")).toBeTruthy();
+      expect(screen.getByText("webmail_next.list_load_failed")).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "action.retry" }));
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <WebmailMessageList
+          {...baseProps}
+          messages={mockMessages}
+          isInitialLoading={false}
+          loadError={null}
+        />,
+      );
+      expect(screen.queryByTestId("list-load-error")).toBeNull();
+      expect(screen.getByTestId("mail-row-102")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("list scroll persistence (REVIEW-FE-008 return-to-position)", () => {
+  const scrollRows = [
+    {
+      uid: 101,
+      subject: "Meeting Tomorrow",
+      from: [{ name: "Alice", email: "alice@example.com" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 102,
+      subject: "Lunch",
+      from: [{ name: "Bob", email: "bob@example.com" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+  ] as MessageSummary[];
+
+  const props = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    isCrossFolder: false,
+    messages: scrollRows,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+    onSelectMessage: vi.fn(),
+  };
+
+  afterEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it("persists scroll offset per folder (throttled)", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<WebmailMessageList {...props} />);
+      const container = screen.getByTestId("message-rows-container");
+      fireEvent.scroll(container, { target: { scrollTop: 333 } });
+      // Throttle: the write lands after 300ms.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(
+        window.sessionStorage.getItem("urmail.webmail.list-scroll:b64.SU5CT1g"),
+      ).toBe("333");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores the saved offset on mount once rows exist", async () => {
+    window.sessionStorage.setItem(
+      "urmail.webmail.list-scroll:b64.SU5CT1g",
+      "222",
+    );
+    render(<WebmailMessageList {...props} />);
+    const container = screen.getByTestId(
+      "message-rows-container",
+    ) as HTMLElement;
+    await waitFor(() => {
+      expect(container.scrollTop).toBe(222);
+    });
+  });
+
+  it("does not restore for search views", () => {
+    window.sessionStorage.setItem(
+      "urmail.webmail.list-scroll:b64.SU5CT1g",
+      "222",
+    );
+    render(<WebmailMessageList {...props} isSearchView={true} />);
+    const container = screen.getByTestId(
+      "message-rows-container",
+    ) as HTMLElement;
+    expect(container.scrollTop).toBe(0);
+  });
+});
+
+describe("empty-state flash guard (REVIEW-UIUX-015)", () => {
+  const emptyRows: MessageSummary[] = [];
+  const base = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    isCrossFolder: false,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+    onSelectMessage: vi.fn(),
+  };
+
+  it("never flashes the empty state while the initial load is in flight", () => {
+    render(
+      <WebmailMessageList
+        {...base}
+        messages={emptyRows}
+        isInitialLoading={true}
+      />,
+    );
+    // Pre-skeleton-threshold window: blank placeholder, never "empty folder".
+    expect(screen.getByTestId("list-loading")).toBeTruthy();
+    expect(screen.queryByTestId("empty-folder")).toBeNull();
+    expect(screen.queryByTestId("empty-search")).toBeNull();
+  });
+
+  it("shows the empty state only once loading has finished with no rows", () => {
+    render(
+      <WebmailMessageList
+        {...base}
+        messages={emptyRows}
+        isInitialLoading={false}
+      />,
+    );
+    expect(screen.getByTestId("empty-folder")).toBeTruthy();
   });
 });

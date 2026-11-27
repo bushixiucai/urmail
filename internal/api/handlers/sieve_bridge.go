@@ -17,6 +17,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/sieve"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -49,6 +50,7 @@ func (h *SieveBridgeHandler) enabled(c *gin.Context) bool {
 // Exchange accepts the one-time ticket only in a same-origin POST body. The
 // resulting credential cannot authenticate any panel or platform API.
 func (h *SieveBridgeHandler) Exchange(c *gin.Context) {
+	bindPlatformScope(c)
 	var auditTenant, auditMailbox int64
 	defer func() { h.failedAudit(c, auditTenant, auditMailbox) }()
 	if !h.enabled(c) {
@@ -80,8 +82,8 @@ func (h *SieveBridgeHandler) Exchange(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	principal, err := q.PlatformConsumeMailboxTicket(c, store.PlatformConsumeMailboxTicketParams{TokenHash: mailboxprincipal.HashToken(source), Scope: "sieve"})
+	q := db.Queries(tx)
+	principal, err := q.PlatformConsumeMailboxTicket(c.Request.Context(), store.PlatformConsumeMailboxTicketParams{TokenHash: mailboxprincipal.HashToken(source), Scope: "sieve"})
 	if err != nil {
 		mailboxAuthorizationError(c, err)
 		return
@@ -92,7 +94,7 @@ func (h *SieveBridgeHandler) Exchange(c *gin.Context) {
 		authError(c, 503, "SIEVE_DISABLED")
 		return
 	}
-	if err = q.PlatformCreateSieveBridge(c, store.PlatformCreateSieveBridgeParams{TokenHash: hash, SourceTicket: mailboxprincipal.HashToken(source)}); err != nil {
+	if err = q.PlatformCreateSieveBridge(c.Request.Context(), store.PlatformCreateSieveBridgeParams{TokenHash: hash, SourceTicket: mailboxprincipal.HashToken(source)}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
@@ -110,7 +112,7 @@ func (h *SieveBridgeHandler) Exchange(c *gin.Context) {
 
 func recordSieveAudit(c *gin.Context, q *store.Queries, tid, mid int64, action string) bool {
 	detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "status": 200, "outcome": "succeeded"})
-	if _, err := q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, Action: action, TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); err != nil {
+	if _, err := q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, Action: action, TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); err != nil {
 		middleware.RecordAuditFailure(true)
 		authError(c, 503, "AUDIT_UNAVAILABLE")
 		return false
@@ -125,6 +127,7 @@ func (h *SieveBridgeHandler) Session(c *gin.Context) { h.rules(c, false) }
 func (h *SieveBridgeHandler) Save(c *gin.Context) { h.rules(c, true) }
 
 func (h *SieveBridgeHandler) rules(c *gin.Context, write bool) {
+	bindPlatformScope(c)
 	var auditTenant, auditMailbox int64
 	defer func() { h.failedAudit(c, auditTenant, auditMailbox) }()
 	if !h.enabled(c) {
@@ -145,14 +148,14 @@ func (h *SieveBridgeHandler) rules(c *gin.Context, write bool) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	principal, err := q.PlatformGetSieveBridge(c, mailboxprincipal.HashToken(token))
+	q := db.Queries(tx)
+	principal, err := q.PlatformGetSieveBridge(c.Request.Context(), mailboxprincipal.HashToken(token))
 	if err != nil {
 		mailboxAuthorizationError(c, err)
 		return
 	}
 	auditTenant, auditMailbox = principal.TenantID, principal.MailboxID
-	mailbox, err := q.PlatformGetMailboxSieve(c, store.PlatformGetMailboxSieveParams{TenantID: principal.TenantID, ID: principal.MailboxID})
+	mailbox, err := q.PlatformGetMailboxSieve(c.Request.Context(), store.PlatformGetMailboxSieveParams{TenantID: principal.TenantID, ID: principal.MailboxID})
 	if err != nil {
 		mailboxAuthorizationError(c, err)
 		return
@@ -204,7 +207,7 @@ func (h *SieveBridgeHandler) rules(c *gin.Context, write bool) {
 			authError(c, 503, "SIEVE_DISABLED")
 			return
 		}
-		changed, saveErr := q.PlatformSetMailboxSieve(c, store.PlatformSetMailboxSieveParams{TenantID: principal.TenantID, ID: principal.MailboxID, SieveScript: pgtype.Text{String: script, Valid: true}, ExpectedScript: mailbox.SieveScript.String})
+		changed, saveErr := q.PlatformSetMailboxSieve(c.Request.Context(), store.PlatformSetMailboxSieveParams{TenantID: principal.TenantID, ID: principal.MailboxID, SieveScript: pgtype.Text{String: script, Valid: true}, ExpectedScript: mailbox.SieveScript.String})
 		if saveErr == nil && changed != 1 {
 			authError(c, 409, "SIEVE_VERSION_CONFLICT")
 			return
@@ -240,7 +243,7 @@ func (h *SieveBridgeHandler) rules(c *gin.Context, write bool) {
 			authError(c, 502, "SIEVE_ACTIVATION_FAILED")
 			return
 		}
-		if !recordSieveAudit(c, store.New(h.Pool), principal.TenantID, principal.MailboxID, "sieve.activated") {
+		if !recordSieveAudit(c, db.Queries(h.Pool), principal.TenantID, principal.MailboxID, "sieve.activated") {
 			return
 		}
 		state = "active"
@@ -266,14 +269,14 @@ func (h *SieveBridgeHandler) Logout(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
-	principal, lookup := q.PlatformGetSieveBridge(c, mailboxprincipal.HashToken(token))
+	q := db.Queries(tx)
+	principal, lookup := q.PlatformGetSieveBridge(c.Request.Context(), mailboxprincipal.HashToken(token))
 	if lookup != nil {
 		mailboxAuthorizationError(c, lookup)
 		return
 	}
 	auditTenant, auditMailbox = principal.TenantID, principal.MailboxID
-	if q.PlatformRevokeSieveBridge(c, mailboxprincipal.HashToken(token)) != nil {
+	if q.PlatformRevokeSieveBridge(c.Request.Context(), mailboxprincipal.HashToken(token)) != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
@@ -293,10 +296,10 @@ func (h *SieveBridgeHandler) failedAudit(c *gin.Context, tid, mid int64) {
 	if h.Pool == nil || c.Writer.Status() < 400 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform}), 2*time.Second)
 	defer cancel()
 	detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "status": c.Writer.Status(), "outcome": "rejected"})
-	if _, err := store.New(h.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "sieve.bridge.rejected", TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); err != nil {
+	if _, err := db.Queries(h.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "sieve.bridge.rejected", TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); err != nil {
 		middleware.RecordAuditFailure(false)
 		zap.L().Error("write sieve rejection audit", zap.Error(err))
 	}

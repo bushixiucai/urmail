@@ -43,7 +43,7 @@ func TestGenerateCSR(t *testing.T) {
 		t.Fatalf("load key: %v", err)
 	}
 
-	csrPem, err := certs.GenerateCSR(key, "box.urmail.cn", []string{"mail.example.com", "autodiscover.example.com"})
+	csrPem, err := certs.GenerateCSR(key, "mail.example.test", []string{"mail.example.com", "autodiscover.example.com"})
 	if err != nil {
 		t.Fatalf("GenerateCSR: %v", err)
 	}
@@ -57,8 +57,8 @@ func TestGenerateCSR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse CSR: %v", err)
 	}
-	if csr.Subject.CommonName != "box.urmail.cn" {
-		t.Errorf("expected CN box.urmail.cn, got %s", csr.Subject.CommonName)
+	if csr.Subject.CommonName != "mail.example.test" {
+		t.Errorf("expected CN mail.example.test, got %s", csr.Subject.CommonName)
 	}
 	if len(csr.DNSNames) != 3 {
 		t.Errorf("expected 3 DNS names in SAN, got %d", len(csr.DNSNames))
@@ -72,7 +72,7 @@ func TestGenerateSelfSignedCert(t *testing.T) {
 		t.Fatalf("load key: %v", err)
 	}
 
-	certPem, err := certs.GenerateSelfSignedCert(key, "box.urmail.cn", []string{"mail.example.com"}, 365*24*time.Hour)
+	certPem, err := certs.GenerateSelfSignedCert(key, "mail.example.test", []string{"mail.example.com"}, 365*24*time.Hour)
 	if err != nil {
 		t.Fatalf("GenerateSelfSignedCert: %v", err)
 	}
@@ -86,8 +86,8 @@ func TestGenerateSelfSignedCert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse cert: %v", err)
 	}
-	if cert.Subject.CommonName != "box.urmail.cn" {
-		t.Errorf("expected CN box.urmail.cn, got %s", cert.Subject.CommonName)
+	if cert.Subject.CommonName != "mail.example.test" {
+		t.Errorf("expected CN mail.example.test, got %s", cert.Subject.CommonName)
 	}
 }
 func TestLoadOrCreateMasterKeyTightensMode(t *testing.T) {

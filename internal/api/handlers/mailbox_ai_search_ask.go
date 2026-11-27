@@ -18,7 +18,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/aianswer"
-	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
@@ -342,7 +341,7 @@ func TenantCitationModel(pool *db.Pool, secrets SecretsBox, cloudEndpoints, loca
 			return nil, err
 		}
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		config, err := store.New(tx).PlatformGetAIProvider(ctx, tenantID)
+		config, err := db.Queries(tx).PlatformGetAIProvider(ctx, tenantID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ai.ErrProviderDisabled
 		}

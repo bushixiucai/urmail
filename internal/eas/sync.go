@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -94,6 +95,9 @@ func (b *SyncBackend) HandleSync(ctx context.Context, req *SyncRequest) (*Node, 
 		resp.Add(Text(pageAirSync, tokStatus, syncStatusProtocolError))
 		return resp, nil
 	}
+	// Every collection below reads and writes this mailbox's tenant rows; bind
+	// the authenticated tenant once at this trusted EAS entry.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: req.Session.TenantID})
 	cols := req.Node.Child(tokCollections)
 	if cols == nil || len(cols.Children) == 0 {
 		resp.Add(Text(pageAirSync, tokStatus, syncStatusProtocolError))
@@ -130,7 +134,7 @@ func (b *SyncBackend) HandleSync(ctx context.Context, req *SyncRequest) (*Node, 
 		defer cancel()
 		_ = guard.Rollback(cleanup)
 	}()
-	if err = store.New(guard).LockMailboxEASSync(ctx, store.LockMailboxEASSyncParams{TenantID: strconv.FormatInt(req.Session.TenantID, 10), MailboxID: strconv.FormatInt(req.Session.MailboxID, 10), DeviceID: req.DeviceID}); err != nil {
+	if err = db.Queries(guard).LockMailboxEASSync(ctx, store.LockMailboxEASSyncParams{TenantID: strconv.FormatInt(req.Session.TenantID, 10), MailboxID: strconv.FormatInt(req.Session.MailboxID, 10), DeviceID: req.DeviceID}); err != nil {
 		return nil, err
 	}
 
@@ -311,7 +315,7 @@ func (b *SyncBackend) keyCheck(ctx context.Context, req *SyncRequest, folderID, 
 		stateExists = true
 		state = st
 	case errors.Is(err, ErrNotFound):
-		epoch, epochErr := store.New(b.Pool.Pool).PlatformRestoreSyncEpoch(ctx)
+		epoch, epochErr := db.Queries(b.Pool.Pool).PlatformRestoreSyncEpoch(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}))
 		if epochErr != nil {
 			return state, nil, false, syncStatusServerError, epochErr
 		}
