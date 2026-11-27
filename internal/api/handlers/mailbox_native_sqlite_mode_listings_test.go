@@ -79,8 +79,13 @@ func TestSQLiteModeListingsServeIMAPNotReadOnlyStore(t *testing.T) {
 
 	login := func() string {
 		t.Helper()
-		res, err := http.Post(srv.URL+"/api/v1/mailbox/session", "application/json",
-			strings.NewReader(`{"email":"`+mailAddress+`","password":"`+password+`"}`))
+		req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodPost,
+			srv.URL+"/api/v1/mailbox/session", strings.NewReader(`{"email":"`+mailAddress+`","password":"`+password+`"}`))
+		if reqErr != nil {
+			t.Fatalf("login request: %v", reqErr)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		res, err := srv.Client().Do(req)
 		if err != nil {
 			t.Fatalf("login: %v", err)
 		}
