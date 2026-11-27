@@ -123,10 +123,16 @@ func (s *Store) SignDomains() ([]string, error) {
 // result is an empty string and the caller skips signing.
 func SignHeader(message []byte, key crypto.Signer, domain, selector string) (string, error) {
 	_, isRSA := key.(*rsa.PrivateKey)
+	// Canonicalization is pinned to relaxed/simple on purpose: that is the
+	// exact pair the live opendkim deployment has been signing with (its
+	// default), so the existing mail._domainkey records keep validating
+	// under the same semantics after the signer takes over.
 	opts := dkim.SignOptions{
-		Domain:   domain,
-		Selector: selector,
-		Signer:   key,
+		Domain:                 domain,
+		Selector:               selector,
+		Signer:                 key,
+		HeaderCanonicalization: dkim.CanonicalizationRelaxed,
+		BodyCanonicalization:   dkim.CanonicalizationSimple,
 		HeaderKeys: []string{
 			"from", "to", "subject", "date", "message-id", "mime-version",
 		},
@@ -162,7 +168,10 @@ func SignHeader(message []byte, key crypto.Signer, domain, selector string) (str
 			break
 		}
 	}
-	return strings.Join(lines[:end], "\r\n") + "\r\n", nil
+	// No trailing CRLF: SMFIR_INSHEADER values are NUL-terminated and
+	// Postfix appends the header terminator itself — an extra CRLF here
+	// would inject a blank line and truncate the header block.
+	return strings.Join(lines[:end], "\r\n"), nil
 }
 
 func clampPreview(a, b int) int {

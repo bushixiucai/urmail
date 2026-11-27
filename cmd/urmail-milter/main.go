@@ -21,9 +21,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/mail"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/bushixiucai/urmail/internal/dkimsign"
 	"github.com/bushixiucai/urmail/internal/mailspam"
@@ -33,11 +36,22 @@ type signHandler struct {
 	store *dkimsign.Store
 }
 
-// Decide signs authenticated local submissions: it extracts the From
-// domain, looks up the provisioned key, and returns the DKIM-Signature
-// header for insertion at the top of the header block. Unkeyed domains and
-// foreign senders pass through unsigned.
+// Decide signs AUTHENTICATED LOCAL submissions only: the submission must
+// carry a SASL identity (587/465 after AUTH) or originate from the host
+// loopback ({client_addr} macro — local injection). The global
+// smtpd_milters chain also covers port 25, where an external attacker can
+// forge From: user@urmail.cn — signing that would put OUR key under an
+// attacker-controlled identity (QA wiring-fix-2 item 1). Unkeyed domains,
+// foreign senders, unauthenticated external mail and truncated messages
+// all pass through unsigned.
 func (h *signHandler) Decide(_ context.Context, req mailspam.VerdictRequest) mailspam.VerdictResponse {
+	if req.SASLUser == "" && !isLoopbackClient(req.ClientAddr) {
+		return mailspam.VerdictResponse{}
+	}
+	if req.FullBodyIncomplete || req.HeadersIncomplete {
+		// Truncated capture cannot produce a verifiable signature.
+		return mailspam.VerdictResponse{}
+	}
 	from := ""
 	for _, header := range req.Headers {
 		if strings.EqualFold(header.Name, "From") {
@@ -87,7 +101,31 @@ func headersBytes(headers []mailspam.Header) []byte {
 	return out
 }
 
+// isLoopbackClient accepts the loopback {client_addr} forms Postfix macro
+// expansion produces.
+func isLoopbackClient(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return false
+	}
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		addr = host
+	}
+	ip := net.ParseIP(strings.Trim(addr, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
 func main() {
+	if err := runSign(); err != nil {
+		fmt.Fprintln(os.Stderr, "urmail-milter:", err)
+		os.Exit(1)
+	}
+}
+
+func runSign() error {
+	if len(os.Args) < 2 || os.Args[1] != "sign" {
+		return fmt.Errorf("usage: urmail-milter sign")
+	}
 	listen := os.Getenv("URMAIL_MILTER_LISTEN")
 	if listen == "" {
 		listen = "0.0.0.0:12301"
@@ -98,8 +136,7 @@ func main() {
 	}
 	keyDir := os.Getenv("URMAIL_DKIM_KEY_DIR")
 	if keyDir == "" {
-		fmt.Fprintln(os.Stderr, "urmail-milter: URMAIL_DKIM_KEY_DIR is required")
-		os.Exit(1)
+		return fmt.Errorf("URMAIL_DKIM_KEY_DIR is required")
 	}
 	store := dkimsign.NewStore(keyDir, selector)
 	if domains, err := store.SignDomains(); err == nil {
@@ -110,11 +147,15 @@ func main() {
 	server := &mailspam.Server{
 		Addr:    listen,
 		Handler: &signHandler{store: store},
-		Config:  mailspam.MilterConfig{KeepFullBody: true},
+		Config:  mailspam.MilterConfig{KeepFullBody: true, MaxFullBodyBytes: 32 << 20},
 	}
-	ctx := context.Background()
-	if err := server.ListenAndServe(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "urmail-milter: %v\n", err)
-		os.Exit(1)
+	// Graceful SIGTERM: stop accepting, let the in-flight milter session
+	// finish (Postfix retries on the next connection; the chain default is
+	// accept, so a restarting signer never blocks mail).
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := server.ListenAndServe(ctx); err != nil && ctx.Err() == nil {
+		return fmt.Errorf("milter serve: %w", err)
 	}
+	return nil
 }

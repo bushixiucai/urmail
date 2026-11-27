@@ -104,7 +104,10 @@ services:
   # 当前镜像内尚无该二进制，故 profile 延后启用。
   urmail-signer:
     image: urmail-local:${URMAIL_IMAGE_VERSION:-snapshot}
-    profiles: ["milter"]
+    # Own profile: urmail-spam shares the urmail-milter binary with the
+    # "spam" subcommand but stays on the "milter" profile; enabling "milter"
+    # alone must not start a signer (pm-signer-wiring-fix-2 item 3).
+    profiles: ["signer"]
     command: ["urmail-milter", "sign"]
     restart: unless-stopped
     # Loopback-only publish (pm-signer-wiring-1 Option Y): the host-network
@@ -112,13 +115,19 @@ services:
     # loopback binding; no public exposure.
     ports:
       - "127.0.0.1:12301:12301"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1:12301 && printf 'QUIT\r\n' >&3 && head -c 3 </dev/null; kill -0 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     environment:
       URMAIL_MILTER_LISTEN: 0.0.0.0:12301
       URMAIL_DKIM_KEY_DIR: /srv/urmail/dkim/keys
       URMAIL_DKIM_SELECTOR: mail
     volumes:
-      - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/config
-      - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
+      # DKIM keys are operator-provisioned on the host (OpenDKIM-compatible
+      # layout), read-only: the signer never mutates key material.
+      - ${URMAIL_DKIM_KEY_HOST_DIR:-/etc/opendkim/keys}:/srv/urmail/dkim/keys:ro
 
   # 垃圾判定 milter（§1.1）：需要 urmail-milter spam 二进制；当前 urmaild 进程
   # 内嵌 loopback 版本（main.go spamMilter），独立服务待二进制拆出后启用。

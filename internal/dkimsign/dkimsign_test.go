@@ -76,8 +76,9 @@ func TestSignAndVerifyRoundTrip(t *testing.T) {
 	}
 
 	// Postfix sends the message on with the DKIM-Signature inserted at the
-	// top of the header block (the value already carries its trailing CRLF).
-	signed := "DKIM-Signature: " + value + crlfMessage
+	// top of the header block: SMFIR_INSHEADER carries the value WITHOUT a
+	// trailing CRLF and Postfix appends the line terminator itself.
+	signed := "DKIM-Signature: " + value + "\r\n" + crlfMessage
 	txt := txtFor(&key.PublicKey)
 	verifications, err := dkim.VerifyWithOptions(strings.NewReader(signed), &dkim.VerifyOptions{
 		LookupTXT: func(domain string) ([]string, error) {
