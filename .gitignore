@@ -60,4 +60,4 @@ scripts/**/__pycache__/
 /dist/
 
 packaging/**/__pycache__/
-urmail-milter
+/urmail-milter
