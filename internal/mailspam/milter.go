@@ -35,6 +35,7 @@
 package mailspam
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -405,17 +406,35 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 		}
 		return false, nil
 	case cmdConnect:
-		// SMFIC_CONNECT payload: hostname\0 family(1B) port(2B network)\0
-		// address\0 — the connecting peer's IP arrives HERE, not in the
-		// default milter_connect_macros list (QA wiring-fix-2 S-2a).
-		fields := splitNUL(payload)
-		if len(fields) >= 4 {
-			family, addr := fields[1], fields[3]
+		// SMFIC_CONNECT payload (libmilter wire format, QA wiring-fix-2
+		// S-2a): hostname\0 family(1B), then per family — '4'/'6': port
+		// (2B network order) followed by the FIXED-WIDTH BINARY address
+		// (4/16B, no separator); 'L': NUL-terminated socket path; 'U': no
+		// address. The address bytes legitimately contain NULs (any 0.x /
+		// 127.x IPv4 word, any compressed IPv6 word), so the payload must
+		// be parsed positionally: the previous split-on-NUL decode corrupted
+		// both family and address, the peer IP never reached the signing
+		// gate, and loopback local injections went out unsigned (rev-6
+		// root cause of the red wire e2e anchors). Trailing bytes beyond
+		// the address are ignored (the protocol defines none).
+		nul := bytes.IndexByte(payload, 0)
+		if nul >= 0 && nul+1 < len(payload) {
+			family, rest := payload[nul+1], payload[nul+2:]
 			switch family {
-			case "L":
-				s.connectionAddr = "unix:" + addr
-			case "4", "6":
-				s.connectionAddr = addr
+			case 'L':
+				path := rest
+				if end := bytes.IndexByte(rest, 0); end >= 0 {
+					path = rest[:end]
+				}
+				s.connectionAddr = "unix:" + string(path)
+			case '4':
+				if len(rest) >= 6 {
+					s.connectionAddr = net.IP(rest[2:6]).String()
+				}
+			case '6':
+				if len(rest) >= 18 {
+					s.connectionAddr = net.IP(rest[2:18]).String()
+				}
 			}
 		}
 		return false, writeResponse(w, resContinue)
