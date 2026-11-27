@@ -14,6 +14,20 @@ FAIL=0
 SUMMARY=""
 EV_ARCHIVE="$PWD/evidence-archive"
 
+# Rig fixture spool (QA revival, run 45989953746): the fence preflight reads
+# the newest generation from the image-hardcoded /var/backups/urmail inside
+# the one-off container. Expose the suite's writable fixture spool there via
+# a project-scoped override file (gitignored; COMPOSE_FILE keeps the base
+# project definition untouched).
+RIG_OVERRIDE="$PWD/compose.rig.yml"
+export COMPOSE_FILE="compose.yaml:compose.rig.yml"
+cat > "$RIG_OVERRIDE" <<'YAML'
+services:
+  urmaild:
+    volumes:
+      - ${URMAIL_DATA_ROOT:-./data}/backup:/var/backups/urmail:ro
+YAML
+
 record() { SUMMARY="$SUMMARY$1"$'\n'; }
 assert() {
     local label=$1 got=$2 want=$3
@@ -59,9 +73,11 @@ reset_stack() {
 }
 mock_row() {
     # 0160 added offsite_state; the fence preflight (main binary) demands
-    # 'uploaded' (or pending_local_only) on the newest successful run, and a
-    # fresh pg has no schema until urmaild's boot auto-migrate lands — wait
-    # for the table before writing the mock row (QA: silent no-op row).
+    # 'uploaded' (or pending_local_only) on the newest successful run, a
+    # fresh pg has no schema until urmaild's boot auto-migrate lands, and the
+    # preflight also verifies the recorded generation on disk (manifest plus
+    # the complete dump/config/mail artifact set, sha256-checked). Build the
+    # full fixture generation, then record the row.
     local i=0
     until docker compose exec -T pg psql -U urmail -d urmail -q -c "SELECT 1 FROM backup_runs LIMIT 1" >/dev/null 2>&1; do
         i=$((i + 1))
@@ -71,8 +87,30 @@ mock_row() {
         fi
         sleep 1
     done
+    local stamp dump conf mail manifest bdir
+    stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    bdir="$URMAIL_DATA_ROOT/backup"
+    rm -rf "$bdir"
+    mkdir -p "$bdir"
+    dump="urmail-$stamp.dump"
+    conf="urmail-config-$stamp.tar.gz"
+    mail="urmail-mail-$stamp.tar.gz"
+    manifest="urmail-$stamp.manifest.json"
+    printf 'rig fixture payload: %s\n' "$dump" > "$bdir/$dump"
+    printf 'rig fixture payload: %s\n' "$conf" > "$bdir/$conf"
+    printf 'rig fixture payload: %s\n' "$mail" > "$bdir/$mail"
+    {
+        printf '{"version":2,"artifacts":['
+        printf '{"name":"%s","kind":"pg_dump","size":%s,"sha256":"%s"},' \
+            "$dump" "$(stat -c %s "$bdir/$dump")" "$(sha256sum "$bdir/$dump" | cut -d' ' -f1)"
+        printf '{"name":"%s","kind":"config_tar","size":%s,"sha256":"%s"},' \
+            "$conf" "$(stat -c %s "$bdir/$conf")" "$(sha256sum "$bdir/$conf" | cut -d' ' -f1)"
+        printf '{"name":"%s","kind":"mail_tar","size":%s,"sha256":"%s"}' \
+            "$mail" "$(stat -c %s "$bdir/$mail")" "$(sha256sum "$bdir/$mail" | cut -d' ' -f1)"
+        printf ']}\n'
+    } > "$bdir/$manifest"
     docker compose exec -T pg psql -U urmail -d urmail -q -c \
-        "DELETE FROM backup_runs; INSERT INTO backup_runs (run_uid,state,scope,started_at,finished_at,error,manifest_name,offsite_uri,offsite_state) VALUES ('mock-fresh-run-1','success','local-mail-and-metadata',now(),now(),'', 'urmail-'||to_char(now() at time zone 'UTC','YYYYMMDD')||'T000000Z.manifest.json','s3://mock/urmail','uploaded')"
+        "DELETE FROM backup_runs; INSERT INTO backup_runs (run_uid,state,scope,started_at,finished_at,error,manifest_name,offsite_uri,offsite_state) VALUES ('mock-fresh-run-1','success','local-mail-and-metadata',now(),now(),'', '$manifest','s3://mock/urmail','uploaded')"
 }
 clear_rows() {
     docker compose exec -T pg psql -U urmail -d urmail -q -c "DELETE FROM backup_runs" 2>/dev/null || true
