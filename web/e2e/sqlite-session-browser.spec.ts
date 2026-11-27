@@ -5,7 +5,7 @@ test.skip(
   "run through the SQLite-backed Go browser harness",
 );
 
-test("SQLite login/settings persistence and expired write redirect", async ({
+test("SQLite login/settings persistence and expired write recovery", async ({
   page,
   baseURL,
 }) => {
@@ -48,12 +48,18 @@ test("SQLite login/settings persistence and expired write redirect", async ({
   );
   await page.locator('button[type="submit"]').click();
   expect((await loginResponse).status()).toBe(200);
+  // Post-login default drops the ?v=legacy hint: /webmail/inbox renders the
+  // webmail-next tree, which mounts the session-expiry recovery banner.
   await expect(page).toHaveURL(/\/webmail\/inbox/);
+  // The webmail-next tree lazy-loads under the dev server; the recovery
+  // banner mounts with the same entry, so wait for the list itself first.
+  await expect(page.getByTestId("webmail-message-list")).toBeVisible({
+    timeout: 20_000,
+  });
   expect(
     await page.evaluate(() => sessionStorage.getItem("urmail.mailbox-token")),
   ).toBeTruthy();
 
-  await page.goto("/webmail/help");
   const settings = await page.evaluate(async () => {
     const api = await import("/src/features/webmail/mailbox-api.ts");
     const initial = await api.getMailboxSettings();
@@ -131,17 +137,36 @@ test("SQLite login/settings persistence and expired write redirect", async ({
     );
   });
   expect((await expiredWrite).status()).toBe(401);
-  await expect(page).toHaveURL(/\/webmail\/login/);
-  await expect(page.locator("#mailbox-email")).toBeVisible();
+  // Recovery contract (REVIEW-UX-001 / REVIEW-FE-008): the 401 funnel
+  // clears the dead session, records the route for the post-login return
+  // and keeps the loaded page alive — no top-level navigation to
+  // /webmail/login happens any more.
+  await expect(page).toHaveURL(/\/webmail\/inbox/);
   await page.waitForLoadState("networkidle");
   console.log(
     `ASSERT top-level login document requests=${loginDocumentNavigationRequests}; distinct route transitions=${topLevelLoginTransitions}; raw main-frame events=${loginFrameEvents}`,
   );
-  expect(loginDocumentNavigationRequests).toBe(1);
-  expect(topLevelLoginTransitions).toBe(1);
+  expect(loginDocumentNavigationRequests).toBe(0);
+  expect(topLevelLoginTransitions).toBe(0);
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("urmail.webmail.session-return-to"),
+    ),
+  ).toBe("/webmail/inbox");
   expect(
     await page.evaluate(() => sessionStorage.getItem("urmail.mailbox-token")),
   ).toBeNull();
+
+  // Recovery surface (locked assertion ⑥): the banner is deterministically
+  // reachable on the already-loaded webmail-next tree; re-login carries the
+  // route back via ?next=.
+  await expect(page.getByTestId("session-expired-banner")).toBeVisible({
+    timeout: 10_000,
+  });
+  await page.getByTestId("session-expired-relogin").click();
+  await expect(page).toHaveURL(/\/webmail\/login\?next=%2Fwebmail%2Finbox$/);
+  await expect(page.locator("#mailbox-email")).toBeVisible();
+
   expect(settingsWrites).toBe(2);
   expect(
     responses

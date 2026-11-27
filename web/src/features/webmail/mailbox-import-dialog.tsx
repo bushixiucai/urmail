@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiRequestError } from "@/lib/api/client";
@@ -482,9 +483,7 @@ export function MailboxImportDialog({
               {previewPhase && (
                 <p className="text-xs text-muted-foreground">
                   {t(prefix + "expires", {
-                    time: new Date(job.expires_at).toLocaleString(
-                      i18n.language,
-                    ),
+                    time: formatH23DateTime(job.expires_at),
                   })}
                 </p>
               )}

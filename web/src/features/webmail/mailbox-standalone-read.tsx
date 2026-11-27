@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -351,9 +352,7 @@ export function MailboxStandaloneRead() {
               </span>
             )}
           </div>
-          <div>
-            {message.date ? new Date(message.date).toLocaleString() : ""}
-          </div>
+          <div>{message.date ? formatH23DateTime(message.date) : ""}</div>
         </div>
 
         <div className="text-xs text-muted-foreground space-y-0.5">

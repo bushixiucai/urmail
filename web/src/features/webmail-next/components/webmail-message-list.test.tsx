@@ -1,4 +1,11 @@
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailMessageList } from "./webmail-message-list";
 import type { MessageSummary } from "@/features/webmail/mailbox-api";
@@ -779,5 +786,187 @@ describe("Q4 giant-thread exemption (interview 2026-11-26)", () => {
     expect(onSelectMessage).toHaveBeenCalledTimes(1);
     expect(onSelectMessage).toHaveBeenCalledWith(420, undefined);
     expect(screen.queryByTestId("mail-row-401")).toBeNull();
+  });
+
+  it("transitions cleanly from loading skeleton to 502 loadError to retry recovery", async () => {
+    vi.useFakeTimers();
+    try {
+      const onRefresh = vi.fn();
+      const baseProps = {
+        folderName: "Inbox",
+        activeUid: null,
+        onSelectMessage: vi.fn(),
+        density: "comfortable" as const,
+        sort: "date" as const,
+        order: "desc" as const,
+        onSortChange: vi.fn(),
+        onRefresh,
+      };
+      const { rerender } = render(
+        <WebmailMessageList
+          {...baseProps}
+          messages={[]}
+          isInitialLoading={true}
+          loadError={null}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(screen.getByTestId("list-initial-skeleton")).toBeTruthy();
+
+      rerender(
+        <WebmailMessageList
+          {...baseProps}
+          messages={[]}
+          isInitialLoading={false}
+          loadError={new Error("502 Bad Gateway")}
+        />,
+      );
+      expect(screen.getByTestId("list-load-error")).toBeTruthy();
+      expect(screen.getByText("webmail_next.list_load_failed")).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "action.retry" }));
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <WebmailMessageList
+          {...baseProps}
+          messages={mockMessages}
+          isInitialLoading={false}
+          loadError={null}
+        />,
+      );
+      expect(screen.queryByTestId("list-load-error")).toBeNull();
+      expect(screen.getByTestId("mail-row-102")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("list scroll persistence (REVIEW-FE-008 return-to-position)", () => {
+  const scrollRows = [
+    {
+      uid: 101,
+      subject: "Meeting Tomorrow",
+      from: [{ name: "Alice", email: "alice@example.com" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 102,
+      subject: "Lunch",
+      from: [{ name: "Bob", email: "bob@example.com" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+  ] as MessageSummary[];
+
+  const props = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    isCrossFolder: false,
+    messages: scrollRows,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+    onSelectMessage: vi.fn(),
+  };
+
+  afterEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it("persists scroll offset per folder (throttled)", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<WebmailMessageList {...props} />);
+      const container = screen.getByTestId("message-rows-container");
+      fireEvent.scroll(container, { target: { scrollTop: 333 } });
+      // Throttle: the write lands after 300ms.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(
+        window.sessionStorage.getItem("urmail.webmail.list-scroll:b64.SU5CT1g"),
+      ).toBe("333");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores the saved offset on mount once rows exist", async () => {
+    window.sessionStorage.setItem(
+      "urmail.webmail.list-scroll:b64.SU5CT1g",
+      "222",
+    );
+    render(<WebmailMessageList {...props} />);
+    const container = screen.getByTestId(
+      "message-rows-container",
+    ) as HTMLElement;
+    await waitFor(() => {
+      expect(container.scrollTop).toBe(222);
+    });
+  });
+
+  it("does not restore for search views", () => {
+    window.sessionStorage.setItem(
+      "urmail.webmail.list-scroll:b64.SU5CT1g",
+      "222",
+    );
+    render(<WebmailMessageList {...props} isSearchView={true} />);
+    const container = screen.getByTestId(
+      "message-rows-container",
+    ) as HTMLElement;
+    expect(container.scrollTop).toBe(0);
+  });
+});
+
+describe("empty-state flash guard (REVIEW-UIUX-015)", () => {
+  const emptyRows: MessageSummary[] = [];
+  const base = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    isCrossFolder: false,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+    onSelectMessage: vi.fn(),
+  };
+
+  it("never flashes the empty state while the initial load is in flight", () => {
+    render(
+      <WebmailMessageList
+        {...base}
+        messages={emptyRows}
+        isInitialLoading={true}
+      />,
+    );
+    // Pre-skeleton-threshold window: blank placeholder, never "empty folder".
+    expect(screen.getByTestId("list-loading")).toBeTruthy();
+    expect(screen.queryByTestId("empty-folder")).toBeNull();
+    expect(screen.queryByTestId("empty-search")).toBeNull();
+  });
+
+  it("shows the empty state only once loading has finished with no rows", () => {
+    render(
+      <WebmailMessageList
+        {...base}
+        messages={emptyRows}
+        isInitialLoading={false}
+      />,
+    );
+    expect(screen.getByTestId("empty-folder")).toBeTruthy();
   });
 });

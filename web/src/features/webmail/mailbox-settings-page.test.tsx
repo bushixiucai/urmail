@@ -2,10 +2,24 @@ vi.mock("@/components/appearance-controls", () => ({
   AppearanceControls: () => null,
 }));
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { MailboxSettingsPage } from "./mailbox-settings-page";
 import type { MailboxRulesView, MailboxSettingsView } from "./mailbox-api";
+
+// The logged-out bootstrap guard (REVIEW-UIUX-018) needs a live session.
+// Storage keys are written directly because ./mailbox-api is fully mocked.
+beforeEach(() => {
+  window.localStorage.setItem("urmail.mailbox-token", "settings-test-token");
+  window.localStorage.setItem(
+    "urmail.mailbox-address",
+    "settings@example.test",
+  );
+  window.localStorage.setItem(
+    "urmail.mailbox-expires",
+    new Date(Date.now() + 3_600_000).toISOString(),
+  );
+});
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -23,6 +37,14 @@ const saveMailboxRules = vi.fn();
 
 vi.mock("./mailbox-api", () => ({
   ApiRequestError: class extends Error {},
+  // Storage-based session check mirroring the real hasMailboxSession.
+  hasMailboxSession: () => {
+    if (!window.localStorage.getItem("urmail.mailbox-token")) return false;
+    const expires = window.localStorage.getItem("urmail.mailbox-expires");
+    if (!expires) return true;
+    const ms = Date.parse(expires);
+    return Number.isNaN(ms) ? true : ms > Date.now();
+  },
   getMailboxSettings: (...a: unknown[]) => getMailboxSettings(...(a as [])),
   listMailboxIdentities: (...a: unknown[]) =>
     listMailboxIdentities(...(a as [])),
@@ -36,6 +58,9 @@ vi.mock("./mailbox-api", () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  window.localStorage.removeItem("urmail.mailbox-token");
+  window.localStorage.removeItem("urmail.mailbox-address");
+  window.localStorage.removeItem("urmail.mailbox-expires");
 });
 
 it("renders settings sections with identity, quota and rules", async () => {

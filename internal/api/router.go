@@ -350,13 +350,20 @@ func New(opts Options) *gin.Engine {
 	// slice-1 allow set. In SQLite mode the concrete PG implementation must
 	// not be reachable at all, so the interface stays nil (rulesReady 503s).
 	var mailboxRules handlers.MailboxRulesStore = handlers.StoreMailboxRules{Pool: opts.PlatformPool}
+	// Slice-1.5: folder/message listings are IMAP-backed in SQLite mode too.
+	// The SQLite index tables (mailbox_folders/mailbox_messages) still have
+	// no production writer, and wiring them here answered a silently empty
+	// list while Dovecot held the real messages (post-cutover QA TC-13a).
+	// Leaving ReadOnlyStore nil routes the read-only listing handlers through
+	// the live dialIMAP path, so the webmail serves the authoritative Dovecot
+	// data with its real UIDVALIDITY instead of a placeholder. Fail-loud
+	// IMAP_UNAVAILABLE (502) replaces any wrong-empty answer.
 	var mailboxReadOnly handlers.MailboxReadOnlyStore
 	if sqliteMode {
 		mailboxSessionLookup = sqliteStore
 		mailboxAuthStore = sqliteStore
 		mailboxSessionsStore = sqliteStore
 		mailboxSelfSettings = sqliteStore
-		mailboxReadOnly = sqliteStore
 		mailboxRules = nil
 	}
 	smtpAddr := opts.SMTPAddr
@@ -494,12 +501,14 @@ func New(opts Options) *gin.Engine {
 		// The image proxy is authorized by the signed URL alone: an image
 		// inside the sandboxed message frame cannot present the mailbox
 		// bearer token. A bearer that is sent anyway must belong to the
-		// signed mailbox. SQLite slice-1: the fetch is a real provider/
-		// network side effect, so the same default-deny boundary stops the
-		// request before the signed URL is even verified.
+		// signed mailbox. Slice-1.6: it leaves the default-deny gate — the
+		// gate's network-side-effect concern is owned by the Fetcher itself
+		// (SSRF screen before every dial, redirect re-screen, response type
+		// allowlist with magic-byte verification), and gating it broke every
+		// remote image in every rendered message.
 		v1.GET("/mailbox/images/proxy", middleware.RateLimitWindow(600, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
-		}), sqliteNativeGate, mailboxNative.ImageProxy)
+		}), mailboxNative.ImageProxy)
 		v1.GET("/mailbox/links/confirm", mailboxNative.LinkConfirm)
 		v1.POST("/mailbox/links/confirm", middleware.RateLimitWindow(60, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
@@ -523,14 +532,18 @@ func New(opts Options) *gin.Engine {
 			// and BEFORE any handler side effect — IMAP dial, SMTP submit,
 			// secret unseal, PG query. Approved per slice:
 			//   slice-1: login/logout, settings, quota, identities;
-			//   slice-3 (this change): send (SMTP submitter), drafts (IMAP
-			//   Drafts), rules (mailboxes.sieve_script + agent activator).
+			//   slice-3: send (SMTP submitter), drafts (IMAP Drafts), rules
+			//   (mailboxes.sieve_script + agent activator);
+			//   slice-1.5 (this change): read-only folder/message listings —
+			//   the IMAP-backed listing has landed (TC-13a fix): listings
+			//   route through the live dialIMAP path and serve Dovecot's
+			//   authoritative data with its real UIDVALIDITY, so the
+			//   previously-gated read surfaces below leave the gate. All
+			//   listing writes (folders POST/PATCH/DELETE, message
+			//   flags/move/copy/trash) stay gated.
 			// Everything else answers 503 FEATURE_UNAVAILABLE with no
-			// Retry-After and no fallback — folder/message listings, single
-			// message reads, the image proxy and corporate-directory stay
-			// gated until the IMAP-backed listing lands (post-cutover QA
-			// TC-13a: an ungated list answered an empty folder while
-			// Dovecot held thousands of real messages).
+			// Retry-After and no fallback — message mutations and
+			// corporate-directory remain gated.
 			mailboxAuthed.Use(func(c *gin.Context) {
 				method := c.Request.Method
 				switch c.FullPath() {
@@ -570,6 +583,19 @@ func New(opts Options) *gin.Engine {
 					}
 				case "/api/v1/mailbox/rules":
 					if method == http.MethodGet || method == http.MethodPut {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/folders", "/api/v1/mailbox/messages",
+					"/api/v1/mailbox/folders/:name/messages",
+					"/api/v1/mailbox/folders/:name/messages/:uid",
+					"/api/v1/mailbox/folders/:name/messages/:uid/thread",
+					"/api/v1/mailbox/folders/:name/messages/:uid/attachments/:part_id",
+					"/api/v1/mailbox/folders/:name/messages/:uid/raw":
+					// Slice-1.5: read-only listing/read surfaces. Writes on
+					// these paths keep their existing 405/404 semantics from
+					// the router (no mutating routes are registered on them).
+					if method == http.MethodGet {
 						c.Next()
 						return
 					}

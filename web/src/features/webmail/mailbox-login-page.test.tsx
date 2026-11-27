@@ -6,7 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { MailboxLoginPage } from "./mailbox-login-page";
 
 vi.mock("react-i18next", () => ({
@@ -120,5 +120,90 @@ describe("mailbox login", () => {
     // Remember also reaches the API so the backend can extend the TTL.
     const body = JSON.parse(fetcher.mock.calls[0][1].body as string);
     expect(body).toMatchObject({ remember: true });
+  });
+
+  it("returns to the ?next= webmail route after sign-in", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        token: "mbox-token-next",
+        expires_at: "2099-01-01T00:00:00Z",
+        address: "user@example.test",
+      }),
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const target = "/webmail/inbox?folder=b64.SU5CT1g";
+
+    render(
+      <MemoryRouter
+        initialEntries={[`/webmail/login?next=${encodeURIComponent(target)}`]}
+      >
+        <Routes>
+          <Route path="/webmail/login" element={<MailboxLoginPage />} />
+          <Route
+            path="/webmail/inbox"
+            element={<div data-testid="inbox-landing" />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("page.webmail.field_email"), {
+      target: { value: "user@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("page.webmail.field_password"), {
+      target: { value: "secret-pass" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "page.webmail.login_submit" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("inbox-landing")).toBeTruthy(),
+    );
+  });
+
+  it("ignores off-app ?next= targets (open-redirect guard)", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        token: "mbox-token-next",
+        expires_at: "2099-01-01T00:00:00Z",
+        address: "user@example.test",
+      }),
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          `/webmail/login?next=${encodeURIComponent("https://evil.example.test/steal")}`,
+        ]}
+      >
+        <Routes>
+          <Route path="/webmail/login" element={<MailboxLoginPage />} />
+          <Route
+            path="/webmail/inbox"
+            element={<div data-testid="inbox-landing" />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("page.webmail.field_email"), {
+      target: { value: "user@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("page.webmail.field_password"), {
+      target: { value: "secret-pass" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "page.webmail.login_submit" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("inbox-landing")).toBeTruthy(),
+    );
   });
 });

@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -254,7 +255,7 @@ export function DomainTransportPanel({
               {policy.cache_safe_after && (
                 <p>
                   {t("transport.cache_until", {
-                    time: new Date(policy.cache_safe_after).toLocaleString(),
+                    time: formatH23DateTime(policy.cache_safe_after),
                   })}
                 </p>
               )}
@@ -301,8 +302,8 @@ export function DomainTransportPanel({
             {reports.map((report) => (
               <li key={report.id} className="rounded border p-3 text-sm">
                 <p>
-                  {new Date(report.period_start).toLocaleString()} –{" "}
-                  {new Date(report.period_end).toLocaleString()}
+                  {formatH23DateTime(report.period_start)} –{" "}
+                  {formatH23DateTime(report.period_end)}
                 </p>
                 <p>
                   {t("transport.report_counts", {

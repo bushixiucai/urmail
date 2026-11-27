@@ -61,11 +61,13 @@ export function WebmailComposeDock({
   const [isAICompanionOpen, setIsAICompanionOpen] = useState(false);
 
   // Undo Toast State
+  type SendPhase = "sending" | "sent" | "failed";
   const [undoToast, setUndoToast] = useState<{
     visible: boolean;
     countdown: number;
+    phase: SendPhase;
     requestKey?: string;
-  }>({ visible: false, countdown: 10 });
+  }>({ visible: false, countdown: 10, phase: "sending" });
 
   const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -92,10 +94,26 @@ export function WebmailComposeDock({
     isSaving,
     lastSavedAt,
     lastSaveFailed,
+    retrySave,
+    restoredFromStash,
   } = useDebouncedDraft(initialDraftProp);
   const sendAction = useRef<() => void>(() => {});
   const seenSend = useRef(0);
   const seenMinimize = useRef(0);
+
+  // REVIEW-UX-002: a composer restored from the local stash represents the
+  // user's only copy — push one save attempt up immediately so the draft
+  // reaches the server as soon as the endpoint answers, without waiting for
+  // the next keystroke.
+  const didRestoreFlush = useRef(false);
+  useEffect(() => {
+    if (!isOpen || didRestoreFlush.current) return;
+    if (initialDraftProp || !restoredFromStash) return;
+    didRestoreFlush.current = true;
+    void retrySave();
+    // Runs once per dock instance (remounted per open via composeKey).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !sendNonce || sendNonce === seenSend.current) return;
@@ -151,7 +169,10 @@ export function WebmailComposeDock({
     if (!isOpen || isMinimized) return;
     const frame = requestAnimationFrame(() => {
       document
-        .querySelector<HTMLInputElement>('[data-testid="recipient-input"]')
+        // REVIEW-UIUX-016 ①: target the dock's actual To field test id — the
+        // generic "recipient-input" id was renamed per-field, so focus never
+        // moved into the panel on open.
+        .querySelector<HTMLInputElement>('[data-testid="compose-to-input"]')
         ?.focus();
     });
     return () => cancelAnimationFrame(frame);
@@ -212,40 +233,61 @@ export function WebmailComposeDock({
 
     const requestKey = crypto.randomUUID();
 
-    // Start 10-second client-side buffer undo toast
-    setUndoToast({ visible: true, countdown: 10, requestKey });
+    // Strict terminal-state toast (global-review 追加①): the "sent" surface
+    // only appears after POST /mailbox/send resolves successfully. The
+    // countdown window below is a cancel window BEFORE the send fires; undo
+    // during it cancels the send entirely (Undo semantics preserved).
+    setUndoToast({
+      visible: true,
+      countdown: 10,
+      phase: "sending",
+      requestKey,
+    });
 
     let remaining = 10;
-    undoTimerRef.current = setInterval(async () => {
+    const finishSend = async () => {
+      if (undoTimerRef.current) {
+        clearInterval(undoTimerRef.current);
+        undoTimerRef.current = null;
+      }
+      setUndoToast((prev) => ({ ...prev, countdown: 0, phase: "sending" }));
+      try {
+        await sendMessage(
+          {
+            to: draft.to,
+            cc: draft.cc,
+            bcc: draft.bcc,
+            subject: draft.subject,
+            // Reply/forward flows pass the original Message-ID so the SMTP
+            // layer writes In-Reply-To/References and the reply threads.
+            // Resumed drafts carry their own original Message-ID; fall back
+            // to the prop for a dock that was opened for this reply.
+            in_reply_to: inReplyTo || draft.in_reply_to || undefined,
+            text: draft.text,
+            html: draft.html || undefined,
+            attachments: draft.attachments,
+          },
+          requestKey,
+        );
+        setUndoToast({ visible: true, countdown: 0, phase: "sent" });
+        setTimeout(() => {
+          setUndoToast((prev) =>
+            prev.phase === "sent" ? { ...prev, visible: false } : prev,
+          );
+        }, 3000);
+        clearDraft();
+        onClose();
+      } catch {
+        // Send failed: the toast must not claim success. Keep the draft and
+        // the dock open, surface the failure with an explicit retry entry.
+        setUndoToast({ visible: true, countdown: 0, phase: "failed" });
+      }
+    };
+
+    undoTimerRef.current = setInterval(() => {
       remaining -= 1;
       if (remaining <= 0) {
-        if (undoTimerRef.current) clearInterval(undoTimerRef.current);
-        setUndoToast({ visible: false, countdown: 0 });
-
-        // Trigger real send API call
-        try {
-          await sendMessage(
-            {
-              to: draft.to,
-              cc: draft.cc,
-              bcc: draft.bcc,
-              subject: draft.subject,
-              // Reply/forward flows pass the original Message-ID so the SMTP
-              // layer writes In-Reply-To/References and the reply threads.
-              // Resumed drafts carry their own original Message-ID; fall back
-              // to the prop for a dock that was opened for this reply.
-              in_reply_to: inReplyTo || draft.in_reply_to || undefined,
-              text: draft.text,
-              html: draft.html || undefined,
-              attachments: draft.attachments,
-            },
-            requestKey,
-          );
-          clearDraft();
-          onClose();
-        } catch {
-          // Send failure handling
-        }
+        void finishSend();
       } else {
         setUndoToast((prev) => ({ ...prev, countdown: remaining }));
       }
@@ -259,7 +301,7 @@ export function WebmailComposeDock({
     if (undoTimerRef.current) {
       clearInterval(undoTimerRef.current);
     }
-    setUndoToast({ visible: false, countdown: 10 });
+    setUndoToast({ visible: false, countdown: 10, phase: "sending" });
     // Keep draft intact for modification
   };
 
@@ -452,7 +494,11 @@ export function WebmailComposeDock({
                     data-testid="compose-send-button"
                     type="button"
                     onClick={handleSend}
-                    disabled={draft.to.length === 0 || Boolean(attachmentError)}
+                    disabled={
+                      draft.to.length === 0 ||
+                      Boolean(attachmentError) ||
+                      (undoToast.visible && undoToast.phase === "sending")
+                    }
                     className="flex items-center gap-2 px-4 py-1.5 bg-[var(--brand-primary,var(--brand-primary))] text-white text-xs font-semibold rounded-lg shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 disabled:pointer-events-none transition-all"
                   >
                     <Send className="w-3.5 h-3.5" />
@@ -499,9 +545,17 @@ export function WebmailComposeDock({
                     <span
                       data-testid="draft-save-error-notice"
                       role="status"
-                      className="text-[var(--vellum-danger-strong)]"
+                      className="flex items-center gap-2 text-[var(--vellum-danger-strong)]"
                     >
                       {t("webmail_next.draft_save_failed")}
+                      <button
+                        type="button"
+                        data-testid="draft-save-retry"
+                        onClick={() => void retrySave()}
+                        className="underline underline-offset-2 font-medium hover:opacity-80"
+                      >
+                        {t("webmail_next.draft_retry_save")}
+                      </button>
                     </span>
                   ) : (
                     <span data-testid="draft-status-indicator">
@@ -559,24 +613,53 @@ export function WebmailComposeDock({
         )}
       </div>
 
-      {/* 2. 10-Second Undo Toast */}
+      {/* 2. Send Toast — strictly reflects the send API terminal state:
+          countdown/cancel window while "sending", success only after the
+          POST resolves, failure keeps the draft with an explicit retry. */}
       {undoToast.visible && (
         <div
           data-testid="undo-send-toast"
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 bg-[var(--vellum-ink)] text-white rounded-lg shadow-2xl flex items-center gap-4 text-xs font-medium animate-in fade-in slide-in-from-bottom-2"
         >
-          <span>
-            {t("webmail_next.mail_sent")} ({undoToast.countdown}s)
-          </span>
-          <button
-            data-testid="undo-send-button"
-            type="button"
-            onClick={handleUndo}
-            className="flex items-center gap-1 px-2 py-0.5 bg-white/20 hover:bg-white/30 text-white rounded font-bold transition-colors"
-          >
-            <RotateCcw className="w-3 h-3" />
-            <span>{t("webmail_next.undo_send")}</span>
-          </button>
+          {undoToast.phase === "failed" ? (
+            <span
+              data-testid="send-failed-toast"
+              role="status"
+              className="text-[var(--vellum-danger-strong)]"
+            >
+              {t("webmail_next.send_failed")}
+            </span>
+          ) : undoToast.phase === "sent" ? (
+            <span data-testid="send-sent-toast">
+              {t("webmail_next.mail_sent")}
+            </span>
+          ) : (
+            <span data-testid="send-pending-toast">
+              {t("webmail_next.send_pending")} ({undoToast.countdown}s)
+            </span>
+          )}
+          {undoToast.phase === "sending" && (
+            <button
+              data-testid="undo-send-button"
+              type="button"
+              onClick={handleUndo}
+              className="flex items-center gap-1 px-2 py-0.5 bg-white/20 hover:bg-white/30 text-white rounded font-bold transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>{t("webmail_next.undo_send")}</span>
+            </button>
+          )}
+          {undoToast.phase === "failed" && (
+            <button
+              data-testid="send-retry-button"
+              type="button"
+              onClick={() => void handleSend()}
+              className="flex items-center gap-1 px-2 py-0.5 bg-white/20 hover:bg-white/30 text-white rounded font-bold transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>{t("webmail_next.send_retry")}</span>
+            </button>
+          )}
         </div>
       )}
     </>

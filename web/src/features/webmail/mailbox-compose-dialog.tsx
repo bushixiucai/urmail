@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import {
   FormEvent,
   useEffect,
@@ -173,7 +174,7 @@ export function draftFromMessage(
       : `Re: ${msg.subject || ""}`;
     const quoted = `\n\n---\n${from}\n\n${originalQuoteBody(msg)}`;
     const quotedHtml = msg.html
-      ? `<br><br><div class="urmail-quoted-message"><p>On ${msg.date ? new Date(msg.date).toLocaleString() : ""}, ${from} wrote:</p><blockquote style="border-left: 2px solid #ccc; padding-left: 8px; margin-left: 8px;">${msg.html}</blockquote></div>`
+      ? `<br><br><div class="urmail-quoted-message"><p>On ${msg.date ? formatH23DateTime(msg.date) : ""}, ${from} wrote:</p><blockquote style="border-left: 2px solid #ccc; padding-left: 8px; margin-left: 8px;">${msg.html}</blockquote></div>`
       : undefined;
     return {
       mode,

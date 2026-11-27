@@ -61,3 +61,18 @@ scripts/**/__pycache__/
 
 packaging/**/__pycache__/
 /urmail-milter
+
+# runtime data + upgrade evidence (compose form)
+/data/
+mock.sql
+
+# CI/rig acceptance artifacts (not part of compose checkout)
+docker-compose.override.yml
+broken-ctl
+rig-acceptance-output.log
+
+# CI/rig acceptance evidence archive (suite artifact; must not dirty the tree)
+/evidence-archive/
+
+# rig acceptance fixture compose override
+/compose.rig.yml

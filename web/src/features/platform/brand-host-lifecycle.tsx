@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -105,8 +106,7 @@ export function BrandHostLifecycle({
             {challenge.value}
           </pre>
           <p>
-            {t("brand.host.expires")}:{" "}
-            {new Date(challenge.expires_at).toLocaleString()}
+            {t("brand.host.expires")}: {formatH23DateTime(challenge.expires_at)}
           </p>
         </div>
       )}

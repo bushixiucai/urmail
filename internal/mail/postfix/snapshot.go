@@ -13,6 +13,8 @@ type NodeConfig struct {
 	PreserveExternalOpenDKIM bool   // Keep live OpenDKIM on 8891; do not point Postfix at 12301.
 	PolicyEnabled            bool   // URMAIL_POLICY_ENABLED, default false
 	PolicySocket             string // default private/policy (relative to Postfix chroot)
+	SignerMilterAddr         string // Phase 2: DKIM signer milter upstream (default urmail-signer:12301)
+	SpamMilterAddr           string // Phase 2: spam verdict milter upstream (default urmail-spam:11339)
 	ArchiveEnabled           bool   // URMAIL_ARCHIVE_ENABLED, default false
 	ArchiveSocket            string // default private/urmail-archive (relative to Postfix chroot)
 	MessageSizeLimit         int64  // custom message_size_limit; defaults to 25MiB (26214400) when specified

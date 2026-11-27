@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/app/auth-context";
@@ -224,7 +225,7 @@ function AuditWorkspace() {
                     </p>
                   </div>
                   <div className="shrink-0 space-y-1 text-xs text-muted-foreground">
-                    <p>{new Date(log.created_at).toLocaleString()}</p>
+                    <p>{formatH23DateTime(log.created_at)}</p>
                     <p>
                       {t("page.audit.actor", { id: log.actor_user_id ?? "—" })}{" "}
                       · {log.actor_ip ?? "—"}

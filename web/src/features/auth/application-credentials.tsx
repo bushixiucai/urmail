@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -165,7 +166,7 @@ export function ApplicationCredentials({ canCreate }: { canCreate: boolean }) {
           <div role="status" className="space-y-2">
             <p>
               {t("page.credentials.legacy_hint", {
-                expires: new Date(legacy.expires_at).toLocaleString(),
+                expires: formatH23DateTime(legacy.expires_at),
               })}
             </p>
             <label className="grid gap-1">
@@ -210,7 +211,7 @@ export function ApplicationCredentials({ canCreate }: { canCreate: boolean }) {
               <div className="min-w-0">
                 <p className="break-words">{item.name}</p>
                 <p className="text-sm text-muted-foreground">
-                  {new Date(item.expires_at).toLocaleString()} ·{" "}
+                  {formatH23DateTime(item.expires_at)} ·{" "}
                   {t(
                     item.scopes.includes("legacy:write")
                       ? "page.credentials.write"

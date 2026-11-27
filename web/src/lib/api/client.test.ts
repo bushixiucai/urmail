@@ -208,3 +208,70 @@ describe("API error contracts", () => {
     });
   });
 });
+
+describe("request timeout (FE-006)", () => {
+  it("aborts a hung request at the default 30s cap", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(
+        (_path: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const pending = request("/api/v1/thing");
+      const assertion = expect(pending).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      await vi.advanceTimersByTimeAsync(31_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("honors timeoutMs: 0 to disable the cap and a caller abort wins", async () => {
+    vi.useFakeTimers();
+    try {
+      const holder: { release?: () => void } = {};
+      const fetchMock = vi.fn(
+        (_path: string) =>
+          new Promise<Response>((resolve) => {
+            holder.release = () =>
+              resolve(new Response(JSON.stringify({ ok: 1 })));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const noCap = request("/api/v1/thing", { timeoutMs: 0 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      holder.release?.();
+      await expect(noCap).resolves.toEqual({ ok: 1 });
+
+      const controller = new AbortController();
+      const fetchAbort = vi.fn(
+        (_path: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      );
+      vi.stubGlobal("fetch", fetchAbort);
+      const callerAbort = request("/api/v1/thing", {
+        timeoutMs: 60_000,
+        signal: controller.signal,
+      });
+      const assertion = expect(callerAbort).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      controller.abort();
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

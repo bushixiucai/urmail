@@ -4,7 +4,11 @@ import { MailboxDetailHeader } from "./mailbox-detail-header";
 import type { MessageDetail } from "./mailbox-api";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: "en" } }),
+  useTranslation: () => ({
+    t: (key: string, params?: { time?: string }) =>
+      params?.time ? `${key} [${params.time}]` : key,
+    i18n: { language: "en" },
+  }),
 }));
 afterEach(cleanup);
 const message: MessageDetail = {
@@ -46,6 +50,28 @@ describe("receive authentication display", () => {
       screen.queryByText("page.webmail.auth_reason_dkim_verified"),
     ).toBeNull();
   });
+
+  it("renders checked_at through the shared h23 clock (QA P3-3)", () => {
+    render(
+      <MailboxDetailHeader
+        message={{
+          ...message,
+          authentication: {
+            status: "pass",
+            source: "urmail-receive-dkim",
+            reason: "dkim_verified",
+            domain: "example.test",
+            // Local-naive instant: deterministic across TZ setups.
+            checked_at: "2026-10-30T08:00:00",
+          },
+        }}
+        dateText="date"
+      />,
+    );
+    expect(screen.getByText("2026-10-30 08:00:00")).toBeTruthy();
+    expect(screen.queryByText(/AM|PM/)).toBeNull();
+  });
+
   it.each(["pass", "fail"] as const)(
     "shows the trusted DKIM %s result and its concrete evidence",
     (status) => {

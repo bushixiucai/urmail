@@ -17,8 +17,10 @@ import {
   Forward,
   Shield,
   Sparkles,
+  Palette,
   Settings as SettingsIcon,
 } from "lucide-react";
+import { AppearanceControls } from "@/components/appearance-controls";
 const AccountSecuritySection = lazy(() =>
   import("./account-security-section").then((module) => ({
     default: module.AccountSecuritySection,
@@ -68,7 +70,8 @@ export type SettingsTab =
   | "vacation"
   | "forwarding"
   | "privacy"
-  | "ai";
+  | "ai"
+  | "appearance";
 
 interface WebmailSettingsDrawerProps {
   isOpen: boolean;
@@ -175,6 +178,11 @@ export function WebmailSettingsDrawer({
         label: t("settings.nav.ai", "AI Control"),
         icon: Sparkles,
       },
+      {
+        key: "appearance",
+        label: t("settings.nav.appearance", "Appearance"),
+        icon: Palette,
+      },
     ];
 
   return (
@@ -270,6 +278,23 @@ export function WebmailSettingsDrawer({
               )}
               {activeTab === "forwarding" && <ForwardingSection />}
               {activeTab === "ai" && <AiSettingsSection />}
+              {activeTab === "appearance" && (
+                <section
+                  data-testid="settings-appearance-section"
+                  className="p-6 space-y-4"
+                >
+                  <h2 className="text-sm font-semibold text-[var(--vellum-ink)]">
+                    {t("settings.appearance.title", "Appearance")}
+                  </h2>
+                  <p className="text-xs text-[var(--vellum-ink-secondary)]">
+                    {t(
+                      "settings.appearance.description",
+                      "Language and theme preferences for this browser.",
+                    )}
+                  </p>
+                  <AppearanceControls className="w-full sm:w-auto" />
+                </section>
+              )}
             </Suspense>
           </div>
         </div>

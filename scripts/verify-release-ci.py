@@ -19,9 +19,10 @@ REQUIRED_JOBS = {
     "Integration (platform)", "Integration (core)",
     "Native webmail (Postfix and Dovecot)", "Embedded frontend", "Package smoke",
     "Shell", "Development stack and browser", "Security dependencies",
-    "Linux installation (ubuntu-22.04, amd64)",
-    "Linux installation (ubuntu-24.04, amd64)",
-    "Linux installation (ubuntu-24.04-arm, arm64)",
+    # Phase 2 (compose form): the three deb "Linux installation" jobs are
+    # retired from the release gate on this line; the compose distribution is
+    # gated by the compose smoke job instead (ARCH-PLAN §1.7).
+    "Compose smoke",
 }
 MAX_PAGES = 10
 DEFAULT_TIMEOUT_SECONDS = 45 * 60

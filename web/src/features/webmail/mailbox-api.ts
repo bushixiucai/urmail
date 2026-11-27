@@ -1,6 +1,11 @@
 import type { AIBudgetStatus } from "@/features/ai/ai-budget";
 export type { AIBudgetStatus };
-import { ApiRequestError, parseApiErrorPayload } from "@/lib/api/client";
+import {
+  ApiRequestError,
+  composeAbortSignal,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  parseApiErrorPayload,
+} from "@/lib/api/client";
 import {
   etagCacheKey,
   noteEtagResponse,
@@ -161,8 +166,14 @@ export function setMailboxSession(
   remember = true,
 ): void {
   if (typeof window === "undefined") return;
-  // A new session re-arms the 401 redirect funnel after any prior expiry.
-  redirectingToLogin = false;
+  // A new session re-arms the expiry funnel after any prior expiry.
+  sessionExpiryFired = false;
+  lastSessionReturnTo = null;
+  try {
+    window.sessionStorage.removeItem(SESSION_RETURN_TO_KEY);
+  } catch {
+    // Ignore storage errors
+  }
   try {
     const target = remember ? window.localStorage : window.sessionStorage;
     const clean = remember ? window.sessionStorage : window.localStorage;
@@ -214,34 +225,83 @@ export function hasMailboxSession(): boolean {
 }
 
 /**
- * Session expiry redirect must fire once per dead session: concurrent 401s
- * (folders + settings + quotes…) otherwise each trigger their own navigate.
- * `window.location.assign` survives React trees that never mounted a Router.
- * A fresh login re-arms the funnel. The indirection exists so tests can
- * observe navigations (jsdom's Location is unforgeable).
+ * Session expiry must fire once per dead session: concurrent 401s (folders +
+ * settings + quotes…) otherwise each trigger their own recovery path.
+ *
+ * FE recovery path (REVIEW-UX-001 / REVIEW-FE-008): the funnel no longer
+ * hard-navigates. The default sink keeps the running UI alive, remembers the
+ * route the user was on (`returnTo`) and broadcasts
+ * `urmail:mailbox-session-expired` so a mounted banner can offer re-login;
+ * a fresh sign-in then returns the user to that exact route. The indirection
+ * exists so tests can observe expiry (jsdom's Location is unforgeable).
  */
-let redirectingToLogin = false;
-let navigateToLogin: (target: string) => void = (target) => {
-  window.location.assign(target);
-};
-/** @internal test seam — swap the navigation sink for redirect assertions. */
-export function setMailboxLoginRedirectHandler(
-  handler: ((target: string) => void) | null,
-): void {
-  navigateToLogin = handler ?? ((target) => window.location.assign(target));
+export interface MailboxSessionExpiryInfo {
+  /** Login route to navigate to. */
+  loginPath: string;
+  /** Route (path + search) the user was on when the session died. */
+  returnTo: string;
 }
-function redirectToLoginOn401(): void {
-  if (redirectingToLogin) return;
-  redirectingToLogin = true;
+
+export const MAILBOX_SESSION_EXPIRED_EVENT = "urmail:mailbox-session-expired";
+const SESSION_RETURN_TO_KEY = "urmail.webmail.session-return-to";
+
+function currentRoutePath(): string {
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+function defaultSessionExpirySink(info: MailboxSessionExpiryInfo): void {
+  try {
+    window.sessionStorage.setItem(SESSION_RETURN_TO_KEY, info.returnTo);
+  } catch {
+    // Storage is optional; the in-memory copy below still feeds the banner.
+  }
+  window.dispatchEvent(
+    new CustomEvent<MailboxSessionExpiryInfo>(MAILBOX_SESSION_EXPIRED_EVENT, {
+      detail: info,
+    }),
+  );
+}
+
+let sessionExpiryFired = false;
+let lastSessionReturnTo: string | null = null;
+let sessionExpirySink: (info: MailboxSessionExpiryInfo) => void =
+  defaultSessionExpirySink;
+
+/** @internal test seam — swap the expiry sink for assertions. */
+export function setMailboxSessionExpiryHandler(
+  handler: ((info: MailboxSessionExpiryInfo) => void) | null,
+): void {
+  sessionExpirySink =
+    handler ??
+    ((info) => {
+      defaultSessionExpirySink(info);
+    });
+}
+
+/** Route to return to after re-login, when an expiry was observed. */
+export function getLastSessionReturnTo(): string | null {
+  if (lastSessionReturnTo) return lastSessionReturnTo;
+  try {
+    return window.sessionStorage.getItem(SESSION_RETURN_TO_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the current mailbox session has already been declared dead. */
+export function isMailboxSessionExpired(): boolean {
+  return sessionExpiryFired;
+}
+
+function notifyMailboxSessionExpired(): void {
+  if (sessionExpiryFired) return;
+  sessionExpiryFired = true;
   clearMailboxSession();
   if (typeof window === "undefined") return;
-  const current = `${window.location.pathname}${window.location.search}`;
-  const target = `/webmail/login`;
-  if (current === target) {
-    redirectingToLogin = false;
-    return;
-  }
-  navigateToLogin(target);
+  const returnTo = currentRoutePath();
+  if (returnTo === "/webmail/login") return;
+  lastSessionReturnTo = returnTo;
+  sessionExpirySink({ loginPath: "/webmail/login", returnTo });
 }
 
 function isMailboxAuthError(status: number, code?: string): boolean {
@@ -259,6 +319,8 @@ interface MailboxRequestOptions {
   /** When false, do not send the mailbox bearer (login / status). */
   auth?: boolean;
   idempotencyKey?: string;
+  /** Wall-clock cap in ms; `0` disables. Defaults to 30s (FE-006). */
+  timeoutMs?: number;
 }
 
 /** Mailbox API client — uses mailbox bearer, never the panel session token. */
@@ -267,6 +329,8 @@ export async function mailboxRequest<T>(
   options: MailboxRequestOptions = {},
 ): Promise<T> {
   const { method = "GET", body, signal, auth = true } = options;
+  const timeout = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const composed = composeAbortSignal(timeout, signal);
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...viewportHeaders(),
@@ -280,46 +344,51 @@ export async function mailboxRequest<T>(
   }
 
   const cacheKey = etagCacheKey(method, path, getMailboxToken());
-  const { response, fromCache, payload } = await revalidatingFetch<T>(
-    path,
-    {
+  try {
+    const { response, fromCache, payload } = await revalidatingFetch<T>(
+      path,
+      {
+        method,
+        headers,
+        credentials: "same-origin",
+        signal: composed.signal,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      },
       method,
-      headers,
-      credentials: "same-origin",
-      signal,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-    method,
-    cacheKey,
-  );
+      cacheKey,
+    );
 
-  if (fromCache) return payload as T;
+    if (fromCache) return payload as T;
 
-  if (!response.ok) {
-    let parsed;
-    try {
-      parsed = parseApiErrorPayload(await response.json()) ?? {
-        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
-      };
-    } catch {
-      parsed = {
-        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
-      };
+    if (!response.ok) {
+      let parsed;
+      try {
+        parsed = parseApiErrorPayload(await response.json()) ?? {
+          error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+        };
+      } catch {
+        parsed = {
+          error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+        };
+      }
+      if (
+        auth !== false &&
+        isMailboxAuthError(response.status, parsed.error?.code)
+      ) {
+        // Single funnel: one dead session = one expiry broadcast, whatever
+        // raced. The running UI stays alive; a banner offers re-login.
+        notifyMailboxSessionExpired();
+      }
+      throw new ApiRequestError(response.status, parsed);
     }
-    if (
-      auth !== false &&
-      isMailboxAuthError(response.status, parsed.error?.code)
-    ) {
-      // Single funnel: one dead session = one redirect, whatever raced.
-      redirectToLoginOn401();
-    }
-    throw new ApiRequestError(response.status, parsed);
+
+    if (response.status === 204) return undefined as T;
+    const data = (await response.json()) as T;
+    noteEtagResponse(cacheKey, response, data);
+    return data;
+  } finally {
+    composed.cleanup();
   }
-
-  if (response.status === 204) return undefined as T;
-  const data = (await response.json()) as T;
-  noteEtagResponse(cacheKey, response, data);
-  return data;
 }
 
 export function fetchMailboxStatus(signal?: AbortSignal) {
@@ -749,7 +818,7 @@ export async function fetchAttachmentAsOutgoing(
       };
     }
     if (isMailboxAuthError(response.status, parsed.error?.code))
-      redirectToLoginOn401();
+      notifyMailboxSessionExpired();
     throw new ApiRequestError(response.status, parsed);
   }
   const buf = await response.arrayBuffer();
@@ -798,7 +867,7 @@ export async function downloadAttachment(
       };
     }
     if (isMailboxAuthError(response.status, parsed.error?.code))
-      redirectToLoginOn401();
+      notifyMailboxSessionExpired();
     throw new ApiRequestError(response.status, parsed);
   }
   const blob = await response.blob();
@@ -1424,7 +1493,7 @@ export async function fetchMessageAsOutgoing(
       };
     }
     if (isMailboxAuthError(response.status, parsed.error?.code))
-      redirectToLoginOn401();
+      notifyMailboxSessionExpired();
     throw new ApiRequestError(response.status, parsed);
   }
   if (!response.body) throw Error("ORIGINAL_MESSAGE_UNAVAILABLE");

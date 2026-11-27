@@ -11,8 +11,12 @@ import * as api from "./mailbox-import-api";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, params?: { index?: number }) =>
-      params?.index ? key + ":" + params.index : key,
+    t: (key: string, params?: { index?: number; time?: string }) =>
+      params?.index
+        ? key + ":" + params.index
+        : params?.time
+          ? `${key} [${params.time}]`
+          : key,
     i18n: { language: "en" },
   }),
 }));
@@ -292,4 +296,18 @@ describe("durable mail import", () => {
       (screen.getByLabelText(prefix + "password") as HTMLInputElement).value,
     ).toBe("");
   });
+});
+
+it("renders the job expiry through the shared h23 clock (QA P3-3)", async () => {
+  const localJob = {
+    ...job(),
+    expires_at: "2099-01-01T00:00:00",
+  };
+  vi.mocked(api.previewMailImport).mockResolvedValue({ job: localJob });
+  render(<MailboxImportDialog {...props} />);
+  await preview();
+  await waitFor(() => {
+    expect(screen.getByText(/expires \[2099-01-01 00:00:00\]/)).toBeTruthy();
+  });
+  expect(screen.queryByText(/AM|PM/)).toBeNull();
 });

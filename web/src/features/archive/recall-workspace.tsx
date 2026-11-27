@@ -1,3 +1,4 @@
+import { formatH23Time } from "@/lib/format-h23";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -235,9 +236,7 @@ export function RecallWorkspace({ entries }: { entries: Entry[] }) {
             target.recall.preview_expires_at && (
               <p className="text-xs text-muted-foreground">
                 {t("recall.expires", {
-                  time: new Date(
-                    target.recall.preview_expires_at,
-                  ).toLocaleTimeString(),
+                  time: formatH23Time(target.recall.preview_expires_at),
                 })}
               </p>
             )}

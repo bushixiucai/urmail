@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { WebmailNextWorkbench } from "./webmail-next-workbench";
-import { MemoryRouter } from "react-router-dom";
+import { BrowserRouter, MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as mailboxApi from "@/features/webmail/mailbox-api";
 import { REMOTE_IMAGES_PREFERENCE_CHANGED_EVENT } from "./components/settings/remote-images-section";
@@ -2666,5 +2666,269 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
         callsBefore,
       ),
     );
+  });
+
+  it("shows reading error state on getMessage 502 and recovers on retry", async () => {
+    vi.mocked(mailboxApi.getMessage).mockRejectedValueOnce(
+      new Error("502 Bad Gateway"),
+    );
+    const client = createTestQueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const row = await screen.findByTestId("mail-row-148");
+    fireEvent.click(row);
+
+    const errorAlert = await screen.findByTestId("reading-load-error");
+    expect(errorAlert).toBeTruthy();
+    expect(screen.queryByText("webmail_next.empty_reading_title")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("reading-retry-button"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("reading-load-error")).toBeNull();
+      expect(screen.getByTestId("mail-html-frame")).toBeTruthy();
+    });
+  });
+});
+
+describe("search recovery and folder URL sync (W2 review batch)", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+    vi.mocked(mailboxApi.listFolders).mockResolvedValue({
+      folders: [
+        { name: "Inbox", name_enc: "INBOX", delimiter: "/" },
+        {
+          name: "Sent",
+          name_enc: "b64.U2VudA",
+          delimiter: "/",
+        },
+      ],
+    });
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [
+        {
+          uid: 101,
+          subject: "Message 1",
+          from: [{ name: "Sender 1", email: "sender1@example.com" }],
+          date: "2026-11-06T10:00:00Z",
+          flags: ["\\Seen"],
+          size: 1024,
+        },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    });
+    vi.mocked(mailboxApi.getMailboxQuota).mockRejectedValue(new Error("quota"));
+    vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+      preferences: {},
+    } as never);
+    vi.mocked(mailboxApi.getMailboxRules).mockRejectedValue(
+      new Error("rules unavailable"),
+    );
+    vi.mocked(fetchThreadMembers).mockResolvedValue({ members: [] } as never);
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", "/");
+  });
+
+  const renderWorkbench = () =>
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/webmail/inbox"]}>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  const startFailedSearch = async () => {
+    vi.mocked(mailboxApi.crossFolderSearch).mockRejectedValue(
+      Object.assign(new Error("503"), { status: 503 }),
+    );
+    const input = screen.getByTestId("webmail-search-input");
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // Search-status banner shows while the query is in flight; it settles
+    // to idle once the 503 exhausts retries (pre-existing behavior).
+    expect(screen.getByTestId("webmail-search-status")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByTestId("list-load-error")).toBeTruthy(),
+    );
+  };
+
+  it("abandons a failed search when a sidebar folder is clicked", async () => {
+    renderWorkbench();
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    await startFailedSearch();
+    fireEvent.click(screen.getByTestId("nav-folder-sent"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("list-load-error")).toBeNull(),
+    );
+    expect(screen.queryByTestId("webmail-search-status")).toBeNull();
+    const input = screen.getByTestId(
+      "webmail-search-input",
+    ) as HTMLInputElement;
+    expect(input.value).toBe("");
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+  });
+
+  it("abandons a failed search when the query is cleared", async () => {
+    renderWorkbench();
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    await startFailedSearch();
+    fireEvent.change(screen.getByTestId("webmail-search-input"), {
+      target: { value: "" },
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("list-load-error")).toBeNull(),
+    );
+    expect(screen.queryByTestId("webmail-search-status")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+  });
+
+  it("abandons a stuck search via the cancel-search exit", async () => {
+    renderWorkbench();
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    // Install fake timers only after the real-timer initial load so the
+    // pending-search window is fully controllable.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(mailboxApi.crossFolderSearch).mockImplementation(
+        () => new Promise(() => {}),
+      );
+      const input = screen.getByTestId("webmail-search-input");
+      fireEvent.change(input, { target: { value: "hello" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(screen.getByTestId("webmail-search-status")).toBeTruthy();
+      // The cancel exit appears once the search is marked slow (3s).
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_100);
+      });
+      fireEvent.click(screen.getByTestId("webmail-search-cancel"));
+      expect(screen.queryByTestId("webmail-search-status")).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const plainInput = screen.getByTestId(
+        "webmail-search-input",
+      ) as HTMLInputElement;
+      expect(plainInput.value).toBe("");
+      expect(vi.mocked(mailboxApi.listMessages).mock.calls.at(-1)?.[0]).toBe(
+        "INBOX",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("syncs folder switches to the URL and restores them on back", async () => {
+    window.history.replaceState(null, "", "/webmail/inbox");
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <WebmailNextWorkbench />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("nav-folder-sent"));
+    await waitFor(() =>
+      expect(window.location.search).toContain(
+        `folder=${encodeURIComponent("b64.U2VudA")}`,
+      ),
+    );
+    window.history.back();
+    await waitFor(() => {
+      expect(window.location.search).not.toContain("folder=");
+      expect(mailboxApi.listMessages).toHaveBeenCalledWith(
+        "INBOX",
+        expect.anything(),
+      );
+    });
+  });
+});
+
+describe("rules probe gating (REVIEW-UIUX-018)", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+    vi.mocked(mailboxApi.listFolders).mockResolvedValue({
+      folders: [{ name: "Inbox", name_enc: "INBOX", delimiter: "/" }],
+    });
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [
+        {
+          uid: 101,
+          subject: "Message 1",
+          from: [{ name: "Sender 1", email: "sender1@example.com" }],
+          date: "2026-11-06T10:00:00Z",
+          flags: ["\\Seen"],
+          size: 1024,
+        },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    });
+    vi.mocked(mailboxApi.getMailboxQuota).mockRejectedValue(new Error("quota"));
+    vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+      preferences: {},
+    } as never);
+    vi.mocked(fetchThreadMembers).mockResolvedValue({ members: [] } as never);
+    vi.mocked(mailboxApi.getMailboxRules).mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    mailboxApi.clearMailboxSession();
+  });
+
+  const renderWorkbench = () =>
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/webmail/inbox"]}>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  it("does not probe /rules without a mailbox session", async () => {
+    mailboxApi.clearMailboxSession();
+    renderWorkbench();
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mailboxApi.getMailboxRules).not.toHaveBeenCalled();
+  });
+
+  it("fires /rules exactly once under a gated 503", async () => {
+    mailboxApi.setMailboxSession({
+      token: "rules-token",
+      address: "alice@example.test",
+      expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+    vi.mocked(mailboxApi.getMailboxRules).mockRejectedValue(
+      Object.assign(new Error("503"), { status: 503 }),
+    );
+    renderWorkbench();
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mailboxApi.getMailboxRules).toHaveBeenCalledTimes(1);
   });
 });

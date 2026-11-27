@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -37,7 +38,7 @@ export function MailboxDetailHeader({
   message,
   dateText,
 }: MailboxDetailHeaderProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const recipientsId = useId();
   const authentication = message.authentication;
   const authenticatedSource = authentication?.source === "urmail-receive-dkim";
@@ -144,9 +145,7 @@ export function MailboxDetailHeader({
                       </dt>
                       <dd className="inline">
                         <time dateTime={authentication.checked_at}>
-                          {new Date(authentication.checked_at).toLocaleString(
-                            i18n.language,
-                          )}
+                          {formatH23DateTime(authentication.checked_at)}
                         </time>
                       </dd>
                     </div>

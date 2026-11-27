@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -272,7 +273,7 @@ export function DomainDNSPanel({ domain }: { domain: Domain }) {
                 {job.next_attempt_at && job.status === "pending" && (
                   <time>
                     {t("page.dns.next_attempt", {
-                      time: new Date(job.next_attempt_at).toLocaleString(),
+                      time: formatH23DateTime(job.next_attempt_at),
                     })}
                   </time>
                 )}
@@ -473,7 +474,7 @@ export function DomainDNSPanel({ domain }: { domain: Domain }) {
               <div className="mt-3 space-y-3 min-w-0">
                 <p className="text-xs text-muted-foreground">
                   {t("page.dns.expires", {
-                    time: new Date(plan.expires_at).toLocaleString(),
+                    time: formatH23DateTime(plan.expires_at),
                   })}
                 </p>
                 {plan.last_error_code && (

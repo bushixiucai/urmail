@@ -207,7 +207,7 @@ function WebmailMessageRowView({
             event.stopPropagation();
             onToggleCheck(event);
           }}
-          className="p-0.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
+          className="touch-target p-0.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
         >
           {isSelected ? (
             <CheckSquare className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
@@ -219,7 +219,7 @@ function WebmailMessageRowView({
         <button
           type="button"
           onClick={onToggleStar}
-          className={`p-1 rounded hover:text-[var(--vellum-star)] transition-colors ${
+          className={`touch-target p-1 rounded hover:text-[var(--vellum-star)] transition-colors ${
             item.isStarred
               ? "text-[var(--vellum-star)]"
               : "text-[var(--vellum-ink-secondary)]"

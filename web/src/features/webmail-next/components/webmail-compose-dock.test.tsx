@@ -4,6 +4,7 @@ import {
   fireEvent,
   cleanup,
   act,
+  waitFor,
 } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailComposeDock } from "./webmail-compose-dock";
@@ -28,6 +29,18 @@ vi.mock("@/features/webmail/mailbox-api", async () => {
 
 afterEach(() => {
   cleanup();
+  window.sessionStorage.clear();
+  window.localStorage.clear();
+  vi.mocked(saveDraft).mockClear();
+  vi.mocked(sendMessage).mockClear();
+  vi.mocked(saveDraft).mockResolvedValue({
+    saved: true,
+    uid: 999,
+    uid_validity: 1,
+    folder: "Drafts",
+    name_enc: "b64.RHJhZnRz",
+  });
+  vi.mocked(sendMessage).mockResolvedValue({ sent: true } as never);
 });
 
 describe("WebmailComposeDock", () => {
@@ -299,9 +312,11 @@ describe("draft autosave failure visibility", () => {
       });
 
       expect(screen.getByTestId("draft-save-error-notice")).toBeTruthy();
-      expect(screen.getByTestId("draft-save-error-notice").textContent).toBe(
-        "webmail_next.draft_save_failed",
-      );
+      expect(
+        screen.getByTestId("draft-save-error-notice").textContent,
+      ).toContain("webmail_next.draft_save_failed");
+      // The retry entry rides on the failure notice (REVIEW-UX-002).
+      expect(screen.getByTestId("draft-save-retry")).toBeTruthy();
       // The 503-class failure must not be presented as a server save.
       expect(screen.queryByTestId("draft-status-indicator")).toBeNull();
       // No retry storm: exactly one autosave attempt for one debounced edit.
@@ -350,8 +365,8 @@ describe("draft autosave failure visibility", () => {
     }
   });
 
-  it("marks a restored draft without a server uid as local only", () => {
-    sessionStorage.setItem(
+  it("marks a restored draft without a server uid as local only, then auto-saves it once", async () => {
+    localStorage.setItem(
       "urmail.webmail.active_draft",
       JSON.stringify({
         to: ["partner@example.test"],
@@ -359,13 +374,209 @@ describe("draft autosave failure visibility", () => {
         text: "body text",
       }),
     );
+    render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+    // The restore flush pushes the stashed draft to the server immediately
+    // (REVIEW-UX-002), so the local-only state resolves to saved.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("draft-status-indicator").textContent,
+      ).toContain("webmail_next.draft_saved"),
+    );
+    expect(saveDraft).toHaveBeenCalledTimes(1);
+    const body = vi.mocked(saveDraft).mock.calls[0][0];
+    expect(body.subject).toBe("Restored draft");
+    expect(body.to).toEqual(["partner@example.test"]);
+  });
+
+  it("shows a retry entry when the draft save fails and re-saves on click", async () => {
+    vi.useFakeTimers();
     try {
+      vi.mocked(saveDraft).mockRejectedValueOnce(
+        Object.assign(new Error("503"), { status: 503 }),
+      );
       render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
-      const indicator = screen.getByTestId("draft-status-indicator");
-      expect(indicator.textContent).toContain("webmail_next.draft_local_only");
-      expect(indicator.textContent).not.toContain("webmail_next.draft_saved");
+      fireEvent.change(screen.getByTestId("compose-subject-input"), {
+        target: { value: "Persist me" },
+      });
+      // The 2s debounce gates the server save.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+      expect(saveDraft).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId("draft-save-error-notice")).toBeTruthy();
+      const retry = screen.getByTestId("draft-save-retry");
+      fireEvent.click(retry);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(saveDraft).toHaveBeenCalledTimes(2);
+      expect(screen.queryByTestId("draft-save-error-notice")).toBeNull();
     } finally {
-      sessionStorage.removeItem("urmail.webmail.active_draft");
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows failure instead of success when send rejects (503), keeps the draft and retries", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(sendMessage).mockRejectedValueOnce(
+        Object.assign(new Error("503"), { status: 503 }),
+      );
+      const onClose = vi.fn();
+      render(
+        <WebmailComposeDock
+          isOpen={true}
+          onClose={onClose}
+          initialTo={["a@b.test"]}
+          initialSubject="Hello"
+        />,
+      );
+      fireEvent.click(screen.getByTestId("compose-send-button"));
+      // Undo window must NOT claim success before the API resolves.
+      expect(screen.queryByTestId("send-sent-toast")).toBeNull();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // Failure: no sent toast, dock stays open, explicit retry entry.
+      expect(screen.queryByTestId("send-sent-toast")).toBeNull();
+      expect(screen.getByTestId("send-failed-toast")).toBeTruthy();
+      expect(screen.getByTestId("send-retry-button")).toBeTruthy();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByTestId("compose-send-button")).toBeTruthy();
+      // Retry send succeeds → success toast + close.
+      fireEvent.click(screen.getByTestId("send-retry-button"));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("send-sent-toast")).toBeTruthy();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("compose focus management (REVIEW-UIUX-016)", () => {
+  afterEach(() => {
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+  });
+
+  it("moves focus into the To field when the dock opens", async () => {
+    const { waitFor } = await import("@testing-library/react");
+    render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(document.activeElement?.getAttribute("data-testid")).toBe(
+        "compose-to-input",
+      );
+    });
+  });
+
+  it("keeps an accessible name on the recipient input after a chip exists", () => {
+    render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+    const toInput = screen.getByTestId("compose-to-input");
+    fireEvent.change(toInput, { target: { value: "a@b.test" } });
+    fireEvent.keyDown(toInput, { key: "Enter", code: "Enter" });
+    expect(screen.getByTestId("recipient-pill-a@b.test")).toBeTruthy();
+    const input = screen.getByTestId("compose-to-input") as HTMLInputElement;
+    expect(input.getAttribute("aria-label")).toBe("To");
+  });
+
+  it("returns focus to the opener when the dock closes after send", async () => {
+    vi.useFakeTimers();
+    try {
+      const container = render(
+        <>
+          <button type="button" data-testid="opener">
+            Compose
+          </button>
+          <WebmailComposeDock isOpen={false} onClose={() => {}} />
+        </>,
+      );
+      // The opener holds focus before the user opens the dock (production:
+      // the Compose button). Opening records it for the close-time restore.
+      const opener = screen.getByTestId("opener");
+      opener.focus();
+      expect(document.activeElement).toBe(opener);
+      const openTree = (
+        <>
+          <button type="button" data-testid="opener">
+            Compose
+          </button>
+          <WebmailComposeDock
+            isOpen={true}
+            onClose={() => {}}
+            initialTo={["c@d.test"]}
+          />
+        </>
+      );
+      const closedTree = (
+        <>
+          <button type="button" data-testid="opener">
+            Compose
+          </button>
+          <WebmailComposeDock isOpen={false} onClose={() => {}} />
+        </>
+      );
+      container.rerender(openTree);
+      // Dock opening moves focus into the form (REVIEW-UIUX-016 ①).
+      await vi.advanceTimersByTimeAsync(50);
+      expect(document.activeElement?.getAttribute("data-testid")).toBe(
+        "compose-to-input",
+      );
+      // Closing (e.g. after send) returns focus to the opener anchor
+      // (REVIEW-UIUX-016 ③) instead of stranding it on a hidden button.
+      container.rerender(closedTree);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.activeElement?.getAttribute("data-testid")).toBe(
+        "opener",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("draft saved-at clock shape (REVIEW-UIUX-014 QA pr164)", () => {
+  afterEach(() => {
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+  });
+
+  it("renders the saved-at hint in h23 shape, never locale-default 12h", async () => {
+    vi.useFakeTimers();
+    try {
+      // Fix the fake system clock so the expected h23 string is exact.
+      vi.setSystemTime(new Date(2026, 10, 27, 15, 4, 5));
+      render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+      fireEvent.change(screen.getByTestId("compose-subject-input"), {
+        target: { value: "Clock shape" },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const indicator = screen.getByTestId("draft-status-indicator")
+        .textContent as string;
+      // h23 shape "HH:MM:SS" — the saved-at hint must not fall back to the
+      // locale default (en-US would render "3:04:05 PM" here).
+      expect(indicator).toMatch(
+        /^webmail_next\.draft_saved \d{2}:\d{2}:\d{2}$/,
+      );
+      expect(indicator).not.toMatch(/AM|PM/);
+      // Hour 15 pins h23 (the 12h locale default would show 3 with PM).
+      expect(indicator).toMatch(/15:04:\d{2}/);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

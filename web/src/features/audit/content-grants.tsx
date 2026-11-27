@@ -1,3 +1,4 @@
+import { formatH23DateTime } from "@/lib/format-h23";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -198,7 +199,7 @@ export function ContentGrants() {
                   </p>
                   <p className="text-muted-foreground">
                     {item.expires_at
-                      ? new Date(item.expires_at).toLocaleString()
+                      ? formatH23DateTime(item.expires_at)
                       : t("page.audit.expiry_unset")}
                   </p>
                   <p>
