@@ -39,10 +39,10 @@ func TestSlice3GateMatrix(t *testing.T) {
 		// gate (IMAP-backed listings landed); slice-1.6 moved the image
 		// proxy out (sanitizer-signed, self-authorizing); b5 moved search,
 		// flags, folder writes, the scheduled-sends/send-receipts families
-		// and password out. Still gated: the message mutation family
-		// (move/copy/trash/restore/delete/import — not part of b5) and
-		// corporate-directory (structural: PG AppPool dependency).
-		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice", ""},
+		// and password out; b6 moved the corporate-directory read surface
+		// out (slice store, application-layer tenant scoping). Still gated:
+		// the message mutation family (move/copy/trash/restore/delete/
+		// import — not part of b5/b6).
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/move", `{"uids":[1],"to":"Archive","uid_validity":1}`},
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/copy", `{"uids":[1],"to":"Archive","uid_validity":1}`},
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/trash", `{"uids":[1],"uid_validity":1}`},
@@ -124,6 +124,22 @@ func TestSlice3GateMatrix(t *testing.T) {
 		}
 	}
 
+	// b6: the corporate-directory read surface left the gate and is
+	// functionally served by the SQLite slice store. The fixture seeds no
+	// directory settings, so the endpoints answer 200 with an empty,
+	// disabled payload — never the gate 503.
+	for _, tc := range []struct {
+		method, path, wantBody string
+	}{
+		{http.MethodGet, "/api/v1/mailbox/corporate-directory", `"enabled":false`},
+		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice", `"contacts":[]`},
+	} {
+		code, body = client.do(tc.method, tc.path, "")
+		if code != http.StatusOK || !strings.Contains(body, tc.wantBody) {
+			t.Fatalf("b6 approved %s %s = %d %s, want 200 %s", tc.method, tc.path, code, body, tc.wantBody)
+		}
+	}
+
 	// Unauthenticated callers keep 401 on the newly approved routes.
 	fresh := &slice1Client{t: t, server: server}
 	for _, tc := range []struct{ method, path string }{
@@ -143,6 +159,9 @@ func TestSlice3GateMatrix(t *testing.T) {
 		{http.MethodGet, "/api/v1/mailbox/send-receipts"},
 		{http.MethodGet, "/api/v1/mailbox/send-receipts/42"},
 		{http.MethodPost, "/api/v1/mailbox/password"},
+		// b6 doors.
+		{http.MethodGet, "/api/v1/mailbox/corporate-directory"},
+		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice"},
 	} {
 		if code, _ := fresh.do(tc.method, tc.path, "{}"); code != http.StatusUnauthorized {
 			t.Fatalf("unauthenticated %s %s = %d, want 401", tc.method, tc.path, code)

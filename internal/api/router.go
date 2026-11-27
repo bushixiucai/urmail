@@ -551,7 +551,7 @@ func New(opts Options) *gin.Engine {
 			//   engine where the gate never applies.
 			// Everything else answers 503 FEATURE_UNAVAILABLE with no
 			// Retry-After and no fallback — message move/copy/trash/delete/
-			// restore/import and corporate-directory remain gated.
+			// restore/import remain gated (corporate-directory left at b6).
 			mailboxAuthed.Use(func(c *gin.Context) {
 				method := c.Request.Method
 				switch c.FullPath() {
@@ -682,6 +682,15 @@ func New(opts Options) *gin.Engine {
 						c.Next()
 						return
 					}
+				case "/api/v1/mailbox/corporate-directory", "/api/v1/mailbox/corporate-directory/search":
+					// b6: the corporate directory read surface leaves the
+					// gate — slice-mode data access runs on the SQLite store
+					// with application-layer tenant scoping, and the PG
+					// engine keeps its mailbox-scoped transaction path.
+					if method == http.MethodGet {
+						c.Next()
+						return
+					}
 				}
 				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 					"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
@@ -737,7 +746,15 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.POST("/spam/feedback", spamFeedbackHandler.Feedback)
 			handlers.RegisterMailboxSpamSenderRoutes(mailboxAuthed, spamFeedbackHandler)
 			handlers.RegisterMailboxSnippetRoutes(mailboxAuthed, &handlers.MailboxSnippetsHandler{Pool: opts.AppPool})
-			handlers.RegisterMailboxCorporateDirectoryRoutes(mailboxAuthed, &handlers.MailboxCorporateDirectoryHandler{Pool: opts.AppPool})
+			// b6: the mailbox corporate directory is structurally available
+			// in the slice runtime — the read surface binds every query to
+			// the session's tenant at the application layer (ruling ①), no
+			// RLS or PG pool involved. The PG engine keeps its Pool path.
+			corporateDirectory := &handlers.MailboxCorporateDirectoryHandler{Pool: opts.AppPool}
+			if sqliteMode {
+				corporateDirectory.Store = &handlers.SQLiteCorporateDirectoryStore{DB: opts.SQLiteStore}
+			}
+			handlers.RegisterMailboxCorporateDirectoryRoutes(mailboxAuthed, corporateDirectory)
 			mailboxAuthed.GET("/contacts", contactsHandler.ListContacts)
 			mailboxDataImport := handlers.MailboxDataImport{Pool: opts.PlatformPool}
 			mailboxAuthed.POST("/data/import/:action", mailboxDataImport.Handle)

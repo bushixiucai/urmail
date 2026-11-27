@@ -46,12 +46,11 @@ func TestSQLiteRouteGateRejectsUnsupportedPaths(t *testing.T) {
 		// collection + DELETE /drafts/:uid, S3-1) plus rules left the deny
 		// list — their allow-side assertions live in TestSlice3GateMatrix.
 		// b5: search, flags, folder writes, the scheduled-sends/send-receipts
-		// families and password also left the deny list. Still denied with
-		// the gate FEATURE_UNAVAILABLE: the message mutation family and
-		// corporate-directory.
+		// families and password also left the deny list; b6 moved the
+		// corporate-directory read surface out. Still denied with the gate
+		// FEATURE_UNAVAILABLE: the message mutation family.
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/move", `{"uids":[1],"to":"Archive","uid_validity":1}`},
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/trash", `{"uids":[1],"uid_validity":1}`},
-		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice", ""},
 	} {
 		code, body := client.do(probe.method, probe.path, probe.body)
 		if code != http.StatusServiceUnavailable || !contains(body, "FEATURE_UNAVAILABLE") {

@@ -81,9 +81,9 @@ func TestSQLiteIMAPListingsLeaveTheGate(t *testing.T) {
 		}
 	}
 
-	// Write operations outside the b5 batch remain strictly blocked with
-	// 503 FEATURE_UNAVAILABLE (message move/copy/trash/delete/restore/import
-	// and corporate-directory stay gated).
+	// Write operations outside the b5/b6 batches remain strictly blocked
+	// with 503 FEATURE_UNAVAILABLE (message
+	// move/copy/trash/delete/restore/import stay gated).
 	for _, writeReq := range []struct {
 		method, path, payload string
 	}{
@@ -95,7 +95,6 @@ func TestSQLiteIMAPListingsLeaveTheGate(t *testing.T) {
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/trash", `{"uids":[1],"uid_validity":1}`},
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/restore", `{"uids":[1],"uid_validity":1}`},
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/import", "raw"},
-		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice", ""},
 	} {
 		code, body = client.do(writeReq.method, writeReq.path, writeReq.payload)
 		if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {

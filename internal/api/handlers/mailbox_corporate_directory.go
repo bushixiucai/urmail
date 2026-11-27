@@ -22,8 +22,25 @@ import (
 // MailboxCorporateDirectoryHandler handles both read-only mailbox directory access
 // and tenant administrative directory management (WP06, I13).
 type MailboxCorporateDirectoryHandler struct {
-	Pool  *db.Pool
-	Store *store.Queries
+	Pool *db.Pool
+	// Store serves the mailbox read surface. On the PG engine it is the
+	// platform store behind a mailbox-scoped transaction (RLS-assisted);
+	// on the SQLite slice runtime it is the slice store below, which
+	// enforces the tenant scope at the application layer by binding every
+	// query to the session's TenantID (architecture ruling ①: no RLS
+	// dependency on the slice engine).
+	Store CorporateDirectoryStore
+	// AdminStore backs the tenant-admin management surface (platform
+	// engine only — admin routes are not part of the slice mailbox gate).
+	AdminStore *store.Queries
+}
+
+// CorporateDirectoryStore is the tenant-scoped read surface the mailbox
+// directory endpoints need.
+type CorporateDirectoryStore interface {
+	PlatformGetTenantDirectorySettings(ctx context.Context, tenantID int64) (store.TenantDirectorySettings, error)
+	PlatformListPublishedCorporateContacts(ctx context.Context, tenantID int64) ([]store.TenantDirectoryContacts, error)
+	PlatformSearchPublishedCorporateContacts(ctx context.Context, arg store.PlatformSearchPublishedCorporateContactsParams) ([]store.TenantDirectoryContacts, error)
 }
 
 type corporateContactJSON struct {
@@ -100,7 +117,7 @@ func (h *MailboxCorporateDirectoryHandler) List(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
 
-	var q *store.Queries
+	var q CorporateDirectoryStore
 	switch {
 	case h.Pool != nil:
 		tx, err := h.Pool.MailboxTx(ctx, session.TenantID, session.MailboxID)
@@ -153,7 +170,7 @@ func (h *MailboxCorporateDirectoryHandler) Search(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
 
-	var q *store.Queries
+	var q CorporateDirectoryStore
 	switch {
 	case h.Pool != nil:
 		tx, err := h.Pool.MailboxTx(ctx, session.TenantID, session.MailboxID)
@@ -217,8 +234,8 @@ func (h *MailboxCorporateDirectoryHandler) getAdminQueries(c *gin.Context, tenan
 		}
 		return db.Queries(tx), func() { _ = tx.Rollback(c.Request.Context()) }, nil
 	}
-	if h.Store != nil {
-		return h.Store, func() {}, nil
+	if h.AdminStore != nil {
+		return h.AdminStore, func() {}, nil
 	}
 	return nil, nil, errors.New("no store available")
 }
