@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bushixiucai/urmail/internal/api/handlers"
+	"github.com/bushixiucai/urmail/internal/imageproxy"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
-func TestSQLiteGatedFolderListingsAnswerUnavailable(t *testing.T) {
+func TestSQLiteIMAPListingsLeaveTheGate(t *testing.T) {
 	_, server := newSlice1Server(t)
 	client := &slice1Client{t: t, server: server}
 	const password = "slice1-mailbox-password"
@@ -42,12 +45,11 @@ func TestSQLiteGatedFolderListingsAnswerUnavailable(t *testing.T) {
 	}
 	client.token = session.Token
 
-	// Folder and message listings sit inside the slice-1 gate: the SQLite
-	// index tables carry no imported mail, and an ungated list answered an
-	// empty folder while Dovecot held the real messages (post-cutover QA
-	// TC-13a silent empty inbox). The listing routes therefore answer the
-	// same explicit 503 FEATURE_UNAVAILABLE as the other gated workers —
-	// never a silently empty list — regardless of whether rows exist.
+	// Slice-1.5: the read-only listing surfaces left the gate (TC-13a fix).
+	// Listings are IMAP-backed now: the harness points IMAPAddr at an
+	// unreachable port, so the handlers must fail LOUDLY at the IMAP
+	// boundary (502 IMAP_UNAVAILABLE) — never the gate 503 and never a
+	// silently empty list.
 	for _, path := range []string{
 		"/api/v1/mailbox/folders",
 		"/api/v1/mailbox/messages",
@@ -55,8 +57,8 @@ func TestSQLiteGatedFolderListingsAnswerUnavailable(t *testing.T) {
 		"/api/v1/mailbox/folders/NoSuchFolder/messages",
 	} {
 		code, body = client.do(http.MethodGet, path, "")
-		if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {
-			t.Fatalf("GET %s = %d %s, want 503 FEATURE_UNAVAILABLE", path, code, body)
+		if code != http.StatusBadGateway || !strings.Contains(body, "IMAP_UNAVAILABLE") {
+			t.Fatalf("GET %s = %d %s, want 502 IMAP_UNAVAILABLE", path, code, body)
 		}
 	}
 
@@ -78,7 +80,7 @@ func TestSQLiteGatedFolderListingsAnswerUnavailable(t *testing.T) {
 	}
 }
 
-func TestSQLiteGatedListingsIgnoreSeededRows(t *testing.T) {
+func TestSQLiteListingsServeIMAPNotSeededRows(t *testing.T) {
 	db, server := newSlice1Server(t)
 	ctx := context.Background()
 	const password = "slice1-mailbox-password"
@@ -119,9 +121,11 @@ func TestSQLiteGatedListingsIgnoreSeededRows(t *testing.T) {
 	alice := loginAs("alice@a.example.test")
 	bob := loginAs("bob@b.example.test")
 
-	// Seeded rows change nothing at the HTTP layer: the gate answers 503 for
-	// every listing regardless of data, so no partial view of unmigrated
-	// mail is ever exposed (QA TC-13a).
+	// Seeded rows change nothing at the HTTP layer: listings are IMAP-backed
+	// in SQLite mode and never read the SQLite index tables, so the seeded
+	// rows cannot leak through a partial unmigrated view (QA TC-13a). With
+	// the harness's unreachable IMAP endpoint the handlers fail loudly with
+	// 502 IMAP_UNAVAILABLE instead.
 	for _, tc := range []struct {
 		c    *slice1Client
 		path string
@@ -132,8 +136,8 @@ func TestSQLiteGatedListingsIgnoreSeededRows(t *testing.T) {
 		{bob, "/api/v1/mailbox/folders"},
 		{bob, "/api/v1/mailbox/messages"},
 	} {
-		if code, body := tc.c.do(http.MethodGet, tc.path, ""); code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {
-			t.Fatalf("GET %s = %d %s, want 503 FEATURE_UNAVAILABLE", tc.path, code, body)
+		if code, body := tc.c.do(http.MethodGet, tc.path, ""); code != http.StatusBadGateway || !strings.Contains(body, "IMAP_UNAVAILABLE") {
+			t.Fatalf("GET %s = %d %s, want 502 IMAP_UNAVAILABLE", tc.path, code, body)
 		}
 	}
 
@@ -144,12 +148,73 @@ func TestSQLiteGatedListingsIgnoreSeededRows(t *testing.T) {
 	}
 
 	// Direct adapter misuse with mismatched (tenantID, mailboxID) still
-	// fails closed at the storage layer.
+	// fails closed at the storage layer (the adapter stays ownership-checked
+	// even though listings no longer route through it).
 	probe := handlers.SQLiteMailboxStore{DB: db}
 	if _, err := probe.ListFolders(ctx, 8, 11); !errors.Is(err, handlers.ErrMailboxNotFound) {
 		t.Fatalf("cross-tenant ListFolders err=%v, want ErrMailboxNotFound", err)
 	}
 	if _, err := probe.ListMessages(ctx, 7, 12, "INBOX", webmail.ListOpts{}); !errors.Is(err, handlers.ErrMailboxNotFound) {
 		t.Fatalf("cross-mailbox ListMessages err=%v, want ErrMailboxNotFound", err)
+	}
+}
+
+// Slice-1.6 acceptance: the image proxy left the slice gate. Mail-rendered
+// remote images load through it, so a gate 503 broke every image in every
+// message. The signed URL is its own authorization — sandboxed message
+// frames carry no bearer token — and an unreachable fetch degrades to the
+// transparent placeholder instead of a broken-image box.
+func TestSQLiteImageProxyLeavesTheGate(t *testing.T) {
+	_, server := newSlice1Server(t)
+	client := &slice1Client{t: t, server: server}
+	const password = "slice1-mailbox-password"
+	code, body := client.do(http.MethodPost, "/api/v1/mailbox/session",
+		`{"email":"alice@a.example.test","password":"`+password+`"}`)
+	if code != http.StatusOK {
+		t.Fatalf("alice login = %d %s", code, body)
+	}
+	var session struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(body), &session); err != nil || session.Token == "" {
+		t.Fatalf("login payload = %q (%v)", body, err)
+	}
+	client.token = session.Token
+
+	signer := imageproxy.NewSigner([]byte("slice1-render-key"))
+	sign := func(mailboxID int64) (string, string) {
+		t.Helper()
+		token, signature, err := signer.Sign(imageproxy.Payload{
+			MailboxID: mailboxID,
+			UID:       1,
+			Expires:   time.Now().Add(time.Hour).Unix(),
+			URL:       "http://127.0.0.1:1/img.png", // unreachable: the fetch degrades
+		})
+		if err != nil {
+			t.Fatalf("sign: %v", err)
+		}
+		return token, signature
+	}
+
+	// Alice's own signature passes the gate, verifies at the handler, and
+	// the failed fetch degrades to the placeholder PNG (HTTP 200) — proof
+	// the request traveled gate → signature → fetch, not gate → 503.
+	token, signature := sign(11) // alice's mailbox id in the fixture
+	code, body = client.do(http.MethodGet,
+		"/api/v1/mailbox/images/proxy?u="+url.QueryEscape(token)+"&sig="+url.QueryEscape(signature), "")
+	if code != http.StatusOK {
+		t.Fatalf("signed image proxy = %d %s, want 200 (placeholder)", code, body)
+	}
+	if len(body) != len(imageproxy.PlaceholderPNG) {
+		t.Fatalf("placeholder size %d, want %d (the fetch-degraded transparent PNG)", len(body), len(imageproxy.PlaceholderPNG))
+	}
+
+	// A signature bound to another mailbox must not be spendable with
+	// alice's bearer token (the handler's own authorization, not the gate).
+	foreign, foreignSig := sign(12) // bob's mailbox id
+	code, body = client.do(http.MethodGet,
+		"/api/v1/mailbox/images/proxy?u="+url.QueryEscape(foreign)+"&sig="+url.QueryEscape(foreignSig), "")
+	if code != http.StatusForbidden || strings.Contains(body, "FEATURE_UNAVAILABLE") {
+		t.Fatalf("foreign-mailbox signature = %d %s, want handler 403 (no gate 503)", code, body)
 	}
 }
