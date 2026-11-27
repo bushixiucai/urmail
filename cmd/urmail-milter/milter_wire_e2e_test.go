@@ -184,21 +184,23 @@ func (c *wireClient) sendMacro(stage byte, kv ...string) {
 	c.send(payload)
 }
 
-// sendConnect emits one SMFIC_CONNECT packet: [C][hostname\0 family(1B)
-// port(2B network) address(4/16B binary)] — command byte and payload ride
-// in the SAME length-prefixed packet, as the milter protocol requires (the
-// address bytes may contain NULs; the trailing terminator is tolerated by
-// the server and ignored).
+// sendConnect emits one SMFIC_CONNECT packet in the form Postfix 3.7
+// actually puts on the wire (rev-8 rig capture): [C][hostname\0 family(1B)
+// port(2B network) ASCII-address\0] — command byte and payload ride in the
+// SAME length-prefixed packet. The ASCII address form is the production
+// reality; the decoder also accepts the libmilter binary form (pinned by
+// the real-byte fixtures in internal/mailspam).
 func (c *wireClient) sendConnect(host, family string, addr []byte) {
 	c.t.Helper()
-	pkt := make([]byte, 0, 1+len(host)+1+len(family)+2+len(addr)+1)
+	ip := net.IP(addr).String()
+	pkt := make([]byte, 0, 1+len(host)+1+len(family)+2+len(ip)+1)
 	pkt = append(pkt, 'C')
 	pkt = append(pkt, host...)
 	pkt = append(pkt, 0)
 	pkt = append(pkt, family...)
 	port := []byte{0x01, 0xBB}
 	pkt = append(pkt, port...)
-	pkt = append(pkt, addr...)
+	pkt = append(pkt, ip...)
 	pkt = append(pkt, 0)
 	c.send(pkt)
 }
