@@ -36,9 +36,9 @@ func TestSlice3GateMatrix(t *testing.T) {
 		method, path, payload string
 	}{
 		// Slice-1.5 moved the read-only listing/read surfaces out of the
-		// gate (IMAP-backed listings landed); only the image proxy and
-		// corporate-directory stay explicitly gated here.
-		{http.MethodGet, "/api/v1/mailbox/images/proxy?u=aHR0cDovL2V4YW1wbGUuY2xpcA==", ""},
+		// gate (IMAP-backed listings landed); slice-1.6 moved the image
+		// proxy out (sanitizer-signed, self-authorizing). Only
+		// corporate-directory stays explicitly gated here.
 		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice", ""},
 	} {
 		code, body = client.do(tc.method, tc.path, tc.payload)
@@ -70,6 +70,10 @@ func TestSlice3GateMatrix(t *testing.T) {
 		{http.MethodGet, "/api/v1/mailbox/messages", ""},
 		{http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages", ""},
 		{http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages/1", ""},
+		// Slice-1.6: the image proxy left the gate — an unsigned request
+		// reaches the handler, which rejects it with its own 403
+		// (MAILBOX_AUTHORIZATION_DENIED), never the gate 503.
+		{http.MethodGet, "/api/v1/mailbox/images/proxy?u=aHR0cDovL2V4YW1wbGUuY2xpcA==&sig=badsig", ""},
 	} {
 		code, body = client.do(tc.method, tc.path, tc.payload)
 		if code == http.StatusServiceUnavailable && strings.Contains(body, "FEATURE_UNAVAILABLE") {

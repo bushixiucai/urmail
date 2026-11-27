@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bushixiucai/urmail/internal/api/handlers"
+	"github.com/bushixiucai/urmail/internal/imageproxy"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
@@ -153,5 +156,65 @@ func TestSQLiteListingsServeIMAPNotSeededRows(t *testing.T) {
 	}
 	if _, err := probe.ListMessages(ctx, 7, 12, "INBOX", webmail.ListOpts{}); !errors.Is(err, handlers.ErrMailboxNotFound) {
 		t.Fatalf("cross-mailbox ListMessages err=%v, want ErrMailboxNotFound", err)
+	}
+}
+
+// Slice-1.6 acceptance: the image proxy left the slice gate. Mail-rendered
+// remote images load through it, so a gate 503 broke every image in every
+// message. The signed URL is its own authorization — sandboxed message
+// frames carry no bearer token — and an unreachable fetch degrades to the
+// transparent placeholder instead of a broken-image box.
+func TestSQLiteImageProxyLeavesTheGate(t *testing.T) {
+	_, server := newSlice1Server(t)
+	client := &slice1Client{t: t, server: server}
+	const password = "slice1-mailbox-password"
+	code, body := client.do(http.MethodPost, "/api/v1/mailbox/session",
+		`{"email":"alice@a.example.test","password":"`+password+`"}`)
+	if code != http.StatusOK {
+		t.Fatalf("alice login = %d %s", code, body)
+	}
+	var session struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(body), &session); err != nil || session.Token == "" {
+		t.Fatalf("login payload = %q (%v)", body, err)
+	}
+	client.token = session.Token
+
+	signer := imageproxy.NewSigner([]byte("slice1-render-key"))
+	sign := func(mailboxID int64) (string, string) {
+		t.Helper()
+		token, signature, err := signer.Sign(imageproxy.Payload{
+			MailboxID: mailboxID,
+			UID:       1,
+			Expires:   time.Now().Add(time.Hour).Unix(),
+			URL:       "http://127.0.0.1:1/img.png", // unreachable: the fetch degrades
+		})
+		if err != nil {
+			t.Fatalf("sign: %v", err)
+		}
+		return token, signature
+	}
+
+	// Alice's own signature passes the gate, verifies at the handler, and
+	// the failed fetch degrades to the placeholder PNG (HTTP 200) — proof
+	// the request traveled gate → signature → fetch, not gate → 503.
+	token, signature := sign(11) // alice's mailbox id in the fixture
+	code, body = client.do(http.MethodGet,
+		"/api/v1/mailbox/images/proxy?u="+url.QueryEscape(token)+"&sig="+url.QueryEscape(signature), "")
+	if code != http.StatusOK {
+		t.Fatalf("signed image proxy = %d %s, want 200 (placeholder)", code, body)
+	}
+	if len(body) != len(imageproxy.PlaceholderPNG) {
+		t.Fatalf("placeholder size %d, want %d (the fetch-degraded transparent PNG)", len(body), len(imageproxy.PlaceholderPNG))
+	}
+
+	// A signature bound to another mailbox must not be spendable with
+	// alice's bearer token (the handler's own authorization, not the gate).
+	foreign, foreignSig := sign(12) // bob's mailbox id
+	code, body = client.do(http.MethodGet,
+		"/api/v1/mailbox/images/proxy?u="+url.QueryEscape(foreign)+"&sig="+url.QueryEscape(foreignSig), "")
+	if code != http.StatusForbidden || strings.Contains(body, "FEATURE_UNAVAILABLE") {
+		t.Fatalf("foreign-mailbox signature = %d %s, want handler 403 (no gate 503)", code, body)
 	}
 }

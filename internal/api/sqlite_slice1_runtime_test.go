@@ -345,18 +345,18 @@ func TestSlice1SQLiteMailboxRuntime(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_sessions`).Scan(&sessionsAfter); err != nil || sessionsAfter != sessionsBefore {
 		t.Fatalf("EAS failures mutated sessions: before=%d after=%d (err=%v)", sessionsBefore, sessionsAfter, err)
 	}
-	// Image proxy: a VALID signed URL must not reach the fetcher — the gate
-	// answers 503 before signature verification, so no external request is
-	// even attempted (the target below is unreachable loopback port 1; a
-	// handler call would have degraded to a 200 placeholder instead).
+	// Image proxy (slice-1.6): a VALID signed URL leaves the gate now — the
+	// request travels signature verification → fetch, and the unreachable
+	// loopback target below degrades to the transparent 200 placeholder
+	// (never the old gate 503, which broke every rendered message's images).
 	signer := imageproxy.NewSigner([]byte("slice1-render-key"))
 	token, signature, signErr := signer.Sign(imageproxy.Payload{MailboxID: 11, UID: 1, URL: "http://127.0.0.1:1/pixel.png"})
 	if signErr != nil {
 		t.Fatalf("sign payload: %v", signErr)
 	}
 	code, body = rawRequest(http.MethodGet, "/api/v1/mailbox/images/proxy", false, url.Values{"u": {token}, "sig": {signature}})
-	if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {
-		t.Fatalf("image proxy = %d %s, want 503 FEATURE_UNAVAILABLE", code, body)
+	if code != http.StatusOK || len(body) != len(string(imageproxy.PlaceholderPNG)) {
+		t.Fatalf("image proxy = %d (%d bytes), want 200 placeholder (%d bytes)", code, len(body), len(imageproxy.PlaceholderPNG))
 	}
 
 	// snapshot alice's row before the isolation negatives.

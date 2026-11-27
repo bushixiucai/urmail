@@ -501,12 +501,14 @@ func New(opts Options) *gin.Engine {
 		// The image proxy is authorized by the signed URL alone: an image
 		// inside the sandboxed message frame cannot present the mailbox
 		// bearer token. A bearer that is sent anyway must belong to the
-		// signed mailbox. SQLite slice-1: the fetch is a real provider/
-		// network side effect, so the same default-deny boundary stops the
-		// request before the signed URL is even verified.
+		// signed mailbox. Slice-1.6: it leaves the default-deny gate — the
+		// gate's network-side-effect concern is owned by the Fetcher itself
+		// (SSRF screen before every dial, redirect re-screen, response type
+		// allowlist with magic-byte verification), and gating it broke every
+		// remote image in every rendered message.
 		v1.GET("/mailbox/images/proxy", middleware.RateLimitWindow(600, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
-		}), sqliteNativeGate, mailboxNative.ImageProxy)
+		}), mailboxNative.ImageProxy)
 		v1.GET("/mailbox/links/confirm", mailboxNative.LinkConfirm)
 		v1.POST("/mailbox/links/confirm", middleware.RateLimitWindow(60, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
@@ -540,8 +542,8 @@ func New(opts Options) *gin.Engine {
 			//   listing writes (folders POST/PATCH/DELETE, message
 			//   flags/move/copy/trash) stay gated.
 			// Everything else answers 503 FEATURE_UNAVAILABLE with no
-			// Retry-After and no fallback — message mutations, the image
-			// proxy and corporate-directory remain gated.
+			// Retry-After and no fallback — message mutations and
+			// corporate-directory remain gated.
 			mailboxAuthed.Use(func(c *gin.Context) {
 				method := c.Request.Method
 				switch c.FullPath() {
