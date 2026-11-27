@@ -22,6 +22,7 @@ import {
   MailboxSieveRule,
   MailboxUserAIConfig,
   fetchMailboxAIModels,
+  hasMailboxSession,
 } from "./mailbox-api";
 
 function formatBytes(
@@ -105,6 +106,9 @@ export function MailboxSettingsPage() {
   } | null>(null);
 
   useEffect(() => {
+    // REVIEW-UIUX-018: skip the whole bootstrap (incl. the gated /rules
+    // probe) when there is no mailbox session.
+    if (!hasMailboxSession()) return;
     void (async () => {
       try {
         const [s, ids, q, r] = await Promise.all([

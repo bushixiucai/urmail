@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { hasMailboxSession } from "@/features/webmail/mailbox-api";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +50,13 @@ export function SievePage() {
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
+    // REVIEW-UIUX-018: never probe the sieve bridge without a mailbox
+    // session — logged-out visits must not fire gated 503 diagnostics.
+    if (!hasMailboxSession()) {
+      setBusy(false);
+      setError(t("page.sieve.reauthenticate"));
+      return;
+    }
     const controller = new AbortController();
     setBusy(true);
     setConfirmed(false);

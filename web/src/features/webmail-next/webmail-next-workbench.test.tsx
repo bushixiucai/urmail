@@ -2858,3 +2858,77 @@ describe("search recovery and folder URL sync (W2 review batch)", () => {
     });
   });
 });
+
+describe("rules probe gating (REVIEW-UIUX-018)", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+    vi.mocked(mailboxApi.listFolders).mockResolvedValue({
+      folders: [{ name: "Inbox", name_enc: "INBOX", delimiter: "/" }],
+    });
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [
+        {
+          uid: 101,
+          subject: "Message 1",
+          from: [{ name: "Sender 1", email: "sender1@example.com" }],
+          date: "2026-11-06T10:00:00Z",
+          flags: ["\\Seen"],
+          size: 1024,
+        },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    });
+    vi.mocked(mailboxApi.getMailboxQuota).mockRejectedValue(new Error("quota"));
+    vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+      preferences: {},
+    } as never);
+    vi.mocked(fetchThreadMembers).mockResolvedValue({ members: [] } as never);
+    vi.mocked(mailboxApi.getMailboxRules).mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    mailboxApi.clearMailboxSession();
+  });
+
+  const renderWorkbench = () =>
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/webmail/inbox"]}>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  it("does not probe /rules without a mailbox session", async () => {
+    mailboxApi.clearMailboxSession();
+    renderWorkbench();
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mailboxApi.getMailboxRules).not.toHaveBeenCalled();
+  });
+
+  it("fires /rules exactly once under a gated 503", async () => {
+    mailboxApi.setMailboxSession({
+      token: "rules-token",
+      address: "alice@example.test",
+      expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+    vi.mocked(mailboxApi.getMailboxRules).mockRejectedValue(
+      Object.assign(new Error("503"), { status: 503 }),
+    );
+    renderWorkbench();
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mailboxApi.getMailboxRules).toHaveBeenCalledTimes(1);
+  });
+});

@@ -6,8 +6,10 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 import { Palmtree, Pencil } from "lucide-react";
 import { WebmailHeader } from "./components/webmail-header";
+import { formatFullDate } from "./lib/format-list-date";
 import { WebmailNavigationRail } from "./components/webmail-navigation-rail";
 import { WebmailMessageList } from "./components/webmail-message-list";
 import { WebmailReadingPane } from "./components/webmail-reading-pane";
@@ -58,6 +60,7 @@ import {
   renameMailboxFolder,
   deleteMailboxFolder,
   getMailboxQuota,
+  hasMailboxSession,
   listScheduledSends,
   getMailboxAddress,
   getMailboxRules,
@@ -414,11 +417,15 @@ export function WebmailNextWorkbench({
     staleTime: 10_000,
   });
 
-  // 2. Fetch rules for vacation autoresponder status
+  // 2. Fetch rules for vacation autoresponder status.
+  // REVIEW-UIUX-018: never probe when logged out and never retry a 503 —
+  // the gated endpoint otherwise fires 1-2 diagnostics per page load.
   const { data: rulesData, refetch: refetchRules } = useQuery<MailboxRulesView>(
     {
       queryKey: ["webmail", "rules"],
       queryFn: () => getMailboxRules(),
+      enabled: hasMailboxSession(),
+      retry: false,
       staleTime: 60_000,
     },
   );
@@ -1390,7 +1397,8 @@ export function WebmailNextWorkbench({
     const from = msg.from?.[0]?.name
       ? `${msg.from[0].name} <${msg.from[0].email}>`
       : msg.from?.[0]?.email || "";
-    const dateStr = msg.date ? new Date(msg.date).toLocaleString() : "";
+    // REVIEW-UIUX-014: same 24-hour clock as the list/reading panes.
+    const dateStr = msg.date ? formatFullDate(msg.date, i18n.language) : "";
     const quoteHeader = `On ${dateStr}, ${from} wrote:`;
     const bodyHtml =
       msg.html || (msg.text ? `<p>${msg.text.replace(/\n/g, "<br>")}</p>` : "");

@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import i18n from "i18next";
+import { formatFullDate } from "../lib/format-list-date";
 import {
   Reply,
   ReplyAll,
@@ -1152,7 +1154,9 @@ export function WebmailReadingPane({
             </div>
 
             <div className="text-xs text-[var(--vellum-ink-secondary)]">
-              {message.date ? new Date(message.date).toLocaleString() : ""}
+              {/* REVIEW-UIUX-014: share the list pane's 24-hour full
+                  formatter so list and reading panes agree on one clock. */}
+              {message.date ? formatFullDate(message.date, i18n.language) : ""}
             </div>
           </div>
         </div>

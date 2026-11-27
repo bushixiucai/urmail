@@ -158,6 +158,9 @@ export function WebmailRecipientChips({
         <input
           data-testid={testId}
           type="text"
+          // REVIEW-UIUX-016 ②: the accessible name must survive the
+          // placeholder disappearing once a chip exists.
+          aria-label={label}
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}

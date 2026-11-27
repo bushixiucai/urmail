@@ -169,7 +169,10 @@ export function WebmailComposeDock({
     if (!isOpen || isMinimized) return;
     const frame = requestAnimationFrame(() => {
       document
-        .querySelector<HTMLInputElement>('[data-testid="recipient-input"]')
+        // REVIEW-UIUX-016 ①: target the dock's actual To field test id — the
+        // generic "recipient-input" id was renamed per-field, so focus never
+        // moved into the panel on open.
+        .querySelector<HTMLInputElement>('[data-testid="compose-to-input"]')
         ?.focus();
     });
     return () => cancelAnimationFrame(frame);

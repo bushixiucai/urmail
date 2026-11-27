@@ -462,3 +462,84 @@ describe("draft autosave failure visibility", () => {
     }
   });
 });
+
+describe("compose focus management (REVIEW-UIUX-016)", () => {
+  afterEach(() => {
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+  });
+
+  it("moves focus into the To field when the dock opens", async () => {
+    const { waitFor } = await import("@testing-library/react");
+    render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(document.activeElement?.getAttribute("data-testid")).toBe(
+        "compose-to-input",
+      );
+    });
+  });
+
+  it("keeps an accessible name on the recipient input after a chip exists", () => {
+    render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+    const toInput = screen.getByTestId("compose-to-input");
+    fireEvent.change(toInput, { target: { value: "a@b.test" } });
+    fireEvent.keyDown(toInput, { key: "Enter", code: "Enter" });
+    expect(screen.getByTestId("recipient-pill-a@b.test")).toBeTruthy();
+    const input = screen.getByTestId("compose-to-input") as HTMLInputElement;
+    expect(input.getAttribute("aria-label")).toBe("To");
+  });
+
+  it("returns focus to the opener when the dock closes after send", async () => {
+    vi.useFakeTimers();
+    try {
+      const container = render(
+        <>
+          <button type="button" data-testid="opener">
+            Compose
+          </button>
+          <WebmailComposeDock isOpen={false} onClose={() => {}} />
+        </>,
+      );
+      // The opener holds focus before the user opens the dock (production:
+      // the Compose button). Opening records it for the close-time restore.
+      const opener = screen.getByTestId("opener");
+      opener.focus();
+      expect(document.activeElement).toBe(opener);
+      const openTree = (
+        <>
+          <button type="button" data-testid="opener">
+            Compose
+          </button>
+          <WebmailComposeDock
+            isOpen={true}
+            onClose={() => {}}
+            initialTo={["c@d.test"]}
+          />
+        </>
+      );
+      const closedTree = (
+        <>
+          <button type="button" data-testid="opener">
+            Compose
+          </button>
+          <WebmailComposeDock isOpen={false} onClose={() => {}} />
+        </>
+      );
+      container.rerender(openTree);
+      // Dock opening moves focus into the form (REVIEW-UIUX-016 ①).
+      await vi.advanceTimersByTimeAsync(50);
+      expect(document.activeElement?.getAttribute("data-testid")).toBe(
+        "compose-to-input",
+      );
+      // Closing (e.g. after send) returns focus to the opener anchor
+      // (REVIEW-UIUX-016 ③) instead of stranding it on a hidden button.
+      container.rerender(closedTree);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.activeElement?.getAttribute("data-testid")).toBe(
+        "opener",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

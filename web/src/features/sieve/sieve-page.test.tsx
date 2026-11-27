@@ -5,10 +5,26 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SievePage } from "./sieve-page";
+import {
+  hasMailboxSession,
+  setMailboxSession,
+} from "@/features/webmail/mailbox-api";
 const { t } = vi.hoisted(() => ({ t: (key: string) => key }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t }) }));
+// The logged-out guard (REVIEW-UIUX-018) needs a live session for these
+// authenticated-editor flows.
+beforeEach(() => {
+  setMailboxSession({
+    token: "sieve-test-token",
+    address: "sieve@example.test",
+    expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+  });
+});
+beforeEach(() => {
+  expect(hasMailboxSession()).toBe(true);
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
