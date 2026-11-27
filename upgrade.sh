@@ -256,8 +256,19 @@ PLAN
     deadline=$(( $(date +%s) + 300 ))
     until docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz \
             | grep -q '"status":"ok"'; do
-        [ "$(date +%s)" -lt "$deadline" ] || die "readiness probe timed out (5m)"
-        sleep 5
+        if [ "$(date +%s)" -lt "$deadline" ]; then
+            sleep 5
+        else
+            # QA (rig revival): a silent 5-minute probe death is undiagnosable
+            # from the evidence alone (run 45981664331); capture the container
+            # state before failing.
+            { echo "--- readiness probe timeout diagnostics ---"
+              docker compose logs --no-color urmaild | tail -60
+              echo "--- last healthz response ---"
+              docker compose exec -T urmaild curl -sS -m 5 http://127.0.0.1:8080/api/v1/healthz || true
+            } >>"$EVIDENCE" 2>&1 || true
+            die "readiness probe timed out (5m)"
+        fi
     done
     note "readiness ok"
 
