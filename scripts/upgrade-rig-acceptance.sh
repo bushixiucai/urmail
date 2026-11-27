@@ -291,4 +291,4 @@ echo "==================== SUMMARY ======================================"
 printf '%s\n' "$SUMMARY"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = 0 ] && echo "RIG_ACCEPTANCE_ALL_PASS" || echo "RIG_ACCEPTANCE_HAS_FAILURES"
-exit $([ "$FAIL" = 0 ] && echo 0 || echo 1)
+exit "$([ "$FAIL" = 0 ] && echo 0 || echo 1)"
