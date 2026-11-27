@@ -35,10 +35,9 @@ func TestSlice3GateMatrix(t *testing.T) {
 	for _, tc := range []struct {
 		method, path, payload string
 	}{
-		{http.MethodGet, "/api/v1/mailbox/folders", ""},
-		{http.MethodGet, "/api/v1/mailbox/messages", ""},
-		{http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages", ""},
-		{http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages/1", ""},
+		// Slice-1.5 moved the read-only listing/read surfaces out of the
+		// gate (IMAP-backed listings landed); only the image proxy and
+		// corporate-directory stay explicitly gated here.
 		{http.MethodGet, "/api/v1/mailbox/images/proxy?u=aHR0cDovL2V4YW1wbGUuY2xpcA==", ""},
 		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice", ""},
 	} {
@@ -64,6 +63,13 @@ func TestSlice3GateMatrix(t *testing.T) {
 		{http.MethodDelete, "/api/v1/mailbox/drafts/42?uid_validity=42", ""},
 		{http.MethodGet, "/api/v1/mailbox/rules", ""},
 		{http.MethodPut, "/api/v1/mailbox/rules", `{"version":"","rules":[]}`},
+		// Slice-1.5: the read-only listing/read surfaces left the gate —
+		// against the unreachable-IMAP fixture they fail loudly at the
+		// handler boundary (502 IMAP_UNAVAILABLE), never the gate 503.
+		{http.MethodGet, "/api/v1/mailbox/folders", ""},
+		{http.MethodGet, "/api/v1/mailbox/messages", ""},
+		{http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages", ""},
+		{http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages/1", ""},
 	} {
 		code, body = client.do(tc.method, tc.path, tc.payload)
 		if code == http.StatusServiceUnavailable && strings.Contains(body, "FEATURE_UNAVAILABLE") {
