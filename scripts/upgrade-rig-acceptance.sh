@@ -230,7 +230,7 @@ printf '%s\n' "$out" | grep -E "not running after start|writers failed" | head -
 # injection-effect witness (baseline captured at injection).
 assert "C1b_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
 assert "C1b_hold" "$(hold_state)" "yes"
-assert "C1b_not_running" "$(ev_count 'not running after start')" "1"
+assert "C1b_not_running" "$(ev_count 'not stably running after start')" "1"
 assert "C1b_no_started_note" "$(ev_count 'writers started, hold cleared')" "0"
 c1b_restarts_post=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
 assert "C1b_injection_effect" "$([ "$c1b_restarts_post" -gt "$c1b_restarts_pre" ] && echo yes || echo no)" "yes"
