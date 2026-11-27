@@ -33,16 +33,10 @@ func TestSignHandlerInsertsDKIMHeader(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(domainDir, "mail.private"), pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	server := &mailspam.Server{
-		Addr:    "127.0.0.1:0",
-		Handler: &signHandler{store: store},
-		Config:  mailspam.MilterConfig{KeepFullBody: true},
-	}
-	_ = server
-	// The wire-level round trip (negotiate/headers/body/insert) is covered
-	// by internal/mailspam milter tests against the same Server type; here
-	// we pin the handler contract directly: known domain signs, unknown
-	// domain skips.
+	// The wire-level round trip (negotiate/headers/body/insert/verify) is
+	// covered by internal/mailspam milter tests against the same Server
+	// type (TestMilterRoundTripInsertsHeaders and friends); here we pin the
+	// handler contract directly: known domain signs, unknown domain skips.
 	h := &signHandler{store: store}
 	req := mailspam.VerdictRequest{
 		EnvelopeFrom: "alice@example.test",
