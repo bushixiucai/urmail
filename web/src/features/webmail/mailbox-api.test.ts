@@ -1,18 +1,21 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { DEFAULT_REQUEST_TIMEOUT_MS } from "@/lib/api/client";
 import {
   attachmentDecodedBytes,
   attachmentTotalBytes,
   assertAttachmentTotal,
   clearMailboxSession,
+  fetchMailboxStatus,
   getMailboxAddress,
   getMailboxExpiresAt,
   getMailboxToken,
   hasMailboxSession,
+  isMailboxSessionExpired,
   listFolders,
   MAILBOX_AI_CONFIGURATION_CHANGED,
   mailboxRequest,
   saveMailboxSettings,
-  setMailboxLoginRedirectHandler,
+  setMailboxSessionExpiryHandler,
   MAX_SEND_ATTACHMENT_BYTES,
   MAX_SEND_TOTAL_ATTACHMENT_BYTES,
   saveDraft,
@@ -64,7 +67,13 @@ it("binds schedule retries to the idempotency header and exact UIDVALIDITY", asy
   };
   await scheduleSend(body, "replay-key-1234567890");
   await scheduleSend(body, "replay-key-1234567890");
-  expect(fetcher.mock.calls[0]).toEqual(fetcher.mock.calls[1]);
+  // Requests are byte-identical apart from the per-call abort signal
+  // (each request carries its own timeout controller since FE-006).
+  const [c0, c1] = fetcher.mock.calls;
+  expect(c0[0]).toEqual(c1[0]);
+  expect(c0[1].method).toEqual(c1[1].method);
+  expect(c0[1].headers).toEqual(c1[1].headers);
+  expect(c0[1].body).toEqual(c1[1].body);
   expect(fetcher.mock.calls[0][1].headers).toMatchObject({
     Authorization: "Bearer mailbox-only",
     "Idempotency-Key": "replay-key-1234567890",
@@ -282,14 +291,14 @@ it("keeps a live session and a session without an expires_at", () => {
   expect(hasMailboxSession()).toBe(true);
 });
 
-it("redirects once on 401 and clears the session (single flight)", async () => {
+it("broadcasts session expiry once on 401 and clears the session (single flight)", async () => {
   setMailboxSession({
     token: "dying-token",
     address: "user@domain.test",
     expires_at: new Date(Date.now() + 60_000).toISOString(),
   });
-  const assign = vi.fn();
-  setMailboxLoginRedirectHandler(assign);
+  const sink = vi.fn();
+  setMailboxSessionExpiryHandler(sink);
   const fetcher = vi.fn().mockResolvedValue({
     ok: false,
     status: 401,
@@ -310,17 +319,21 @@ it("redirects once on 401 and clears the session (single flight)", async () => {
       listFolders(),
       listFolders(),
     ]);
-    expect(assign).toHaveBeenCalledTimes(1);
-    expect(assign).toHaveBeenCalledWith("/webmail/login");
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(sink).toHaveBeenCalledWith({
+      loginPath: "/webmail/login",
+      returnTo: expect.stringMatching(/^\//),
+    });
     expect(getMailboxToken()).toBeNull();
+    expect(isMailboxSessionExpired()).toBe(true);
   } finally {
-    setMailboxLoginRedirectHandler(null);
+    setMailboxSessionExpiryHandler(null);
   }
 });
 
-it("does not redirect for non-auth errors or unauthenticated requests", async () => {
-  const assign = vi.fn();
-  setMailboxLoginRedirectHandler(assign);
+it("does not broadcast expiry for non-auth errors or unauthenticated requests", async () => {
+  const sink = vi.fn();
+  setMailboxSessionExpiryHandler(sink);
   const fetcher = vi
     .fn()
     .mockResolvedValueOnce({
@@ -338,7 +351,7 @@ it("does not redirect for non-auth errors or unauthenticated requests", async ()
   vi.stubGlobal("fetch", fetcher);
   try {
     await expect(listFolders()).rejects.toMatchObject({ status: 500 });
-    expect(assign).not.toHaveBeenCalled();
+    expect(sink).not.toHaveBeenCalled();
     expect(getMailboxToken()).toBeNull();
     // An unauthenticated call (login/status) must never trigger the funnel,
     // even when the endpoint itself answers 401.
@@ -360,9 +373,101 @@ it("does not redirect for non-auth errors or unauthenticated requests", async ()
     await expect(
       mailboxRequest("/api/v1/mailbox/status", { auth: false }),
     ).rejects.toMatchObject({ status: 401 });
-    expect(assign).not.toHaveBeenCalled();
+    expect(sink).not.toHaveBeenCalled();
     expect(getMailboxToken()).toBe("t");
   } finally {
-    setMailboxLoginRedirectHandler(null);
+    setMailboxSessionExpiryHandler(null);
+  }
+});
+
+it("re-arms the expiry funnel on a fresh login", async () => {
+  const sink = vi.fn();
+  setMailboxSessionExpiryHandler(sink);
+  const fetcher = vi.fn().mockResolvedValue({
+    ok: false,
+    status: 401,
+    json: async () => ({
+      error: {
+        code: "MAILBOX_UNAUTHORIZED",
+        message: "error.MAILBOX_UNAUTHORIZED",
+      },
+    }),
+  });
+  vi.stubGlobal("fetch", fetcher);
+  try {
+    setMailboxSession({
+      token: "t1",
+      address: "a@b.test",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+    });
+    await expect(listFolders()).rejects.toMatchObject({ status: 401 });
+    expect(sink).toHaveBeenCalledTimes(1);
+    // Fresh sign-in re-arms: the next dead token broadcasts again.
+    setMailboxSession({
+      token: "t2",
+      address: "a@b.test",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+    });
+    await expect(listFolders()).rejects.toMatchObject({ status: 401 });
+    expect(sink).toHaveBeenCalledTimes(2);
+  } finally {
+    setMailboxSessionExpiryHandler(null);
+    vi.unstubAllGlobals();
+  }
+});
+
+it("aborts hung requests at the default timeout (FE-006)", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetcher = vi.fn(
+      (_path: string, init?: RequestInit) =>
+        new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    setMailboxSession({
+      token: "t",
+      address: "a@b.test",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const pending = listFolders();
+    const assertion = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS + 1_000);
+    await assertion;
+    expect(fetcher).toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("honors timeoutMs: 0 to disable the wall-clock cap", async () => {
+  vi.useFakeTimers();
+  try {
+    const holder: { release?: () => void } = {};
+    const fetcher = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          holder.release = () =>
+            resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({ native: true }),
+            } as Response);
+        }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const pending = fetchMailboxStatus();
+    await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS + 5_000);
+    holder.release?.();
+    await expect(pending).resolves.toMatchObject({ native: true });
+  } finally {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   }
 });

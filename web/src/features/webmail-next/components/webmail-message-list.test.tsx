@@ -4,6 +4,7 @@ import {
   fireEvent,
   cleanup,
   act,
+  waitFor,
 } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailMessageList } from "./webmail-message-list";
@@ -841,5 +842,91 @@ describe("Q4 giant-thread exemption (interview 2026-11-26)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("list scroll persistence (REVIEW-FE-008 return-to-position)", () => {
+  const scrollRows = [
+    {
+      uid: 101,
+      subject: "Meeting Tomorrow",
+      from: [{ name: "Alice", email: "alice@example.com" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 102,
+      subject: "Lunch",
+      from: [{ name: "Bob", email: "bob@example.com" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+  ] as MessageSummary[];
+
+  const props = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    isCrossFolder: false,
+    messages: scrollRows,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+    onSelectMessage: vi.fn(),
+  };
+
+  afterEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it("persists scroll offset per folder (throttled)", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<WebmailMessageList {...props} />);
+      const container = screen.getByTestId("message-rows-container");
+      fireEvent.scroll(container, { target: { scrollTop: 333 } });
+      // Throttle: the write lands after 300ms.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(
+        window.sessionStorage.getItem("urmail.webmail.list-scroll:b64.SU5CT1g"),
+      ).toBe("333");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores the saved offset on mount once rows exist", async () => {
+    window.sessionStorage.setItem(
+      "urmail.webmail.list-scroll:b64.SU5CT1g",
+      "222",
+    );
+    render(<WebmailMessageList {...props} />);
+    const container = screen.getByTestId(
+      "message-rows-container",
+    ) as HTMLElement;
+    await waitFor(() => {
+      expect(container.scrollTop).toBe(222);
+    });
+  });
+
+  it("does not restore for search views", () => {
+    window.sessionStorage.setItem(
+      "urmail.webmail.list-scroll:b64.SU5CT1g",
+      "222",
+    );
+    render(<WebmailMessageList {...props} isSearchView={true} />);
+    const container = screen.getByTestId(
+      "message-rows-container",
+    ) as HTMLElement;
+    expect(container.scrollTop).toBe(0);
   });
 });

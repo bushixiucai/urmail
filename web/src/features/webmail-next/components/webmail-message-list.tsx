@@ -371,6 +371,52 @@ export function WebmailMessageList({
     return () => element.removeEventListener("scroll", onScroll);
   }, [onNearEnd, items.length]);
 
+  // Session-expiry return-to-position (REVIEW-FE-008): persist the browsing
+  // folder's scroll offset so returning after re-login lands where the user
+  // was. Throttled writes; keyed per folder; search views are excluded.
+  const savedScrollFolderRef = useRef<string | null>(null);
+  useEffect(() => {
+    const element = parentRef.current;
+    if (!element || !activeFolderEnc || isSearchView) return;
+    let timer = 0;
+    const onScroll = () => {
+      if (timer) return;
+      timer = window.setTimeout(() => {
+        timer = 0;
+        try {
+          window.sessionStorage.setItem(
+            `urmail.webmail.list-scroll:${activeFolderEnc}`,
+            String(Math.round(element.scrollTop)),
+          );
+        } catch {
+          // Storage is optional.
+        }
+      }, 300);
+    };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      element.removeEventListener("scroll", onScroll);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [activeFolderEnc, isSearchView]);
+
+  useEffect(() => {
+    if (!activeFolderEnc || isSearchView) return;
+    if (savedScrollFolderRef.current === activeFolderEnc) return;
+    const element = parentRef.current;
+    if (!element || isInitialLoading || items.length === 0) return;
+    savedScrollFolderRef.current = activeFolderEnc;
+    try {
+      const raw = window.sessionStorage.getItem(
+        `urmail.webmail.list-scroll:${activeFolderEnc}`,
+      );
+      const top = raw == null ? NaN : Number(raw);
+      if (Number.isFinite(top) && top > 0) element.scrollTop = top;
+    } catch {
+      // Storage is optional.
+    }
+  }, [activeFolderEnc, isSearchView, isInitialLoading, items.length]);
+
   const loadedLabel =
     messages.length > 0
       ? t("webmail_next.loaded_range", {

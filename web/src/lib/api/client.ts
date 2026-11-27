@@ -167,6 +167,52 @@ export interface RequestOptions {
   body?: unknown;
   signal?: AbortSignal;
   idempotencyKey?: string;
+  /**
+   * Wall-clock cap for this request in milliseconds. `0` disables the cap.
+   * Defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}; the caller's `signal`
+   * (when given) aborts the request independently of the timer.
+   */
+  timeoutMs?: number;
+}
+
+/** Default wall-clock cap so a hung upstream cannot pend forever (FE-006). */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+export interface ComposedAbortSignal {
+  signal: AbortSignal;
+  /** Detaches the timer/listener; call when the request settles. */
+  cleanup: () => void;
+}
+
+/**
+ * Merge a wall-clock timeout with the caller's optional abort signal into one
+ * signal. Hand-rolled (no `AbortSignal.any`) so jsdom/older engines behave
+ * the same as Chromium.
+ */
+export function composeAbortSignal(
+  timeoutMs: number,
+  external?: AbortSignal,
+): ComposedAbortSignal {
+  if (!timeoutMs) {
+    if (external) return { signal: external, cleanup: () => {} };
+    return { signal: new AbortController().signal, cleanup: () => {} };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  if (external?.aborted) {
+    clearTimeout(timer);
+    controller.abort();
+    return { signal: controller.signal, cleanup: () => {} };
+  }
+  const onExternalAbort = () => controller.abort();
+  external?.addEventListener("abort", onExternalAbort);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      external?.removeEventListener("abort", onExternalAbort);
+    },
+  };
 }
 
 /**
@@ -247,6 +293,8 @@ export async function request<T>(
   options: RequestOptions = {},
 ): Promise<T> {
   const { method = "GET", body, signal, idempotencyKey } = options;
+  const timeout = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const composed = composeAbortSignal(timeout, signal);
 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -261,38 +309,42 @@ export async function request<T>(
   }
 
   const cacheKey = etagCacheKey(method, path, token);
-  const { response, fromCache, payload } = await revalidatingFetch<T>(
-    path,
-    {
-      method,
-      headers,
-      credentials: "same-origin",
-      signal,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-    method,
-    cacheKey,
-  );
-
-  if (fromCache) return payload as T;
-
-  if (!response.ok) {
-    let parsed: ApiError | null = null;
-    try {
-      parsed = parseApiErrorPayload(await response.json());
-    } catch {
-      // Unparseable body falls through to the bounded INTERNAL_ERROR below.
-    }
-    throw new ApiRequestError(
-      response.status,
-      parsed ?? {
-        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+  try {
+    const { response, fromCache, payload } = await revalidatingFetch<T>(
+      path,
+      {
+        method,
+        headers,
+        credentials: "same-origin",
+        signal: composed.signal,
+        body: body === undefined ? undefined : JSON.stringify(body),
       },
+      method,
+      cacheKey,
     );
-  }
 
-  if (response.status === 204) return undefined as T;
-  const data = (await response.json()) as T;
-  noteEtagResponse(cacheKey, response, data);
-  return data;
+    if (fromCache) return payload as T;
+
+    if (!response.ok) {
+      let parsed: ApiError | null = null;
+      try {
+        parsed = parseApiErrorPayload(await response.json());
+      } catch {
+        // Unparseable body falls through to the bounded INTERNAL_ERROR below.
+      }
+      throw new ApiRequestError(
+        response.status,
+        parsed ?? {
+          error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+        },
+      );
+    }
+
+    if (response.status === 204) return undefined as T;
+    const data = (await response.json()) as T;
+    noteEtagResponse(cacheKey, response, data);
+    return data;
+  } finally {
+    composed.cleanup();
+  }
 }
