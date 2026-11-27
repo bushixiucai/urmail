@@ -2667,4 +2667,32 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
       ),
     );
   });
+
+  it("shows reading error state on getMessage 502 and recovers on retry", async () => {
+    vi.mocked(mailboxApi.getMessage).mockRejectedValueOnce(
+      new Error("502 Bad Gateway"),
+    );
+    const client = createTestQueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const row = await screen.findByTestId("mail-row-148");
+    fireEvent.click(row);
+
+    const errorAlert = await screen.findByTestId("reading-load-error");
+    expect(errorAlert).toBeTruthy();
+    expect(screen.queryByText("webmail_next.empty_reading_title")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("reading-retry-button"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("reading-load-error")).toBeNull();
+      expect(screen.getByTestId("mail-html-frame")).toBeTruthy();
+    });
+  });
 });

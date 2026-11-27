@@ -680,6 +680,8 @@ export function WebmailNextWorkbench({
   const {
     data: detailResult,
     isLoading: isDetailLoading,
+    isError: isDetailError,
+    error: detailError,
     refetch: refetchDetail,
   } = useQuery<MessageDetailResult | null>({
     queryKey: [
@@ -2014,6 +2016,9 @@ export function WebmailNextWorkbench({
               message={messageDetail || null}
               folderEnc={readingFolder}
               isLoading={isDetailLoading}
+              isError={isDetailError}
+              loadError={detailError instanceof Error ? detailError : null}
+              onRetry={() => refetchDetail()}
               isGlobalRemoteImagesAllowed={isGlobalImagesAllowed}
               isManualRemoteImagesAllowed={isCurrentManualGranted}
               threadMembers={stackMembers}

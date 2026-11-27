@@ -2639,6 +2639,7 @@
     "webmail_next.junk": "Junk",
     "webmail_next.loaded_range": "Loaded {{from}}–{{to}} / {{total}}",
     "webmail_next.loaded_range_short": "{{from}}–{{to}} / {{total}}",
+    "webmail_next.detail_load_failed": "Couldn't load message.",
     "webmail_next.list_load_failed": "Couldn't load messages.",
     "webmail_next.loading_message": "Loading message",
     "webmail_next.mail_sent": "Message sent",

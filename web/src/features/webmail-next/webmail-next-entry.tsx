@@ -1,5 +1,6 @@
 import { useParams, useSearchParams } from "react-router-dom";
 import { WebmailNextWorkbench } from "./webmail-next-workbench";
+import { WebmailErrorBoundary } from "./components/webmail-error-boundary";
 
 export function WebmailNextEntry() {
   const params = useParams<{ folderEnc?: string }>();
@@ -7,5 +8,9 @@ export function WebmailNextEntry() {
 
   const folder = params.folderEnc || searchParams.get("folder") || "INBOX";
 
-  return <WebmailNextWorkbench initialFolder={folder} />;
+  return (
+    <WebmailErrorBoundary>
+      <WebmailNextWorkbench initialFolder={folder} />
+    </WebmailErrorBoundary>
+  );
 }

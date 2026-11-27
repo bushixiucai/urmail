@@ -761,22 +761,27 @@ export function WebmailMessageList({
       >
         {items.length === 0 ? (
           showInitialSkeleton ? (
-            <MailListSkeleton
-              testId="list-initial-skeleton"
-              rows={8}
-              rowHeight={rowHeight}
-            />
+            <div key="list-skeleton">
+              <MailListSkeleton
+                testId="list-initial-skeleton"
+                rows={8}
+                rowHeight={rowHeight}
+              />
+            </div>
           ) : loadError ? (
             <div
+              key="list-error"
               data-testid="list-load-error"
               role="alert"
               className="h-full flex flex-col items-center justify-center gap-2 text-xs text-[var(--vellum-ink-secondary)] px-6 text-center"
             >
               <Mail className="w-6 h-6 opacity-40" />
               <p>
-                {t("webmail_next.list_load_failed", {
-                  defaultValue: "Couldn't load messages.",
-                })}
+                <span>
+                  {t("webmail_next.list_load_failed", {
+                    defaultValue: "Couldn't load messages.",
+                  })}
+                </span>
               </p>
               {onRefresh && (
                 <button
@@ -784,31 +789,36 @@ export function WebmailMessageList({
                   onClick={onRefresh}
                   className="px-3 py-1 rounded border border-[var(--vellum-border)] text-[var(--vellum-ink)] hover:bg-[var(--vellum-surface-muted)] transition-colors"
                 >
-                  {t("action.retry")}
+                  <span>{t("action.retry")}</span>
                 </button>
               )}
             </div>
           ) : isSearchView ? (
-            <WebmailEmptyState
-              testId="empty-search"
-              icon={SearchX}
-              title={t("webmail_next.empty_search_title")}
-              description={t("webmail_next.empty_search_body")}
-              actionLabel={t("webmail_next.empty_search_action")}
-              onAction={onClearSearch}
-            />
+            <div key="list-empty-search" className="h-full">
+              <WebmailEmptyState
+                testId="empty-search"
+                icon={SearchX}
+                title={t("webmail_next.empty_search_title")}
+                description={t("webmail_next.empty_search_body")}
+                actionLabel={t("webmail_next.empty_search_action")}
+                onAction={onClearSearch}
+              />
+            </div>
           ) : (
-            <WebmailEmptyState
-              testId="empty-folder"
-              icon={Inbox}
-              title={t("webmail_next.empty_folder_title")}
-              description={t("webmail_next.empty_folder_body")}
-              actionLabel={t("webmail_next.empty_folder_action")}
-              onAction={onCompose}
-            />
+            <div key="list-empty-folder" className="h-full">
+              <WebmailEmptyState
+                testId="empty-folder"
+                icon={Inbox}
+                title={t("webmail_next.empty_folder_title")}
+                description={t("webmail_next.empty_folder_body")}
+                actionLabel={t("webmail_next.empty_folder_action")}
+                onAction={onCompose}
+              />
+            </div>
           )
         ) : virtualItems.length > 0 ? (
           <div
+            key="list-virtual"
             style={{
               height: virtualizer.getTotalSize(),
               position: "relative",
@@ -836,11 +846,13 @@ export function WebmailMessageList({
             })}
           </div>
         ) : (
-          items.map((item) => (
-            <div key={rowKey(item)} className="contents">
-              {renderMessageRow(item)}
-            </div>
-          ))
+          <div key="list-flat">
+            {items.map((item) => (
+              <div key={rowKey(item)} className="contents">
+                {renderMessageRow(item)}
+              </div>
+            ))}
+          </div>
         )}
         {allCaughtUp && (
           <div

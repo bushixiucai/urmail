@@ -1,4 +1,10 @@
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  act,
+} from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailMessageList } from "./webmail-message-list";
 import type { MessageSummary } from "@/features/webmail/mailbox-api";
@@ -779,5 +785,61 @@ describe("Q4 giant-thread exemption (interview 2026-11-26)", () => {
     expect(onSelectMessage).toHaveBeenCalledTimes(1);
     expect(onSelectMessage).toHaveBeenCalledWith(420, undefined);
     expect(screen.queryByTestId("mail-row-401")).toBeNull();
+  });
+
+  it("transitions cleanly from loading skeleton to 502 loadError to retry recovery", async () => {
+    vi.useFakeTimers();
+    try {
+      const onRefresh = vi.fn();
+      const baseProps = {
+        folderName: "Inbox",
+        activeUid: null,
+        onSelectMessage: vi.fn(),
+        density: "comfortable" as const,
+        sort: "date" as const,
+        order: "desc" as const,
+        onSortChange: vi.fn(),
+        onRefresh,
+      };
+      const { rerender } = render(
+        <WebmailMessageList
+          {...baseProps}
+          messages={[]}
+          isInitialLoading={true}
+          loadError={null}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(screen.getByTestId("list-initial-skeleton")).toBeTruthy();
+
+      rerender(
+        <WebmailMessageList
+          {...baseProps}
+          messages={[]}
+          isInitialLoading={false}
+          loadError={new Error("502 Bad Gateway")}
+        />,
+      );
+      expect(screen.getByTestId("list-load-error")).toBeTruthy();
+      expect(screen.getByText("webmail_next.list_load_failed")).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "action.retry" }));
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <WebmailMessageList
+          {...baseProps}
+          messages={mockMessages}
+          isInitialLoading={false}
+          loadError={null}
+        />,
+      );
+      expect(screen.queryByTestId("list-load-error")).toBeNull();
+      expect(screen.getByTestId("mail-row-102")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
