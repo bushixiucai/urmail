@@ -37,9 +37,18 @@ func TestSlice3GateMatrix(t *testing.T) {
 	}{
 		// Slice-1.5 moved the read-only listing/read surfaces out of the
 		// gate (IMAP-backed listings landed); slice-1.6 moved the image
-		// proxy out (sanitizer-signed, self-authorizing). Only
-		// corporate-directory stays explicitly gated here.
+		// proxy out (sanitizer-signed, self-authorizing); b5 moved search,
+		// flags, folder writes, the scheduled-sends/send-receipts families
+		// and password out. Still gated: the message mutation family
+		// (move/copy/trash/restore/delete/import — not part of b5) and
+		// corporate-directory (structural: PG AppPool dependency).
 		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice", ""},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/move", `{"uids":[1],"to":"Archive","uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/copy", `{"uids":[1],"to":"Archive","uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/trash", `{"uids":[1],"uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/restore", `{"uids":[1],"uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/delete", `{"uids":[1],"uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/import", "raw"},
 	} {
 		code, body = client.do(tc.method, tc.path, tc.payload)
 		if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {
@@ -81,12 +90,59 @@ func TestSlice3GateMatrix(t *testing.T) {
 		}
 	}
 
+	// b5 batch: the six newly approved doors must never answer the gate.
+	// Expected semantics are asserted exactly:
+	//   - IMAP-backed doors (search, flags, folder writes) fail loudly at
+	//     the IMAP boundary — 502 IMAP_UNAVAILABLE against the unreachable
+	//     fixture, never a silent mutation and never FEATURE_UNAVAILABLE;
+	//   - platform-backed doors (scheduled-sends, send-receipts, password)
+	//     reach their handlers and answer the fail-closed 503
+	//     WEBMAIL_DISABLED while the slice runtime has no PG pool.
+	for _, tc := range []struct {
+		method, path, payload string
+		wantCode              int
+		wantBody              string
+	}{
+		{http.MethodGet, "/api/v1/mailbox/search?q=probe", "", http.StatusBadGateway, "IMAP_UNAVAILABLE"},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/flags", `{"add":["\\Seen"],"remove":[],"uids":[1],"uid_validity":1}`, http.StatusBadGateway, "IMAP_UNAVAILABLE"},
+		{http.MethodPost, "/api/v1/mailbox/folders", `{"name":"Custom"}`, http.StatusBadGateway, "IMAP_UNAVAILABLE"},
+		{http.MethodPatch, "/api/v1/mailbox/folders/INBOX", `{"name":"Renamed","uid_validity":1}`, http.StatusBadGateway, "IMAP_UNAVAILABLE"},
+		{http.MethodDelete, "/api/v1/mailbox/folders/INBOX?uid_validity=1", "", http.StatusBadGateway, "IMAP_UNAVAILABLE"},
+		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"to":["bob@b.example.test"],"subject":"s5","text":"hi","send_at":"2030-01-01T00:00:00Z"}`, http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		{http.MethodGet, "/api/v1/mailbox/scheduled-sends", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		{http.MethodDelete, "/api/v1/mailbox/scheduled-sends/42", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		{http.MethodPost, "/api/v1/mailbox/scheduled-sends/42/repair-sent-copy", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		{http.MethodPost, "/api/v1/mailbox/scheduled-sends/42/acknowledge-uncertain", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		{http.MethodGet, "/api/v1/mailbox/send-receipts", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		{http.MethodGet, "/api/v1/mailbox/send-receipts/42", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		{http.MethodPost, "/api/v1/mailbox/send-receipts/42/repair-sent-copy", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		{http.MethodPost, "/api/v1/mailbox/password", `{"old_password":"slice1-mailbox-password","new_password":"another-valid-password-1"}`, http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+	} {
+		code, body = client.do(tc.method, tc.path, tc.payload)
+		if code != tc.wantCode || !strings.Contains(body, tc.wantBody) {
+			t.Fatalf("b5 approved %s %s = %d %s, want %d %s", tc.method, tc.path, code, body, tc.wantCode, tc.wantBody)
+		}
+	}
+
 	// Unauthenticated callers keep 401 on the newly approved routes.
 	fresh := &slice1Client{t: t, server: server}
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/mailbox/send"},
 		{http.MethodPut, "/api/v1/mailbox/drafts"},
 		{http.MethodGet, "/api/v1/mailbox/rules"},
+		// b5 doors: the gate runs AFTER authentication, so callers without
+		// a mailbox session keep the original 401, never a 503.
+		{http.MethodGet, "/api/v1/mailbox/search?q=probe"},
+		{http.MethodPost, "/api/v1/mailbox/folders"},
+		{http.MethodPatch, "/api/v1/mailbox/folders/INBOX"},
+		{http.MethodDelete, "/api/v1/mailbox/folders/INBOX?uid_validity=1"},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/flags"},
+		{http.MethodPost, "/api/v1/mailbox/scheduled-sends"},
+		{http.MethodGet, "/api/v1/mailbox/scheduled-sends"},
+		{http.MethodDelete, "/api/v1/mailbox/scheduled-sends/42"},
+		{http.MethodGet, "/api/v1/mailbox/send-receipts"},
+		{http.MethodGet, "/api/v1/mailbox/send-receipts/42"},
+		{http.MethodPost, "/api/v1/mailbox/password"},
 	} {
 		if code, _ := fresh.do(tc.method, tc.path, "{}"); code != http.StatusUnauthorized {
 			t.Fatalf("unauthenticated %s %s = %d, want 401", tc.method, tc.path, code)

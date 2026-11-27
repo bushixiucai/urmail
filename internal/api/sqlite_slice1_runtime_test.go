@@ -238,34 +238,35 @@ func TestSlice1SQLiteMailboxRuntime(t *testing.T) {
 		t.Fatalf("identities = %d %s", code, body)
 	}
 
-	// (h2) slice-1 gate: with a VALID session, every non-slice mailbox route
-	// must answer 503 FEATURE_UNAVAILABLE BEFORE any handler side effect —
-	// no IMAP dial (that would be 502 IMAP_UNAVAILABLE), no SMTP submit, no
-	// storage write. Gate runs after authentication, so these all carry the
-	// valid bearer.
-	var scheduledRows int
-	denyProbes := []struct {
+	// (h2) slice-1 gate: with a VALID session, every non-approved mailbox
+	// route must answer its fail-closed state BEFORE any handler side
+	// effect — no SMTP submit, no storage write. Gate runs after
+	// authentication, so these all carry the valid bearer. b5 semantics:
+	//   - IMAP-backed doors (folder create; search/flags asserted in the
+	//     readonly/matrix tests) leave the gate and fail loudly at the IMAP
+	//     boundary (502 IMAP_UNAVAILABLE, no storage write);
+	//   - platform-backed doors (scheduled-sends, password) leave the gate
+	//     and answer the fail-closed 503 WEBMAIL_DISABLED (no PG pool);
+	//   - rules left at slice-3: it answers its own explicit SIEVE_DISABLED
+	//     state (SQLite keeps the managed-Sieve store nil) — still
+	//     fail-closed, never the old silent-empty behavior.
+	gateProbes := []struct {
 		method, path, body string
+		wantCode           int
+		wantBody           string
 	}{
-		{http.MethodPost, "/api/v1/mailbox/folders", `{"name":"Custom"}`},
-		{http.MethodGet, "/api/v1/mailbox/rules", ""},
-		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"draft_uid":1,"draft_uidvalidity":1,"send_at":"2030-01-01T00:00:00Z"}`},
-		{http.MethodPost, "/api/v1/mailbox/password", `{"old_password":"x","new_password":"y"}`},
+		{http.MethodGet, "/api/v1/mailbox/rules", "", http.StatusServiceUnavailable, "SIEVE_DISABLED"},
+		{http.MethodPost, "/api/v1/mailbox/folders", `{"name":"Custom"}`, http.StatusBadGateway, "IMAP_UNAVAILABLE"},
+		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"draft_uid":1,"draft_uidvalidity":1,"send_at":"2030-01-01T00:00:00Z"}`, http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		{http.MethodPost, "/api/v1/mailbox/password", `{"old_password":"x","new_password":"y"}`, http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
 	}
-	for _, probe := range denyProbes {
+	for _, probe := range gateProbes {
 		code, body = client.do(probe.method, probe.path, probe.body)
-		// rules left the slice-1 gate: it answers its own explicit
-		// SIEVE_DISABLED state (SQLite keeps the managed-Sieve store nil)
-		// instead of the gate 503 — still fail-closed, never the old
-		// silent-empty behavior.
-		wantCode, wantBody := http.StatusServiceUnavailable, "FEATURE_UNAVAILABLE"
-		if probe.path == "/api/v1/mailbox/rules" {
-			wantBody = "SIEVE_DISABLED"
-		}
-		if code != wantCode || !strings.Contains(body, wantBody) {
-			t.Fatalf("non-slice %s %s = %d %s, want %d %s", probe.method, probe.path, code, body, wantCode, wantBody)
+		if code != probe.wantCode || !strings.Contains(body, probe.wantBody) {
+			t.Fatalf("non-slice %s %s = %d %s, want %d %s", probe.method, probe.path, code, body, probe.wantCode, probe.wantBody)
 		}
 	}
+	var scheduledRows int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_scheduled_sends`).Scan(&scheduledRows); err != nil || scheduledRows != 0 {
 		t.Fatalf("scheduled-sends rows = %d (err=%v), want 0: a denied route wrote storage", scheduledRows, err)
 	}

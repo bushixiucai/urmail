@@ -534,16 +534,24 @@ func New(opts Options) *gin.Engine {
 			//   slice-1: login/logout, settings, quota, identities;
 			//   slice-3: send (SMTP submitter), drafts (IMAP Drafts), rules
 			//   (mailboxes.sieve_script + agent activator);
-			//   slice-1.5 (this change): read-only folder/message listings —
-			//   the IMAP-backed listing has landed (TC-13a fix): listings
-			//   route through the live dialIMAP path and serve Dovecot's
-			//   authoritative data with its real UIDVALIDITY, so the
-			//   previously-gated read surfaces below leave the gate. All
-			//   listing writes (folders POST/PATCH/DELETE, message
-			//   flags/move/copy/trash) stay gated.
+			//   slice-1.5: read-only folder/message listings (live dialIMAP,
+			//   TC-13a fix);
+			//   slice-1.6: the image proxy (sanitizer-signed,
+			//   self-authorizing);
+			//   b5 (this change): search GET, message flags POST, folder
+			//   create/rename/delete, the scheduled-sends and send-receipts
+			//   families, and mailbox password POST. The IMAP-backed doors
+			//   (search/flags/folders writes) route through the live
+			//   dialIMAP path and fail loudly at that boundary (502
+			//   IMAP_UNAVAILABLE); the platform-backed doors
+			//   (scheduled-sends, send-receipts, password) reach their
+			//   handlers, which answer 503 WEBMAIL_DISABLED while the slice
+			//   runtime carries no PG pool — the gate lifts, fail-closed is
+			//   preserved, and the doors become fully functional on the PG
+			//   engine where the gate never applies.
 			// Everything else answers 503 FEATURE_UNAVAILABLE with no
-			// Retry-After and no fallback — message mutations and
-			// corporate-directory remain gated.
+			// Retry-After and no fallback — message move/copy/trash/delete/
+			// restore/import and corporate-directory remain gated.
 			mailboxAuthed.Use(func(c *gin.Context) {
 				method := c.Request.Method
 				switch c.FullPath() {
@@ -586,7 +594,27 @@ func New(opts Options) *gin.Engine {
 						c.Next()
 						return
 					}
-				case "/api/v1/mailbox/folders", "/api/v1/mailbox/messages",
+				case "/api/v1/mailbox/search":
+					// b5: WEBMAIL-004 cross-folder search — read-only IMAP
+					// fan-out through the live dialIMAP path.
+					if method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/folders":
+					// b5: folder create joins the slice-1.5 listing read on
+					// the same path (IMAP-backed write).
+					if method == http.MethodGet || method == http.MethodPost {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/folders/:name":
+					// b5: folder rename/delete (IMAP-backed writes).
+					if method == http.MethodPatch || method == http.MethodDelete {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/messages",
 					"/api/v1/mailbox/folders/:name/messages",
 					"/api/v1/mailbox/folders/:name/messages/:uid",
 					"/api/v1/mailbox/folders/:name/messages/:uid/thread",
@@ -596,6 +624,61 @@ func New(opts Options) *gin.Engine {
 					// these paths keep their existing 405/404 semantics from
 					// the router (no mutating routes are registered on them).
 					if method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/folders/:name/messages/flags":
+					// b5: message flag add/remove (IMAP STORE-backed write).
+					if method == http.MethodPost {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/scheduled-sends":
+					// b5: the scheduled-sends family leaves the gate. The
+					// handler is platform-backed: with no PG pool in the
+					// slice runtime it answers 503 WEBMAIL_DISABLED
+					// (fail-closed), never the gate FEATURE_UNAVAILABLE.
+					if method == http.MethodPost || method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/scheduled-sends/:id":
+					if method == http.MethodDelete {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/scheduled-sends/:id/repair-sent-copy",
+					"/api/v1/mailbox/scheduled-sends/:id/acknowledge-uncertain":
+					if method == http.MethodPost {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/send-receipts":
+					// b5: the send-receipts family leaves the gate with the
+					// same platform-backed fail-closed posture as
+					// scheduled-sends above.
+					if method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/send-receipts/:id":
+					if method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/send-receipts/:id/repair-sent-copy":
+					if method == http.MethodPost {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/password":
+					// b5: mailbox password rotation leaves the gate; the
+					// platform-backed handler keeps the fail-closed
+					// WEBMAIL_DISABLED posture in the slice runtime, and its
+					// old-password proof / audit / session-invalidation
+					// semantics stay covered by the PG integration tests
+					// (mailbox_password_integration_test.go).
+					if method == http.MethodPost {
 						c.Next()
 						return
 					}

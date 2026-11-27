@@ -228,21 +228,38 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 		t.Fatalf("GET /api/v1/mailbox/messages = %d %s, want 502 IMAP_UNAVAILABLE", msgResp.StatusCode, string(msgBody))
 	}
 
-	// The gate keeps at least one route pinned: a listing WRITE still
-	// answers 503 FEATURE_UNAVAILABLE even with the read surfaces out of
-	// the gate (slice-1.5 moves reads only).
-	gateReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/folders",
-		strings.NewReader(`{"name":"KeepGated"}`))
+	// The gate keeps at least one route pinned: a message mutation (not
+	// part of the b5 batch) still answers 503 FEATURE_UNAVAILABLE even with
+	// the b5 write doors out of the gate.
+	gateReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/folders/INBOX/messages/move",
+		strings.NewReader(`{"uids":[1],"to":"Archive","uid_validity":1}`))
 	gateReq.Header.Set("Content-Type", "application/json")
 	gateReq.Header.Set("Authorization", "Bearer "+loginPayload.Token)
 	gateResp, err := ts.Client().Do(gateReq)
 	if err != nil {
-		t.Fatalf("POST /api/v1/mailbox/folders: %v", err)
+		t.Fatalf("POST /api/v1/mailbox/folders/INBOX/messages/move: %v", err)
 	}
 	gateBody, _ := io.ReadAll(gateResp.Body)
 	_ = gateResp.Body.Close()
 	if gateResp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(gateBody), "FEATURE_UNAVAILABLE") {
-		t.Fatalf("POST /api/v1/mailbox/folders = %d %s, want 503 FEATURE_UNAVAILABLE", gateResp.StatusCode, string(gateBody))
+		t.Fatalf("POST /api/v1/mailbox/folders/INBOX/messages/move = %d %s, want 503 FEATURE_UNAVAILABLE", gateResp.StatusCode, string(gateBody))
+	}
+
+	// b5: folder create left the gate — an IMAP-backed write fails loudly
+	// at the IMAP boundary (502 IMAP_UNAVAILABLE), never the gate 503 and
+	// never a silent mutation.
+	b5Req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/folders",
+		strings.NewReader(`{"name":"B5Door"}`))
+	b5Req.Header.Set("Content-Type", "application/json")
+	b5Req.Header.Set("Authorization", "Bearer "+loginPayload.Token)
+	b5Resp, err := ts.Client().Do(b5Req)
+	if err != nil {
+		t.Fatalf("POST /api/v1/mailbox/folders: %v", err)
+	}
+	b5Body, _ := io.ReadAll(b5Resp.Body)
+	_ = b5Resp.Body.Close()
+	if b5Resp.StatusCode != http.StatusBadGateway || !strings.Contains(string(b5Body), "IMAP_UNAVAILABLE") {
+		t.Fatalf("POST /api/v1/mailbox/folders = %d %s, want 502 IMAP_UNAVAILABLE", b5Resp.StatusCode, string(b5Body))
 	}
 
 	sendReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/send",

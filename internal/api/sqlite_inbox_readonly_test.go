@@ -62,16 +62,40 @@ func TestSQLiteIMAPListingsLeaveTheGate(t *testing.T) {
 		}
 	}
 
-	// Write operations remain strictly blocked with 503 FEATURE_UNAVAILABLE.
+	// b5: the IMAP-backed write doors (folder create/rename/delete, message
+	// flags) and search left the gate — against the unreachable-IMAP fixture
+	// they fail loudly at the handler boundary (502 IMAP_UNAVAILABLE), never
+	// the gate 503 and never a silent mutation.
 	for _, writeReq := range []struct {
 		method, path, payload string
 	}{
 		{http.MethodPost, "/api/v1/mailbox/folders", `{"name":"Custom"}`},
 		{http.MethodPatch, "/api/v1/mailbox/folders/INBOX", `{"name":"Renamed","uid_validity":1}`},
 		{http.MethodDelete, "/api/v1/mailbox/folders/INBOX?uid_validity=1", ""},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/flags", `{"add":["\\Seen"],"remove":[],"uids":[1],"uid_validity":1}`},
+		{http.MethodGet, "/api/v1/mailbox/search?q=probe", ""},
+	} {
+		code, body = client.do(writeReq.method, writeReq.path, writeReq.payload)
+		if code != http.StatusBadGateway || !strings.Contains(body, "IMAP_UNAVAILABLE") {
+			t.Fatalf("b5 door %s %s = %d %s, want 502 IMAP_UNAVAILABLE", writeReq.method, writeReq.path, code, body)
+		}
+	}
+
+	// Write operations outside the b5 batch remain strictly blocked with
+	// 503 FEATURE_UNAVAILABLE (message move/copy/trash/delete/restore/import
+	// and corporate-directory stay gated).
+	for _, writeReq := range []struct {
+		method, path, payload string
+	}{
 		// slice-3: drafts left the gate; their handler-level failures are
 		// asserted in TestSlice3GateMatrix.
 		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/delete", `{"uids":[1],"uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/move", `{"uids":[1],"to":"Archive","uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/copy", `{"uids":[1],"to":"Archive","uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/trash", `{"uids":[1],"uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/restore", `{"uids":[1],"uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/import", "raw"},
+		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice", ""},
 	} {
 		code, body = client.do(writeReq.method, writeReq.path, writeReq.payload)
 		if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {

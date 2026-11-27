@@ -45,8 +45,13 @@ func TestSQLiteRouteGateRejectsUnsupportedPaths(t *testing.T) {
 		// slice-3 (this change): send and the whole drafts family (PUT/GET
 		// collection + DELETE /drafts/:uid, S3-1) plus rules left the deny
 		// list — their allow-side assertions live in TestSlice3GateMatrix.
-		{http.MethodGet, "/api/v1/mailbox/send-receipts", ""},
-		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"to":["x@example.test"],"text":"x"}`},
+		// b5: search, flags, folder writes, the scheduled-sends/send-receipts
+		// families and password also left the deny list. Still denied with
+		// the gate FEATURE_UNAVAILABLE: the message mutation family and
+		// corporate-directory.
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/move", `{"uids":[1],"to":"Archive","uid_validity":1}`},
+		{http.MethodPost, "/api/v1/mailbox/folders/INBOX/messages/trash", `{"uids":[1],"uid_validity":1}`},
+		{http.MethodGet, "/api/v1/mailbox/corporate-directory/search?q=alice", ""},
 	} {
 		code, body := client.do(probe.method, probe.path, probe.body)
 		if code != http.StatusServiceUnavailable || !contains(body, "FEATURE_UNAVAILABLE") {
@@ -56,6 +61,25 @@ func TestSQLiteRouteGateRejectsUnsupportedPaths(t *testing.T) {
 	afterR, afterS, afterSess := counts()
 	if beforeR != afterR || beforeS != afterS || beforeSess != afterSess {
 		t.Fatalf("gate wrote data: receipts %d->%d schedules %d->%d sessions %d->%d", beforeR, afterR, beforeS, afterS, beforeSess, afterSess)
+	}
+
+	// b5: the platform-backed doors left the gate; with no PG pool in the
+	// slice runtime their handlers answer the fail-closed 503
+	// WEBMAIL_DISABLED — and must still write nothing (the original S7
+	// side-effect contract carries over to the new semantics).
+	for _, probe := range []struct{ method, path, body string }{
+		{http.MethodGet, "/api/v1/mailbox/send-receipts", ""},
+		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"to":["x@example.test"],"text":"x"}`},
+		{http.MethodPost, "/api/v1/mailbox/password", `{"old_password":"x","new_password":"another-valid-password-1"}`},
+	} {
+		code, body := client.do(probe.method, probe.path, probe.body)
+		if code != http.StatusServiceUnavailable || !contains(body, "WEBMAIL_DISABLED") {
+			t.Fatalf("%s %s = %d %s, want 503 WEBMAIL_DISABLED (fail-closed, no PG pool)", probe.method, probe.path, code, body)
+		}
+	}
+	afterR2, afterS2, afterSess2 := counts()
+	if beforeR != afterR2 || beforeS != afterS2 || beforeSess != afterSess2 {
+		t.Fatalf("handler wrote data while disabled: receipts %d->%d schedules %d->%d sessions %d->%d", beforeR, afterR2, beforeS, afterS2, beforeSess, afterSess2)
 	}
 	if code, body := client.do(http.MethodGet, "/api/v1/mailbox/settings", ""); code != http.StatusOK {
 		t.Fatalf("whitelisted settings route = %d %s", code, body)
