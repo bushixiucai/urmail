@@ -24,7 +24,11 @@
 # and EXIT cannot double-fire the release logic. Never prints secrets.
 #
 # Usage: ./upgrade.sh vX [--dry-run] [-h]
-set -euo pipefail
+# -E (errtrace): the ERR trap must fire inside functions too — without it a
+# `die` (return 4) or any other unhandled failure inside main() only reached
+# the evidence EXIT trap (rc line), never finish_failure, so the pre-up
+# restore / post-up rollback-runbook semantics were unreachable (D2).
+set -Eeuo pipefail
 
 V=""
 DRY_RUN=0
@@ -325,8 +329,30 @@ PLAN
     for w in ${URMAIL_WRITERS:-postfix dovecot}; do
         # shellcheck disable=SC2086
         case " $writers_absent " in *" $w "*) continue ;; esac
-        if ! docker compose ps --status running -q "$w" 2>/dev/null | grep -q .; then
-            echo "writer $w not running after start" >>"$EVIDENCE"
+        # b3: a bare `ps --status running` check races the writer process
+        # exit — a crashing container reports running for a few hundred ms,
+        # the check passes, and the hold is cleared on a dead stack (observed
+        # E_injection_ready=yes with rc=0). Assert deterministically: the
+        # service must stay running AND its containers' RestartCount must be
+        # unchanged across a stability window — an instant crash under a
+        # restart policy bumps RestartCount, and with restart: no the
+        # container leaves the running set.
+        restarts_before=$(docker compose ps -aq "$w" 2>/dev/null | xargs -r docker inspect --format '{{.RestartCount}}' 2>/dev/null | awk '{s+=$1} END {print s+0}')
+        stable=0
+        running=""
+        restarts_now="$restarts_before"
+        for _ in 1 2 3 4 5; do
+            sleep 1
+            running=$(docker compose ps --status running -q "$w" 2>/dev/null | grep -c . || true)
+            restarts_now=$(docker compose ps -aq "$w" 2>/dev/null | xargs -r docker inspect --format '{{.RestartCount}}' 2>/dev/null | awk '{s+=$1} END {print s+0}')
+            if [ "${running:-0}" -ge 1 ] && [ "$restarts_now" -eq "$restarts_before" ]; then
+                stable=$((stable + 1))
+            else
+                stable=0
+            fi
+        done
+        if [ "$stable" -lt 3 ]; then
+            echo "writer $w not stably running after start (running=${running:-0} restarts $restarts_before->$restarts_now)" >>"$EVIDENCE"
             writers_ok=0
         fi
     done
