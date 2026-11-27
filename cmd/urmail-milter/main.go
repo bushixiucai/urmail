@@ -209,10 +209,19 @@ func runHealthcheck(listen string) error {
 	if err = conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
 		return err
 	}
-	// SMFIC_OPTNEG: version 6, SMFIF_ADDHDRS|SMFIF_CHGHDRS, no actions.
-	plen := []byte{0x00, 0x00, 0x00, 0x0d}
-	payload := append([]byte{'O'}, plen...)
-	payload = append(payload, []byte{0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03}...)
+	// SMFIC_OPTNEG frame: [4B length=13]['O'][version 4B][actions 4B][mods
+	// 4B] — rev-7 (QA S-1): the frame length must LEAD the frame. The
+	// previous code wrote 'O' before the length, so the server read
+	// 0x4F000000 as the frame size, exceeded maxPacket and reset the
+	// connection: the probe never parsed an OPTNEG reply and the compose
+	// urmail-signer healthcheck would have looped unhealthy forever.
+	payload := []byte{
+		0x00, 0x00, 0x00, 0x0d, // frame length: 1 cmd byte + 12B payload
+		'O',
+		0x00, 0x00, 0x00, 0x06, // protocol version 6
+		0x00, 0x00, 0x00, 0x01, // SMFIF_ADDHDRS
+		0x00, 0x00, 0x00, 0x03, // reserved mods (byte-identical to rev-6)
+	}
 	if _, err = conn.Write(payload); err != nil {
 		return fmt.Errorf("write optneg: %w", err)
 	}
