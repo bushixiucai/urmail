@@ -66,13 +66,20 @@ jobs:
           sudo bash scripts/upgrade-rig-acceptance.sh 2>&1 | tee "$RUNNER_TEMP/rig-acceptance-output.log"
           cp "$RUNNER_TEMP/rig-acceptance-output.log" ./rig-acceptance-output.log
 
+      - name: Collect rig evidence (data/ is uid-5000-owned; runner cannot scan)
+        if: always()
+        run: |
+          sudo mkdir -p evidence-archive
+          sudo find data -maxdepth 1 -name 'upgrade-evidence-*.log' \
+            -exec cp -a {} evidence-archive/ \; || true
+          sudo chown -R "$(id -u):$(id -g)" evidence-archive || true
+
       - name: Upload evidence artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: upgrade-rig-evidence
           path: |
-            data/upgrade-evidence-*.log
             evidence-archive/**
             rig-acceptance-output.log
           retention-days: 30
