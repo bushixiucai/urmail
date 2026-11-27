@@ -7,11 +7,11 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 )
 
-// TestSpamMilterChain pins the MAIL-002 wiring: the spam verdict milter is
-// the LAST entry of the MX (main.cf) smtpd_milters chain in every node
-// variant, so it observes the Authentication-Results headers the DKIM/DMARC
-// milters add. It never appears in non_smtpd_milters: locally injected
-// operational mail must not be classified or Junk-filed.
+// TestSpamMilterChain pins the MAIL-002 wiring after the rev-8 cleanup: the
+// retired spampd port 11339 appears NOWHERE in the rendered set (it used to
+// sit last in the smtpd_milters chain as the content-verdict slot; with the
+// verdict service decommissioned it was a dead connect on every message),
+// and the signer milter stays in every smtpd chain.
 func TestSpamMilterChain(t *testing.T) {
 	variants := map[string]postfix.NodeConfig{
 		"standard": defaultNodeConfig(),
@@ -55,18 +55,15 @@ func TestSpamMilterChain(t *testing.T) {
 			if smtpdLine == "" {
 				t.Fatal("smtpd_milters line missing")
 			}
-			// The spam milter is last and follows the DKIM/DMARC milters.
-			if !strings.HasSuffix(smtpdLine, "inet:127.0.0.1:11339") {
-				t.Fatalf("spam milter not last in chain: %q", smtpdLine)
-			}
+			// The signer milter stays in the smtpd chain of every variant.
 			if !strings.Contains(smtpdLine, "inet:127.0.0.1:12301") && !strings.Contains(smtpdLine, "inet:127.0.0.1:8891") {
-				t.Fatalf("spam milter replaced the DKIM chain: %q", smtpdLine)
+				t.Fatalf("signer/DKIM chain missing: %q", smtpdLine)
 			}
-			// non_smtpd_milters must stay free of the spam milter.
-			for _, line := range strings.Split(main, "\n") {
-				if strings.HasPrefix(line, "non_smtpd_milters = ") && strings.Contains(line, "11339") {
-					t.Fatal("spam milter must not classify locally injected mail")
-				}
+			// The retired spampd port must be gone from the whole rendered
+			// set — a dead chain entry costs a refused connect per message
+			// and fires spam_milter_unavailable spuriously.
+			if strings.Contains(main, "11339") {
+				t.Fatalf("retired spam milter port still rendered: %q", smtpdLine)
 			}
 			// The documented degrade path: an unavailable milter accepts.
 			// milter_default_action=accept in main.cf IS the degrade policy;

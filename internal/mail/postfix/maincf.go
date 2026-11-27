@@ -120,22 +120,27 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	// outage of ANY milter in this chain (including the spam one) degrades to
 	// normal, unflagged delivery instead of blocking mail. That documented
 	// degrade path raises the spam_milter_unavailable operational alert.
-	// Only smtpd_milters carries the spam milter: non_smtpd (locally injected
-	// operational) mail must not be classified or Junk-filed.
-	const spamMilter = "inet:127.0.0.1:11339"
+	// Only smtpd_milters carries the content-verdict slot in the preserve
+	// variants: non_smtpd (locally injected operational) mail must not be
+	// classified or Junk-filed. The retired spampd port 11339 is GONE from
+	// every chain (rev-8): with the verdict service decommissioned it was a
+	// dead entry — every message paid a refused connect in the hot path and
+	// spam_milter_unavailable alerts fired spuriously. When the verdict
+	// service returns it must re-enter via a rendered slot, not this
+	// hard-coded legacy port.
 	switch {
 	case node.V80Preserve && node.PreserveExternalOpenDKIM:
 		// Same-host cutover keeps the live OpenDKIM milter (8891) and OpenDMARC
 		// (8893). Pointing at 12301 would either miss signatures or double-sign
 		// if a second OpenDKIM were started beside the preserved unit.
-		b.WriteString("smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893, " + spamMilter + "\n")
+		b.WriteString("smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893\n")
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893\n\n")
 	case node.V80Preserve:
 		// Preserve OpenDMARC independently; the new signer replaces old 8891.
-		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893, " + spamMilter + "\n")
+		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n")
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n\n")
 	default:
-		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, " + spamMilter + "\n")
+		b.WriteString("smtpd_milters = inet:127.0.0.1:12301\n")
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301\n\n")
 	}
 
