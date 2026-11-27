@@ -543,3 +543,40 @@ describe("compose focus management (REVIEW-UIUX-016)", () => {
     }
   });
 });
+
+describe("draft saved-at clock shape (REVIEW-UIUX-014 QA pr164)", () => {
+  afterEach(() => {
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+  });
+
+  it("renders the saved-at hint in h23 shape, never locale-default 12h", async () => {
+    vi.useFakeTimers();
+    try {
+      // Fix the fake system clock so the expected h23 string is exact.
+      vi.setSystemTime(new Date(2026, 10, 27, 15, 4, 5));
+      render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+      fireEvent.change(screen.getByTestId("compose-subject-input"), {
+        target: { value: "Clock shape" },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const indicator = screen.getByTestId("draft-status-indicator")
+        .textContent as string;
+      // h23 shape "HH:MM:SS" — the saved-at hint must not fall back to the
+      // locale default (en-US would render "3:04:05 PM" here).
+      expect(indicator).toMatch(
+        /^webmail_next\.draft_saved \d{2}:\d{2}:\d{2}$/,
+      );
+      expect(indicator).not.toMatch(/AM|PM/);
+      // Hour 15 pins h23 (the 12h locale default would show 3 with PM).
+      expect(indicator).toMatch(/15:04:\d{2}/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

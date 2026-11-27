@@ -152,7 +152,17 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
             uid: res.uid,
             uid_validity: res.uid_validity,
           }));
-          setLastSavedAt(new Date().toLocaleTimeString());
+          // REVIEW-UIUX-014 (QA pr164 single point): same-source h23 clock
+          // as the list/reading panes — never the locale-default 12h form.
+          setLastSavedAt(
+            new Intl.DateTimeFormat(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
+              hourCycle: "h23",
+            }).format(new Date()),
+          );
           return true;
         }
         // The server answered without confirming the save: the draft exists
