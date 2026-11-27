@@ -200,6 +200,7 @@ mock_row
 docker compose stop dovecot >/dev/null 2>&1 || true
 INJ_PID=$(port_occupy 10143) || INJ_PID=""
 assert "E_injection_ready" "$([ -n "$INJ_PID" ] && echo yes || echo no)" "yes"
+e_restarts_pre=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
 # ALLOW_RECORDLESS: E targets the post-up WRITER-START failure path; without
 # the switch readiness-record fails closed first and the injection is dead
 # code (same fail-closed default R1 covers).
@@ -214,9 +215,8 @@ assert "E_path_fence" "$(path_reached 'native fence: hold written')" "1"
 # check settles (Backend fix pending). Assert the deterministic injection
 # effect; flip back to rc=nonzero / hold=yes / runbook assertions once the
 # product check settles.
-c1b_restarts_pre=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
-c1b_restarts_post=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
-assert "E_injection_effect" "$([ "$c1b_restarts_post" -gt "$c1b_restarts_pre" ] && echo yes || echo no)" "yes"
+e_restarts_post=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
+assert "E_injection_effect" "$([ "$e_restarts_post" -gt "$e_restarts_pre" ] && echo yes || echo no)" "yes"
 echo "E sentinel=known gap: writer-start running-check races process exit (b-class #3, reported to PM)" | tee -a "$URMAIL_DATA_ROOT"/upgrade-evidence-e-selfcert.log
 rm -f "$URMAIL_DATA_ROOT/maintenance/upgrade.hold"
 archive_ev "E"
@@ -239,6 +239,7 @@ mock_row
 docker compose stop dovecot >/dev/null 2>&1 || true
 INJ_PID=$(port_occupy 10143) || INJ_PID=""
 assert "C1b_injection_ready" "$([ -n "$INJ_PID" ] && echo yes || echo no)" "yes"
+c1b_restarts_pre=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
 # ALLOW_RECORDLESS: C1b targets the writer-start failure path (see E).
 out=$(URMAIL_ALLOW_RECORDLESS_RIG=1 URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 port_release "$INJ_PID"
@@ -246,8 +247,8 @@ printf '%s\n' "$out" | grep -E "not running after start|writers failed" | head -
 # TEMPORARY SENTINELS (b-class #3): see E — the product writer-start check
 # races the process exit, so the injected failure is missed and the upgrade
 # completes; assert the deterministic injection effect until it settles.
-c1b_restarts_post2=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
-assert "C1b_injection_effect" "$([ "$c1b_restarts_post2" -gt "$c1b_restarts_pre" ] && echo yes || echo no)" "yes"
+c1b_restarts_post=$(docker inspect --format "{{.RestartCount}}" "$(docker compose ps -q dovecot)" 2>/dev/null || echo 0)
+assert "C1b_injection_effect" "$([ "$c1b_restarts_post" -gt "$c1b_restarts_pre" ] && echo yes || echo no)" "yes"
 echo "C1b sentinel=known gap: writer-start running-check races process exit (b-class #3, reported to PM)" | tee -a "$URMAIL_DATA_ROOT"/upgrade-evidence-c1b-selfcert.log
 rm -f "$URMAIL_DATA_ROOT/maintenance/upgrade.hold"
 archive_ev "C1b"
