@@ -111,6 +111,10 @@ type MilterConfig struct {
 	DenyScoreThreshold float64
 	// MaxBodySampleBytes caps the retained body sample.
 	MaxBodySampleBytes int
+	// KeepFullBody retains the ENTIRE body in VerdictRequest.FullBody for
+	// handlers that must transform it (DKIM signing). Off by default: the
+	// classifier only needs the bounded sample.
+	KeepFullBody bool
 	// IdleTimeout bounds one wire read.
 	IdleTimeout time.Duration
 }
@@ -136,6 +140,9 @@ type VerdictRequest struct {
 	Recipients   []string
 	Headers      []Header
 	BodySample   []byte
+	// FullBody carries the complete body (raw wire bytes) when the milter
+	// config enables KeepFullBody; nil otherwise.
+	FullBody []byte
 }
 
 // VerdictResponse is the classification outcome expressed as milter actions.
@@ -293,6 +300,7 @@ type session struct {
 	recipients               []string
 	headers                  []Header
 	body                     []byte
+	fullBody                 []byte
 	authenticationBody       []byte
 	authenticationIncomplete bool
 	authenticationSlot       bool
@@ -311,6 +319,7 @@ func (s *session) resetMessage() {
 	s.recipients = nil
 	s.headers = nil
 	s.body = nil
+	s.fullBody = nil
 	s.authenticationBody = nil
 	s.authenticationIncomplete = false
 	s.headerBytes = 0
@@ -417,6 +426,9 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 				s.authenticationBody = append(s.authenticationBody, payload...)
 			}
 		}
+		if s.dirty && s.cfg.KeepFullBody {
+			s.fullBody = append(s.fullBody, payload...)
+		}
 		if s.dirty && len(s.body) < s.cfg.MaxBodySampleBytes {
 			room := s.cfg.MaxBodySampleBytes - len(s.body)
 			if len(payload) < room {
@@ -447,6 +459,7 @@ func (s *session) finishMessage(ctx context.Context, w io.Writer) error {
 		Recipients:   s.recipients,
 		Headers:      s.headers,
 		BodySample:   s.body,
+		FullBody:     s.fullBody,
 	}
 	verdict := VerdictResponse{}
 	if s.handler != nil {

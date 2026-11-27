@@ -107,8 +107,15 @@ services:
     profiles: ["milter"]
     command: ["urmail-milter", "sign"]
     restart: unless-stopped
+    # Loopback-only publish (pm-signer-wiring-1 Option Y): the host-network
+    # Postfix reaches the signer at inet:127.0.0.1:12301 through this host
+    # loopback binding; no public exposure.
+    ports:
+      - "127.0.0.1:12301:12301"
     environment:
       URMAIL_MILTER_LISTEN: 0.0.0.0:12301
+      URMAIL_DKIM_KEY_DIR: /srv/urmail/dkim/keys
+      URMAIL_DKIM_SELECTOR: mail
     volumes:
       - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/config
       - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
