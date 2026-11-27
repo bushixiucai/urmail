@@ -411,9 +411,10 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 		fields := splitNUL(payload)
 		if len(fields) >= 4 {
 			family, addr := fields[1], fields[3]
-			if family == "L" {
+			switch family {
+			case "L":
 				s.connectionAddr = "unix:" + addr
-			} else if family == "4" || family == "6" {
+			case "4", "6":
 				s.connectionAddr = addr
 			}
 		}

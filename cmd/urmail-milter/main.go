@@ -33,6 +33,7 @@ import (
 	"net/mail"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -191,7 +192,14 @@ func runHealthcheck(listen string) error {
 	if port == "" {
 		return fmt.Errorf("listen address has no port")
 	}
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 3*time.Second)
+	// Numeric port validation lets the dialer build the address from a
+	// constant host plus a vetted integer — no tainted string flows into
+	// the dial (gosec G704).
+	portNum, portErr := strconv.Atoi(port)
+	if portErr != nil || portNum < 1 || portNum > 65535 {
+		return fmt.Errorf("listen address has invalid port %q", port)
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(portNum)), 3*time.Second)
 	if err != nil {
 		return fmt.Errorf("dial milter: %w", err)
 	}
