@@ -5,7 +5,7 @@ test.skip(
   "run through the SQLite-backed Go browser harness",
 );
 
-test("SQLite login/settings persistence and expired write redirect", async ({
+test("SQLite login/settings persistence and expired write recovery", async ({
   page,
   baseURL,
 }) => {
@@ -131,14 +131,22 @@ test("SQLite login/settings persistence and expired write redirect", async ({
     );
   });
   expect((await expiredWrite).status()).toBe(401);
-  await expect(page).toHaveURL(/\/webmail\/login/);
-  await expect(page.locator("#mailbox-email")).toBeVisible();
+  // Recovery contract (REVIEW-UX-001 / REVIEW-FE-008): the 401 funnel
+  // clears the dead session, records the route for the post-login return
+  // and keeps the loaded page alive — no top-level navigation to
+  // /webmail/login happens any more. The mounted banner owns re-login.
+  await expect(page).toHaveURL(/\/webmail\/help/);
   await page.waitForLoadState("networkidle");
   console.log(
     `ASSERT top-level login document requests=${loginDocumentNavigationRequests}; distinct route transitions=${topLevelLoginTransitions}; raw main-frame events=${loginFrameEvents}`,
   );
-  expect(loginDocumentNavigationRequests).toBe(1);
-  expect(topLevelLoginTransitions).toBe(1);
+  expect(loginDocumentNavigationRequests).toBe(0);
+  expect(topLevelLoginTransitions).toBe(0);
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("urmail.webmail.session-return-to"),
+    ),
+  ).toBe("/webmail/help");
   expect(
     await page.evaluate(() => sessionStorage.getItem("urmail.mailbox-token")),
   ).toBeNull();
