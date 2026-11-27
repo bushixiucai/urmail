@@ -203,14 +203,15 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /api/v1/mailbox/folders: %v", err)
 	}
+	folderBody, _ := io.ReadAll(folderResp.Body)
 	_ = folderResp.Body.Close()
 	// Slice-1.5 contract: the read-only listings route through the live
 	// IMAP dial and answer LOUDLY when that dial cannot connect — the
 	// fixture pins the IMAP endpoint unreachable, so the expected status is
 	// the transport 502 IMAP_UNAVAILABLE, never the silent empty list that
 	// motivated QA TC-13a and never the gate 503 (the route left the gate).
-	if folderResp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("GET /api/v1/mailbox/folders = %d, want 502 IMAP_UNAVAILABLE", folderResp.StatusCode)
+	if folderResp.StatusCode != http.StatusBadGateway || !strings.Contains(string(folderBody), "IMAP_UNAVAILABLE") {
+		t.Fatalf("GET /api/v1/mailbox/folders = %d %s, want 502 IMAP_UNAVAILABLE", folderResp.StatusCode, string(folderBody))
 	}
 
 	msgReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/mailbox/messages", nil)
@@ -219,11 +220,29 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /api/v1/mailbox/messages: %v", err)
 	}
+	msgBody, _ := io.ReadAll(msgResp.Body)
 	_ = msgResp.Body.Close()
 	// Same slice-1.5 contract for the message listing: loud IMAP transport
 	// failure instead of a gate or a silent empty list.
-	if msgResp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("GET /api/v1/mailbox/messages = %d, want 502 IMAP_UNAVAILABLE", msgResp.StatusCode)
+	if msgResp.StatusCode != http.StatusBadGateway || !strings.Contains(string(msgBody), "IMAP_UNAVAILABLE") {
+		t.Fatalf("GET /api/v1/mailbox/messages = %d %s, want 502 IMAP_UNAVAILABLE", msgResp.StatusCode, string(msgBody))
+	}
+
+	// The gate keeps at least one route pinned: a listing WRITE still
+	// answers 503 FEATURE_UNAVAILABLE even with the read surfaces out of
+	// the gate (slice-1.5 moves reads only).
+	gateReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/folders",
+		strings.NewReader(`{"name":"KeepGated"}`))
+	gateReq.Header.Set("Content-Type", "application/json")
+	gateReq.Header.Set("Authorization", "Bearer "+loginPayload.Token)
+	gateResp, err := ts.Client().Do(gateReq)
+	if err != nil {
+		t.Fatalf("POST /api/v1/mailbox/folders: %v", err)
+	}
+	gateBody, _ := io.ReadAll(gateResp.Body)
+	_ = gateResp.Body.Close()
+	if gateResp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(gateBody), "FEATURE_UNAVAILABLE") {
+		t.Fatalf("POST /api/v1/mailbox/folders = %d %s, want 503 FEATURE_UNAVAILABLE", gateResp.StatusCode, string(gateBody))
 	}
 
 	sendReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/send",
