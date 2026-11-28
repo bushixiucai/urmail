@@ -55,22 +55,16 @@ func (b *SyncBackend) syncEmailCollection(ctx context.Context, req *SyncRequest,
 		items = map[string]itemRow{}
 	}
 	state.UIDValidity = int64(uidv)
-	// pm-eas-replay-fix-1: claim the next generation atomically BEFORE any
-	// IMAP side effect — exactly one concurrent same-key request may own it.
-	// The tail no longer re-advances: the claim already consumed the key.
-	if !fullSync {
-		claimed := state
-		claimed.ChangeSeq = state.ChangeSeq + 1
-		ok, err := claimSyncGeneration(ctx, b.Pool, req.Session, req.DeviceID, p.collectionID, state.Epoch, state.ChangeSeq, claimed.ChangeSeq)
-		if err != nil {
-			return collectionResult{status: syncStatusServerError}
-		}
-		if !ok {
-			return collectionResult{status: syncStatusInvalidKey}
-		}
+	items, responses, applied, claimed, claimRejected := b.applyEmailCommands(ctx, req, p, folder, items, state, fullSync)
+	if claimRejected {
+		// Another same-key request already owns the next generation:
+		// InvalidKey with ZERO IMAP side effects (pm-eas-replay-fix-1).
+		return collectionResult{status: syncStatusInvalidKey}
+	}
+	if applied || len(responses) > 0 {
+		// The claim advanced the generation; keep it for the persistence.
 		state = claimed
 	}
-	items, responses, applied := b.applyEmailCommands(ctx, req, p, folder, items)
 	result := collectionResult{status: syncStatusSuccess, responses: responses}
 	window := p.windowSize
 	if window <= 0 || window > maxItems {
@@ -227,7 +221,11 @@ func (b *SyncBackend) syncEmailCollection(ctx context.Context, req *SyncRequest,
 		// keyCheck); the first change batch takes seq 1.
 		state.ChangeSeq++
 	}
-	if err = b.persistEmailState(ctx, req, p.collectionID, state, items); err != nil {
+	var guard *collectionState
+	if !fullSync {
+		guard = &state
+	}
+	if err = b.persistEmailState(ctx, req, p.collectionID, state, items, guard); err != nil {
 		return collectionResult{status: syncStatusServerError}
 	}
 	result.syncKey = formatSyncKey(state.Epoch, state.ChangeSeq)
@@ -271,9 +269,29 @@ func emailPage(ctx context.Context, source MailSource, folder string, cursor uin
 // applyEmailCommands applies client Change (Read flag) and Delete (expunge)
 // operations. Unsupported client commands (Add/Fetch for email) answer with
 // the per-item protocol-error status - never pseudo-success.
-func (b *SyncBackend) applyEmailCommands(ctx context.Context, req *SyncRequest, p parsedCollection, folder string, items map[string]itemRow) (map[string]itemRow, []*Node, bool) {
+func (b *SyncBackend) applyEmailCommands(ctx context.Context, req *SyncRequest, p parsedCollection, folder string, items map[string]itemRow, state collectionState, fullSync bool) (map[string]itemRow, []*Node, bool, collectionState, bool) {
 	if len(p.commands) == 0 {
-		return items, nil, false
+		return items, nil, false, state, false
+	}
+	// pm-eas-replay-fix-1: claim the next generation atomically BEFORE the
+	// first IMAP side effect — exactly one concurrent same-key request owns
+	// it; the loser answers InvalidKey with zero side effects. Pure
+	// read/diff passes (no client commands) and full syncs (randomized
+	// epoch) claim nothing, so unchanged-key rounds stay idempotent no-ops.
+	claimRejected := false
+	println("ZZ apply cmds=", len(p.commands), "fullSync=", fullSync, "seq=", state.ChangeSeq)
+	if !fullSync {
+		claimed := state
+		claimed.ChangeSeq = state.ChangeSeq + 1
+		ok, err := claimSyncGeneration(ctx, b.Pool, req.Session, req.DeviceID, p.collectionID, state.Epoch, state.ChangeSeq, claimed.ChangeSeq)
+		println("ZZ claim ok=", ok, "err=", err != nil)
+		if err != nil {
+			return items, nil, false, state, true
+		}
+		if !ok {
+			return items, nil, false, state, true
+		}
+		state = claimed
 	}
 	applied := false
 	var responses []*Node
@@ -324,7 +342,7 @@ func (b *SyncBackend) applyEmailCommands(ctx context.Context, req *SyncRequest, 
 	if len(removeIDs) > 0 {
 		_ = b.removeItems(ctx, req, p.collectionID, removeIDs)
 	}
-	return items, responses, applied
+	return items, responses, applied, state, claimRejected
 }
 
 // appDataRead extracts the Read value from client application data.
@@ -361,13 +379,19 @@ func setReadFlag(fp string, read bool) string {
 
 // persistEmailState atomically stores the response revision and the full
 // snapshot, including any in-progress scan cursor and seen markers.
-func (b *SyncBackend) persistEmailState(ctx context.Context, req *SyncRequest, folderID string, state collectionState, items map[string]itemRow) error {
+// persistEmailState stores the response revision and snapshot. guard != nil
+// makes the state write generation-predicated: the fingerprint snapshot only
+// lands while the caller's claim still owns the generation — a concurrent
+// full sync (or any newer generation) supersedes it and the stale snapshot
+// is discarded (the dead response key forces a client resync; no stale
+// generation ever re-takes effect). nil guard = unconditional (full syncs).
+func (b *SyncBackend) persistEmailState(ctx context.Context, req *SyncRequest, folderID string, state collectionState, items map[string]itemRow, guard *collectionState) error {
 	tx, err := b.Pool.MailboxTx(ctx, req.Session.TenantID, req.Session.MailboxID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err = saveCollectionStateTx(ctx, tx, req.Session, req.DeviceID, folderID, state); err != nil {
+	if err = saveCollectionStateTx(ctx, tx, req.Session, req.DeviceID, folderID, state, guard); err != nil {
 		return err
 	}
 	if err = replaceItemsTx(ctx, tx, req.Session, req.DeviceID, folderID, items); err != nil {

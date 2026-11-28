@@ -48,14 +48,31 @@ func saveCollectionState(ctx context.Context, pool *db.Pool, sess Session, devic
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err = saveCollectionStateTx(ctx, tx, sess, deviceID, folderID, s); err != nil {
+	if err = saveCollectionStateTx(ctx, tx, sess, deviceID, folderID, s, nil); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func saveCollectionStateTx(ctx context.Context, tx pgx.Tx, sess Session, deviceID, folderID string, s collectionState) error {
-	_, err := tx.Exec(ctx,
+func saveCollectionStateTx(ctx context.Context, tx pgx.Tx, sess Session, deviceID, folderID string, s collectionState, guard *collectionState) error {
+	// pm-eas-replay-fix-1: with a generation guard, the fingerprint
+	// snapshot only lands while the claiming generation still owns the row
+	// — a superseded write is dropped entirely (the dead response key
+	// forces a client resync; no stale generation re-takes effect).
+	if guard == nil {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO mailbox_eas_collection_state
+				   (tenant_id, mailbox_id, device_id, folder_id, sync_epoch, change_seq, uid_validity)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7)
+				 ON CONFLICT (tenant_id, mailbox_id, device_id, folder_id) DO UPDATE SET
+				   sync_epoch = EXCLUDED.sync_epoch,
+				   change_seq = EXCLUDED.change_seq,
+				   uid_validity = EXCLUDED.uid_validity,
+				   updated_at = now()`,
+			sess.TenantID, sess.MailboxID, deviceID, folderID, s.Epoch, s.ChangeSeq, s.UIDValidity)
+		return err
+	}
+	res, err := tx.Exec(ctx,
 		`INSERT INTO mailbox_eas_collection_state
 			   (tenant_id, mailbox_id, device_id, folder_id, sync_epoch, change_seq, uid_validity)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -63,10 +80,23 @@ func saveCollectionStateTx(ctx context.Context, tx pgx.Tx, sess Session, deviceI
 			   sync_epoch = EXCLUDED.sync_epoch,
 			   change_seq = EXCLUDED.change_seq,
 			   uid_validity = EXCLUDED.uid_validity,
-			   updated_at = now()`,
-		sess.TenantID, sess.MailboxID, deviceID, folderID, s.Epoch, s.ChangeSeq, s.UIDValidity)
-	return err
+			   updated_at = now()
+			 WHERE mailbox_eas_collection_state.sync_epoch = $8
+			   AND mailbox_eas_collection_state.change_seq = $9`,
+		sess.TenantID, sess.MailboxID, deviceID, folderID, s.Epoch, s.ChangeSeq, s.UIDValidity,
+		guard.Epoch, guard.ChangeSeq)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return ErrGenerationSuperseded
+	}
+	return nil
 }
+
+// ErrGenerationSuperseded reports that a newer generation owns the
+// collection state; the stale snapshot was dropped (fail-closed).
+var ErrGenerationSuperseded = errors.New("eas collection state superseded by a newer generation")
 
 // itemRow is one stored per-item snapshot entry.
 type itemRow struct {
