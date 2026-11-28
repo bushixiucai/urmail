@@ -172,15 +172,20 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "green",
+        "color": "red",
         "value": null
+       },
+       {
+        "color": "green",
+        "value": -1
        },
        {
         "color": "red",
         "value": 0.5
        }
       ]
-     }
+     },
+     "noValue": "断链/无数据"
     },
     "overrides": []
    },
@@ -214,19 +219,33 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "green",
+        "color": "red",
         "value": null
        },
        {
-        "color": "red",
-        "value": 75
-       },
-       {
         "color": "green",
-        "value": 75.5
+        "value": 75
        }
       ]
-     }
+     },
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "75": {
+         "text": "75 · 第二写者被拒（预期）",
+         "color": "green",
+         "index": 1
+        },
+        "1": {
+         "text": "1 · 租约空闲/写者掉线",
+         "color": "red",
+         "index": 0
+        }
+       }
+      }
+     ],
+     "noValue": "断链/无数据"
     },
     "overrides": []
    },
@@ -274,19 +293,16 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "green",
+        "color": "red",
         "value": null
        },
        {
-        "color": "red",
-        "value": 75
-       },
-       {
         "color": "green",
-        "value": 75.5
+        "value": 75
        }
       ]
-     }
+     },
+     "noValue": "断链/无数据"
     },
     "overrides": []
    },

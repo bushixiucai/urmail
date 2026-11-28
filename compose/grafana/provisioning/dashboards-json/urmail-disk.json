@@ -172,22 +172,27 @@
       "mode": "absolute",
       "steps": [
        {
-        "color": "green",
+        "color": "red",
         "value": null
+       },
+       {
+        "color": "green",
+        "value": -1
        },
        {
         "color": "red",
         "value": 0.9
        }
       ]
-     }
+     },
+     "noValue": "断链/无数据"
     },
     "overrides": []
    },
    "targets": [
     {
      "refId": "A",
-     "expr": "1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"}",
+     "expr": "1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\",mountpoint=\"/\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\",mountpoint=\"/\"}",
      "instant": true
     }
    ]
@@ -230,7 +235,8 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "predict_linear(node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"}[1d], 7*86400)"
+     "expr": "predict_linear(node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\",mountpoint=\"/\"}[1d], 7*86400)",
+     "legendFormat": "{{mountpoint}}"
     }
    ]
   },
@@ -272,7 +278,8 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "node_filesystem_files_free{fstype!~\"tmpfs|overlay\"}"
+     "expr": "node_filesystem_files_free{fstype!~\"tmpfs|overlay\",mountpoint=\"/\"}",
+     "legendFormat": "{{mountpoint}}"
     }
    ]
   },
