@@ -48,6 +48,14 @@ export function MailboxDetailHeader({
     : authentication?.reason?.startsWith("receive_proof_")
       ? authentication.reason
       : "receive_proof_missing";
+  // REVIEW-006 short-term ruling (2026-11-28): the receive-side detection
+  // chain currently yields no proof for any message, so the unknown / "no
+  // trusted receive-time proof" badge carries no information for users.
+  // Hide it until the chain ships proofs; keep rendering every state that
+  // is backed by a real signal (trusted pass/fail, or an explicit
+  // receive_proof_* alert). i18n keys are kept for the future re-enable.
+  const hideAuthBadge =
+    !authenticatedSource && reason === "receive_proof_missing";
   const AuthIcon =
     status === "pass" ? ShieldCheck : status === "fail" ? ShieldAlert : Shield;
   const [recipientsExpanded, setRecipientsExpanded] = useState(false);
@@ -96,66 +104,68 @@ export function MailboxDetailHeader({
                   &lt;{fromEmail}&gt;
                 </span>
               )}
-              <details className="w-full text-xs">
-                <summary
-                  className={`inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${status === "pass" ? "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10" : status === "fail" ? "text-destructive bg-destructive/10" : "text-muted-foreground bg-muted"}`}
-                >
-                  <AuthIcon className="h-3.5 w-3.5" aria-hidden />
-                  {t(`page.webmail.auth_dkim_${status}`)}
-                  <span className="sr-only">
-                    {" "}
-                    · {t("page.webmail.auth_details")}
-                  </span>
-                </summary>
-                <dl className="mt-2 space-y-1 break-words rounded border p-2 text-muted-foreground">
-                  <div>
-                    <dt className="inline font-medium">
-                      {t("page.webmail.auth_source")}:{" "}
-                    </dt>
-                    <dd className="inline">
-                      {authenticatedSource
-                        ? t("page.webmail.auth_receiver_source")
-                        : t("page.webmail.auth_dkim_unknown")}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="sr-only">
-                      {t("page.webmail.auth_details")}
-                    </dt>
-                    <dd>
-                      {t(`page.webmail.auth_reason_${reason}`, {
-                        defaultValue: t(
-                          "page.webmail.auth_reason_receive_proof_invalid",
-                        ),
-                      })}
-                    </dd>
-                  </div>
-                  {authenticatedSource && authentication.domain && (
+              {hideAuthBadge ? null : (
+                <details className="w-full text-xs">
+                  <summary
+                    className={`inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${status === "pass" ? "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10" : status === "fail" ? "text-destructive bg-destructive/10" : "text-muted-foreground bg-muted"}`}
+                  >
+                    <AuthIcon className="h-3.5 w-3.5" aria-hidden />
+                    {t(`page.webmail.auth_dkim_${status}`)}
+                    <span className="sr-only">
+                      {" "}
+                      · {t("page.webmail.auth_details")}
+                    </span>
+                  </summary>
+                  <dl className="mt-2 space-y-1 break-words rounded border p-2 text-muted-foreground">
                     <div>
                       <dt className="inline font-medium">
-                        {t("page.webmail.auth_domain")}:{" "}
-                      </dt>
-                      <dd className="inline">{authentication.domain}</dd>
-                    </div>
-                  )}
-                  {authenticatedSource && authentication.checked_at && (
-                    <div>
-                      <dt className="inline font-medium">
-                        {t("page.webmail.auth_checked_at")}:{" "}
+                        {t("page.webmail.auth_source")}:{" "}
                       </dt>
                       <dd className="inline">
-                        <time dateTime={authentication.checked_at}>
-                          {formatH23DateTime(authentication.checked_at)}
-                        </time>
+                        {authenticatedSource
+                          ? t("page.webmail.auth_receiver_source")
+                          : t("page.webmail.auth_dkim_unknown")}
                       </dd>
                     </div>
-                  )}
-                  <div>
-                    <dt className="sr-only">SPF</dt>
-                    <dd>{t("page.webmail.auth_spf_unknown")}</dd>
-                  </div>
-                </dl>
-              </details>
+                    <div>
+                      <dt className="sr-only">
+                        {t("page.webmail.auth_details")}
+                      </dt>
+                      <dd>
+                        {t(`page.webmail.auth_reason_${reason}`, {
+                          defaultValue: t(
+                            "page.webmail.auth_reason_receive_proof_invalid",
+                          ),
+                        })}
+                      </dd>
+                    </div>
+                    {authenticatedSource && authentication.domain && (
+                      <div>
+                        <dt className="inline font-medium">
+                          {t("page.webmail.auth_domain")}:{" "}
+                        </dt>
+                        <dd className="inline">{authentication.domain}</dd>
+                      </div>
+                    )}
+                    {authenticatedSource && authentication.checked_at && (
+                      <div>
+                        <dt className="inline font-medium">
+                          {t("page.webmail.auth_checked_at")}:{" "}
+                        </dt>
+                        <dd className="inline">
+                          <time dateTime={authentication.checked_at}>
+                            {formatH23DateTime(authentication.checked_at)}
+                          </time>
+                        </dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt className="sr-only">SPF</dt>
+                      <dd>{t("page.webmail.auth_spf_unknown")}</dd>
+                    </div>
+                  </dl>
+                </details>
+              )}
             </div>
 
             {/* Recipients preview / toggle */}
