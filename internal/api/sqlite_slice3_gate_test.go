@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -15,7 +16,7 @@ import (
 // image proxy and corporate-directory stay explicitly gated, and
 // unauthenticated callers keep 401.
 func TestSlice3GateMatrix(t *testing.T) {
-	_, server := newSlice1Server(t)
+	db, server := newSlice1Server(t)
 	client := &slice1Client{t: t, server: server}
 	const password = "slice1-mailbox-password"
 	code, body := client.do(http.MethodPost, "/api/v1/mailbox/session",
@@ -113,8 +114,13 @@ func TestSlice3GateMatrix(t *testing.T) {
 		{http.MethodDelete, "/api/v1/mailbox/scheduled-sends/42", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
 		{http.MethodPost, "/api/v1/mailbox/scheduled-sends/42/repair-sent-copy", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
 		{http.MethodPost, "/api/v1/mailbox/scheduled-sends/42/acknowledge-uncertain", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
-		{http.MethodGet, "/api/v1/mailbox/send-receipts", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
-		{http.MethodGet, "/api/v1/mailbox/send-receipts/42", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+		// pm-webmail-writepath-1: the receipts GET surface is functional
+		// from the SQLite ledger — the fixture seeds none, so it answers
+		// 200 with an empty list, never the gate 503. The repair POST
+		// needs the sealing secrets (absent in this fixture) and keeps
+		// the fail-closed 503 WEBMAIL_DISABLED.
+		{http.MethodGet, "/api/v1/mailbox/send-receipts", "", http.StatusOK, `"receipts":[]`},
+		{http.MethodGet, "/api/v1/mailbox/send-receipts/42", "", http.StatusNotFound, "NOT_FOUND"},
 		{http.MethodPost, "/api/v1/mailbox/send-receipts/42/repair-sent-copy", "", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
 		{http.MethodPost, "/api/v1/mailbox/password", `{"old_password":"slice1-mailbox-password","new_password":"another-valid-password-1"}`, http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
 	} {
@@ -140,11 +146,16 @@ func TestSlice3GateMatrix(t *testing.T) {
 		}
 	}
 
-	// pm-readunlock-1: the two read doors are bound to the AUTHENTICATED
-	// principal — a second tenant's session (bob, tenant 8) sees exactly
-	// the same door semantics as alice's (search hits its own IMAP
-	// boundary; send-receipts stays fail-closed while the platform ledger
-	// is absent), with no cross-principal divergence to exploit.
+	// pm-readunlock-1 + pm-webmail-writepath-1: the two read doors are
+	// bound to the AUTHENTICATED principal. search hits each session's own
+	// IMAP boundary; send-receipts is functional from the SQLite ledger —
+	// and the isolation teeth stay red-sensitive: alice owns a seeded
+	// ledger row, and bob's owner-scoped list must NEVER carry it.
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO mailbox_send_ledger("tenant_id","mailbox_id","request_key","request_hash","status")
+		 VALUES(7,11,'alice-pin-receipt','hash-pin','accepted')`); err != nil {
+		t.Fatalf("seed alice ledger row: %v", err)
+	}
 	bob := &slice1Client{t: t, server: server}
 	code, body = bob.do(http.MethodPost, "/api/v1/mailbox/session",
 		`{"email":"bob@b.example.test","password":"`+password+`"}`)
@@ -164,12 +175,26 @@ func TestSlice3GateMatrix(t *testing.T) {
 		wantBody     string
 	}{
 		{http.MethodGet, "/api/v1/mailbox/search?q=probe", http.StatusBadGateway, "IMAP_UNAVAILABLE"},
-		{http.MethodGet, "/api/v1/mailbox/send-receipts", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
 	} {
 		code, body = bob.do(tc.method, tc.path, "")
 		if code != tc.wantCode || !strings.Contains(body, tc.wantBody) {
 			t.Fatalf("bob %s %s = %d %s, want %d %s", tc.method, tc.path, code, body, tc.wantCode, tc.wantBody)
 		}
+	}
+	// bob's owner-scoped receipts: 200, only his own (none here) — alice's
+	// seeded row must not appear, and a foreign id must not resolve.
+	code, body = bob.do(http.MethodGet, "/api/v1/mailbox/send-receipts", "")
+	if code != http.StatusOK || !strings.Contains(body, `"receipts":[]`) || strings.Contains(body, "alice-pin-receipt") {
+		t.Fatalf("bob receipts = %d %s, want own-only empty list", code, body)
+	}
+	code, body = bob.do(http.MethodGet, "/api/v1/mailbox/send-receipts/1", "")
+	if code == http.StatusOK && strings.Contains(body, "alice-pin-receipt") {
+		t.Fatalf("bob resolved a foreign receipt: %s", body)
+	}
+	// alice's owner-scoped list carries her seeded row (owner view intact).
+	code, body = client.do(http.MethodGet, "/api/v1/mailbox/send-receipts", "")
+	if code != http.StatusOK || !strings.Contains(body, "alice-pin-receipt") {
+		t.Fatalf("alice receipts = %d %s, want her seeded row", code, body)
 	}
 
 	// Unauthenticated callers keep 401 on the newly approved routes.

@@ -55,6 +55,10 @@ func (h *MailboxNativeHandler) ListSendReceipts(c *gin.Context) {
 		return
 	}
 	if h.Pool == nil {
+		if h.SendLedger != nil {
+			h.listSendReceiptsSlice(c, session)
+			return
+		}
 		authError(c, 503, "WEBMAIL_DISABLED")
 		return
 	}
@@ -119,6 +123,10 @@ func (h *MailboxNativeHandler) GetSendReceipt(c *gin.Context) {
 		return
 	}
 	if h.Pool == nil {
+		if h.SendLedger != nil {
+			h.getSendReceiptSlice(c, session)
+			return
+		}
 		authError(c, 503, "WEBMAIL_DISABLED")
 		return
 	}
@@ -149,7 +157,15 @@ func (h *MailboxNativeHandler) RepairSendReceiptCopy(c *gin.Context) {
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
 		return
 	}
-	if h.Pool == nil || h.Secrets == nil {
+	if h.Pool == nil {
+		if h.SendLedger != nil && h.Secrets != nil {
+			h.repairSendReceiptCopySlice(c, session)
+			return
+		}
+		authError(c, 503, "WEBMAIL_DISABLED")
+		return
+	}
+	if h.Secrets == nil {
 		authError(c, 503, "WEBMAIL_DISABLED")
 		return
 	}

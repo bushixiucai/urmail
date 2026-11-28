@@ -750,6 +750,14 @@ func New(opts Options) *gin.Engine {
 			// in the slice runtime — the read surface binds every query to
 			// the session's tenant at the application layer (ruling ①), no
 			// RLS or PG pool involved. The PG engine keeps its Pool path.
+			// pm-webmail-writepath-1: the slice runtime carries the SQLite
+			// send ledger — the webmail write path (send, server-side
+			// drafts, receipts) is functional and exactly-once without a
+			// PG pool. Fail-closed: an engine without either store keeps
+			// the 503 WEBMAIL_DISABLED posture.
+			if sqliteMode {
+				mailboxNative.SendLedger = &handlers.SQLiteSendLedger{DB: opts.SQLiteStore}
+			}
 			corporateDirectory := &handlers.MailboxCorporateDirectoryHandler{Pool: opts.AppPool}
 			if sqliteMode {
 				corporateDirectory.Store = &handlers.SQLiteCorporateDirectoryStore{DB: opts.SQLiteStore}

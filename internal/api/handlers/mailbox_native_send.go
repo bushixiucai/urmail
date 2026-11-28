@@ -54,8 +54,18 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 	if !h.requireEnabled(c) {
 		return
 	}
-	if h.Submitter == nil || h.Vault == nil || h.Pool == nil || h.Secrets == nil {
+	if h.Pool == nil && h.SendLedger == nil {
 		authError(c, 503, "WEBMAIL_DISABLED")
+		return
+	}
+	if h.Submitter == nil || h.Vault == nil || h.Secrets == nil {
+		authError(c, 503, "WEBMAIL_DISABLED")
+		return
+	}
+	if h.Pool == nil {
+		// Slice engine (pm-webmail-writepath-1): the ledger-backed
+		// exactly-once send pipeline. Fail-closed: no ledger, no send.
+		h.sendMessageSlice(c)
 		return
 	}
 	session, ok := middleware.GetMailboxSession(c)
