@@ -31,7 +31,7 @@ const (
 	// 0006_domain_tls_period_check：既有库的 TLS 周期 CHECK 重建 +
 	// 0007_backup_offsite_state：备份运行的异地处置列)。
 	// Startup verification fails closed unless PRAGMA user_version matches this exact version.
-	ExpectedSchemaVersion = 7
+	ExpectedSchemaVersion = 8
 
 	busyTimeoutMs    = 5000
 	pragmaTimeout    = 10 * time.Second

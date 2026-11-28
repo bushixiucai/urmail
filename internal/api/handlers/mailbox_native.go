@@ -50,6 +50,10 @@ type MailboxNativeHandler struct {
 	MaySend func(context.Context, int64, int64) (bool, error)
 	// Secrets seals SMTP passwords into mailbox_scheduled_sends.smtp_secret.
 	Secrets SecretsBox
+	// SendLedger backs the slice-runtime send pipeline, server-side drafts
+	// and send receipts (pm-webmail-writepath-1). nil on the PG engine —
+	// its path keeps the platform store behind h.Pool.
+	SendLedger SendLedger
 	// Pool is required for self-service password change (platform transaction).
 	Pool *db.Pool
 	// SelfSettings serves per-mailbox signature, preferences, quota and
