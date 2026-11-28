@@ -4,11 +4,7 @@ import { MailboxDetailHeader } from "./mailbox-detail-header";
 import type { MessageDetail } from "./mailbox-api";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string, params?: { time?: string }) =>
-      params?.time ? `${key} [${params.time}]` : key,
-    i18n: { language: "en" },
-  }),
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: "en" } }),
 }));
 afterEach(cleanup);
 const message: MessageDetail = {
@@ -23,15 +19,16 @@ const message: MessageDetail = {
 };
 
 describe("receive authentication display", () => {
-  it("shows unknown for historical mail without receiving evidence", () => {
+  // REVIEW-006: the receive chain currently emits no proof for any message,
+  // so the no-signal badge is hidden instead of being shown as pure noise.
+  it("hides the badge entirely when no receiving evidence exists", () => {
     render(<MailboxDetailHeader message={message} dateText="2026-10-30" />);
-    expect(
-      screen.getAllByText("page.webmail.auth_dkim_unknown").length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByText("page.webmail.auth_dkim_unknown")).toBeNull();
+    expect(screen.queryByText("page.webmail.auth_spf_unknown")).toBeNull();
+    expect(screen.queryByText("page.webmail.auth_receiver_source")).toBeNull();
     expect(screen.queryByText("page.webmail.auth_dkim_pass")).toBeNull();
-    expect(screen.getByText("page.webmail.auth_spf_unknown")).toBeTruthy();
   });
-  it("does not accept an unsupported authentication source", () => {
+  it("hides the badge for an unsupported source without an alert signal", () => {
     render(
       <MailboxDetailHeader
         message={{
@@ -49,29 +46,29 @@ describe("receive authentication display", () => {
     expect(
       screen.queryByText("page.webmail.auth_reason_dkim_verified"),
     ).toBeNull();
+    expect(screen.queryByText("page.webmail.auth_dkim_unknown")).toBeNull();
   });
-
-  it("renders checked_at through the shared h23 clock (QA P3-3)", () => {
+  it("keeps rendering an explicit receive-proof alert from an untrusted source", () => {
     render(
       <MailboxDetailHeader
         message={{
           ...message,
           authentication: {
-            status: "pass",
-            source: "urmail-receive-dkim",
-            reason: "dkim_verified",
-            domain: "example.test",
-            // Local-naive instant: deterministic across TZ setups.
-            checked_at: "2026-10-30T08:00:00",
+            status: "fail",
+            source: "sender-header",
+            reason: "receive_proof_invalid",
           },
         }}
         dateText="date"
       />,
     );
-    expect(screen.getByText("2026-10-30 08:00:00")).toBeTruthy();
-    expect(screen.queryByText(/AM|PM/)).toBeNull();
+    expect(
+      screen.getAllByText("page.webmail.auth_dkim_unknown").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByText("page.webmail.auth_reason_receive_proof_invalid"),
+    ).toBeTruthy();
   });
-
   it.each(["pass", "fail"] as const)(
     "shows the trusted DKIM %s result and its concrete evidence",
     (status) => {
