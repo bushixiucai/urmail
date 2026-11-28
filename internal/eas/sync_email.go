@@ -279,12 +279,10 @@ func (b *SyncBackend) applyEmailCommands(ctx context.Context, req *SyncRequest, 
 	// read/diff passes (no client commands) and full syncs (randomized
 	// epoch) claim nothing, so unchanged-key rounds stay idempotent no-ops.
 	claimRejected := false
-	println("ZZ apply cmds=", len(p.commands), "fullSync=", fullSync, "seq=", state.ChangeSeq)
 	if !fullSync {
 		claimed := state
 		claimed.ChangeSeq = state.ChangeSeq + 1
 		ok, err := claimSyncGeneration(ctx, b.Pool, req.Session, req.DeviceID, p.collectionID, state.Epoch, state.ChangeSeq, claimed.ChangeSeq)
-		println("ZZ claim ok=", ok, "err=", err != nil)
 		if err != nil {
 			return items, nil, false, state, true
 		}
