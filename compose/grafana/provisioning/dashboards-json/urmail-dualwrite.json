@@ -224,7 +224,11 @@
        },
        {
         "color": "green",
-        "value": 75
+        "value": 74.5
+       },
+       {
+        "color": "red",
+        "value": 75.5
        }
       ]
      },
@@ -235,12 +239,46 @@
         "75": {
          "text": "75 · 第二写者被拒（预期）",
          "color": "green",
+         "index": 3
+        },
+        "74": {
+         "text": "74 · 非预期（租约冲突异码）",
+         "color": "red",
+         "index": 2
+        },
+        "76": {
+         "text": "76 · 非预期",
+         "color": "red",
          "index": 1
         },
         "1": {
          "text": "1 · 租约空闲/写者掉线",
          "color": "red",
          "index": 0
+        }
+       }
+      },
+      {
+       "type": "range",
+       "options": {
+        "from": -1000000,
+        "to": 73.49,
+        "result": {
+         "text": "非 75 · 异常",
+         "color": "red",
+         "index": 4
+        }
+       }
+      },
+      {
+       "type": "range",
+       "options": {
+        "from": 75.5,
+        "to": 1000000,
+        "result": {
+         "text": "非 75 · 异常",
+         "color": "red",
+         "index": 5
         }
        }
       }
@@ -298,7 +336,11 @@
        },
        {
         "color": "green",
-        "value": 75
+        "value": 74.5
+       },
+       {
+        "color": "red",
+        "value": 75.5
        }
       ]
      },
