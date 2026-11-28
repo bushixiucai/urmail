@@ -4,7 +4,7 @@
 -- idempotency key, single live submission per source draft, claim-lease
 -- submit protocol with lazy stale recovery, sent-copy reconciliation state.
 CREATE TABLE IF NOT EXISTS mailbox_send_ledger (
-  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "id" INTEGER PRIMARY KEY,
   "tenant_id" INTEGER NOT NULL,
   "mailbox_id" INTEGER NOT NULL,
   "request_key" TEXT NOT NULL,
@@ -45,7 +45,7 @@ CREATE INDEX IF NOT EXISTS "idx_send_ledger_owner"
 -- result_json carries the webmail.DraftSaveResult payload (digest, uid,
 -- uidvalidity, cleanup flags) exactly like the PG data-import receipt did.
 CREATE TABLE IF NOT EXISTS "mailbox_draft_journal" (
-  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "id" INTEGER PRIMARY KEY,
   "tenant_id" INTEGER NOT NULL,
   "mailbox_id" INTEGER NOT NULL,
   "request_key" TEXT NOT NULL,
