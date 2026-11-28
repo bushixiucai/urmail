@@ -52,8 +52,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 		t.Fatal(err)
 	}
-	if tables != 120 {
-		t.Fatalf("table count = %d, want 120 (102 business + 3 webmail + 2 mailbox_readonly + archive_search_fts + 5 fts shadow + archive_search_bigram_fts + 5 bigram fts shadow + schema_migrations)", tables)
+	if tables != 122 {
+		t.Fatalf("table count = %d, want 122 (120 prior + 2 webmail send-ledger tables, pm-webmail-writepath-1)", tables)
 	}
 
 	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_check")
@@ -452,7 +452,7 @@ func TestDefaultFidelity(t *testing.T) {
 		nowDefaults += strings.Count(create, "CAST(strftime('%s','now') AS INTEGER)*1000000")
 	}
 	_ = rows.Close()
-	if nowDefaults != 129 {
+	if nowDefaults != 132 {
 		t.Fatalf("now()-style defaults = %d, want 129 (QA P0-2 plus mailbox read-only schema)", nowDefaults)
 	}
 	art := loadArtifacts(t)

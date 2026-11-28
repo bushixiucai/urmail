@@ -17,8 +17,8 @@ import (
 	"strings"
 	"testing"
 
-	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/sqlitedb"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
