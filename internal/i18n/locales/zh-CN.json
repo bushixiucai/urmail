@@ -847,6 +847,7 @@
     "login.submit": "登录控制台",
     "login.subtitle": "多租户邮件 SaaS 运营管理平台",
     "login.switch_to_webmail": "员工邮箱登录",
+    "login.console_gate_notice": "管理控制台暂未在当前部署形态开放，请改用员工网页邮箱入口登录：",
     "mailbox.already_exists": "邮箱账号已存在",
     "mailbox.eai_not_supported": "暂不支持非 ASCII 邮箱地址（EAI/SMTPUTF8）；本地部分请使用 ASCII 字符",
     "mailbox.invalid_local_part": "邮箱前缀格式不正确",

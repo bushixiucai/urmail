@@ -139,7 +139,7 @@ export function WebmailAdvancedSearchPopover({
     >
       <div className="flex items-center justify-between border-b border-[var(--vellum-border)] pb-2">
         <div className="flex items-center gap-2 font-bold text-[var(--vellum-ink)] text-xs">
-          <SlidersHorizontal className="w-4 h-4 text-[var(--brand-primary,var(--brand-primary))]" />
+          <SlidersHorizontal className="w-4 h-4 text-[var(--vellum-ink-secondary)]" />
           <span>
             {t("search.advanced_filter_title", "Advanced Mail Filters")}
           </span>
@@ -246,7 +246,7 @@ export function WebmailAdvancedSearchPopover({
                 type="checkbox"
                 checked={hasAttachment}
                 onChange={(e) => setHasAttachment(e.target.checked)}
-                className="rounded border-[var(--vellum-ink-disabled)] text-[var(--brand-primary,var(--brand-primary))] focus:ring-[var(--brand-primary,var(--brand-primary))]"
+                className="rounded border-[var(--vellum-ink-disabled)] text-[var(--vellum-cta)] focus:ring-[var(--brand-primary,var(--brand-primary))]"
               />
               <span className="flex items-center gap-1">
                 <Paperclip className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
@@ -335,7 +335,7 @@ export function WebmailAdvancedSearchPopover({
             <button
               data-testid="btn-submit-advanced-search"
               type="submit"
-              className="px-4 py-1.5 bg-[var(--brand-primary,var(--brand-primary))] text-white font-semibold text-xs rounded-md shadow-xs hover:brightness-105 flex items-center gap-1.5"
+              className="px-4 py-1.5 bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] font-semibold text-xs rounded-md shadow-xs hover:brightness-105 flex items-center gap-1.5"
             >
               <Search className="w-3.5 h-3.5" />
               <span>{t("search.submit_search", "Search")}</span>

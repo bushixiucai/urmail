@@ -7,10 +7,11 @@ import { useState, FormEvent } from "react";
 import { usePublicStatus } from "./public-status";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Mail, Lock, AlertCircle, ArrowRight } from "lucide-react";
+import { Mail, Lock, AlertCircle, ArrowRight, Info } from "lucide-react";
 import { useAuth, User, TenantInfo } from "@/app/auth-context";
 import { useI18nLocale } from "@/app/providers";
 import { ApiRequestError, request } from "@/lib/api/client";
+import "@/features/webmail-next/theme-vellum.css";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -43,6 +44,10 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // slice-1 platform gate (QA qa-def-console-gate): /auth/login answers 503
+  // FEATURE_UNAVAILABLE before credential checks when the console door is
+  // intentionally closed — a status notice, not a credential failure.
+  const [consoleGateNotice, setConsoleGateNotice] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   // Second MFA login leg: set once the first leg returns mfa_required.
   const [mfaToken, setMfaToken] = useState<string | null>(null);
@@ -51,6 +56,7 @@ export function LoginPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setConsoleGateNotice(false);
     setIsLoading(true);
 
     try {
@@ -76,7 +82,13 @@ export function LoginPage() {
       setLocale(data.user.locale || "zh-CN");
       navigate("/console");
     } catch (err: unknown) {
-      if (err instanceof ApiRequestError) {
+      if (
+        err instanceof ApiRequestError &&
+        err.code === "FEATURE_UNAVAILABLE"
+      ) {
+        // Console door closed by the slice-1 gate (fail-closed by design).
+        setConsoleGateNotice(true);
+      } else if (err instanceof ApiRequestError) {
         setError(
           t(`error.${err.code}`, { defaultValue: t("error.LOGIN_FAILED") }),
         );
@@ -126,7 +138,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-muted/40 flex items-center justify-center p-4">
+    <div className="vellum-shell min-h-screen bg-background flex items-center justify-center p-4">
       <BrandAppearance brand={brand} />
       <Card className="w-full max-w-md shadow-lg border-muted">
         <CardHeader className="space-y-1 text-center">
@@ -151,6 +163,27 @@ export function LoginPage() {
             <p role="alert" className="mb-3 text-sm">
               {t("restore.quarantine_banner")}
             </p>
+          )}
+          {consoleGateNotice && (
+            <div
+              role="alert"
+              data-testid="console-gate-notice"
+              className="mb-4 rounded-md border border-border bg-muted/60 px-3 py-2.5 text-sm"
+            >
+              <p className="flex items-start gap-2">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <span>{t("login.console_gate_notice")}</span>
+              </p>
+              <p className="mt-2">
+                <Link
+                  to="/webmail/login"
+                  className="inline-flex items-center justify-center gap-1.5 font-medium text-primary hover:underline"
+                >
+                  <Mail className="h-4 w-4" />
+                  {t("login.switch_to_webmail")}
+                </Link>
+              </p>
+            </div>
           )}
           {mfaToken ? (
             <form onSubmit={handleMfaVerify} className="space-y-4">
@@ -243,7 +276,7 @@ export function LoginPage() {
                   type="checkbox"
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
-                  className="h-4 w-4 rounded border-input text-primary focus:ring-ring"
+                  className="h-4 w-4 rounded border-input text-primary accent-[var(--primary)] focus:ring-ring"
                 />
                 <label
                   htmlFor="remember"

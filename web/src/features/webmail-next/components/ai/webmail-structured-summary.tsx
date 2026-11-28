@@ -116,7 +116,7 @@ export function WebmailStructuredSummary({
       role="region"
       aria-live="polite"
       data-testid="structured-summary-card"
-      className="p-4 sm:p-5 mb-5 rounded-lg border border-[var(--vellum-border)] border-l-4 border-l-[var(--brand-primary)] bg-[var(--vellum-surface-muted)] transition-all"
+      className="p-4 sm:p-5 mb-5 rounded-lg border border-[var(--vellum-border)] border-l-4 border-l-[var(--vellum-ai-accent)] bg-[var(--vellum-surface-muted)] transition-all"
     >
       {/* 1. Top Meta Row: Language, Dates, Cache Hit, Dismiss */}
       <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--vellum-border)]">
@@ -124,7 +124,7 @@ export function WebmailStructuredSummary({
           {language && (
             <span
               data-testid="ai-summary-language"
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)]"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--vellum-ai-accent-soft)] text-[var(--vellum-ai-accent-strong)]"
             >
               <Globe className="w-3 h-3" />
               <span>{language}</span>
@@ -184,7 +184,7 @@ export function WebmailStructuredSummary({
           className="flex items-center justify-between py-6 text-xs text-[var(--vellum-ink-secondary)]"
         >
           <div className="flex items-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-[var(--brand-primary)]" />
+            <Loader2 className="w-4 h-4 animate-spin text-[var(--vellum-ai-accent)]" />
             <span>{t("page.webmail.ai_generating")}</span>
           </div>
           {onCancel && (
@@ -278,7 +278,7 @@ export function WebmailStructuredSummary({
               }`}
             >
               <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--vellum-ink)] mb-2">
-                <CheckSquare className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                <CheckSquare className="w-3.5 h-3.5 text-[var(--vellum-ai-accent)]" />
                 <span>
                   {t("webmail_next.ai_action_items_title")}
                   {todos.length > 0 ? ` (${todos.length})` : ""}
@@ -297,7 +297,7 @@ export function WebmailStructuredSummary({
                           type="checkbox"
                           checked={isChecked}
                           onChange={() => toggleTodo(idx)}
-                          className="mt-0.5 rounded border-[var(--vellum-ink-disabled)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
+                          className="mt-0.5 rounded border-[var(--vellum-ink-disabled)] text-[var(--vellum-cta)] focus:ring-[var(--brand-primary)]"
                         />
                         <span
                           className={`flex-1 leading-snug ${
@@ -349,7 +349,7 @@ export function WebmailStructuredSummary({
               className="pt-3 border-t border-[var(--vellum-border)] text-xs space-y-1"
             >
               <div className="font-semibold text-[var(--vellum-ink)] flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                <Globe className="w-3.5 h-3.5 text-[var(--vellum-ai-accent)]" />
                 <span>{t("webmail_next.ai_refine_translate")}</span>
               </div>
               <p className="text-[var(--vellum-ink)] leading-relaxed whitespace-pre-wrap">

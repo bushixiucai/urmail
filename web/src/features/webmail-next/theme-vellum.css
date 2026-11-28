@@ -64,6 +64,15 @@
   --vellum-warning-strong: #d97706;
   --vellum-ai-accent: #d97706;
   --vellum-ai-accent-strong: #b45309;
+  /* T1 主操作墨色（pm-brand-regress-1 裁定 D1，UIUX 2026-11-28）：
+     Ink on Vellum 方向 A 主操作回归墨色系；品牌蓝收缩回注册预算
+     （未读点/3px 阅读指示条/焦点环）。值取自既有 ink 词表，零新色。 */
+  --vellum-cta: var(--vellum-ink);
+  --vellum-cta-hover: var(--vellum-ink-hover);
+  --vellum-cta-foreground: #ffffff;
+  /* T2 AI 强调软底（pm-brand-regress-1 裁定 D2，UIUX 2026-11-28）：
+     值 = ai-accent 12% 于纸面的混合，避免消费侧 color-mix。 */
+  --vellum-ai-accent-soft: #fdf3e7;
   --vellum-warning-fill: #fef3c7;
   --vellum-warning-border: #fde68a;
   --vellum-warning-text: #92400e;
@@ -77,6 +86,25 @@
   --vellum-success-fill: #f0fdf4;
   --vellum-success-border: #bbf7d0;
   --vellum-success-text: #166534;
+}
+
+/* T3 vellum-shell 桥（pm-brand-regress-1 裁定 D3，UIUX 2026-11-28）：
+   shadcn 体系页面（auth/console 登录面）的作用域覆写，冷灰→纸面；
+   primary/ring 语义维持。dark 不新增（决策①b，v1 light-only）。 */
+.vellum-shell {
+  --background: #faf9f5; /* vellum-ground */
+  --foreground: #18181b; /* vellum-ink */
+  --card: #ffffff; /* vellum-surface */
+  --popover: #ffffff;
+  --muted: #f6f4ee; /* vellum-surface-muted */
+  --muted-foreground: #52525b; /* vellum-ink-secondary */
+  --accent: #f3f1ec; /* vellum-border-subtle */
+  --border: #ebe8e0; /* vellum-border */
+  --input: #ebe8e0;
+  --primary: #18181b;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f1ec;
+  --ring: #52525b;
 }
 
 .webmail-vellum-root {

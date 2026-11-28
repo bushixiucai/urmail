@@ -1058,7 +1058,7 @@ export function WebmailReadingPane({
           </h1>
           <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[var(--vellum-border)]">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-[var(--brand-primary,var(--brand-primary))] text-white font-bold text-sm flex items-center justify-center shrink-0">
+              <div className="w-9 h-9 rounded-full bg-[var(--vellum-surface-muted)] text-[var(--vellum-ink-secondary)] font-bold text-sm flex items-center justify-center shrink-0">
                 {avatarInitial(senderName, senderEmail)}
               </div>
               <div className="min-w-0">
@@ -1190,7 +1190,7 @@ export function WebmailReadingPane({
                   setShowUnconfiguredModal(false);
                   onOpenAISettings?.();
                 }}
-                className="px-3 py-1.5 text-xs bg-[var(--brand-primary)] hover:bg-[var(--vellum-brand-strong)] text-white rounded-md font-semibold"
+                className="px-3 py-1.5 text-xs bg-[var(--vellum-cta)] hover:bg-[var(--vellum-cta-hover)] text-[var(--vellum-cta-foreground)] rounded-md font-semibold"
               >
                 {t("webmail_next.ai_go_to_settings")}
               </button>

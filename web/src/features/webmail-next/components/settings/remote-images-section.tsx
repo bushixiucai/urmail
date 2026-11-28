@@ -150,7 +150,7 @@ export function RemoteImagesSection({
     <div className="space-y-6" data-testid="remote-images-section">
       <div className="border-b border-[var(--vellum-border)] pb-4">
         <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-[var(--brand-primary)]" />
+          <ShieldCheck className="w-5 h-5 text-[var(--vellum-ink-secondary)]" />
           <span>{t("settings.privacy.title", "Privacy & Remote Content")}</span>
         </h3>
         <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
@@ -220,7 +220,7 @@ export function RemoteImagesSection({
               loading || saving ? "opacity-50 cursor-not-allowed" : ""
             } ${
               isEnabled
-                ? "bg-[var(--brand-primary)]"
+                ? "bg-[var(--vellum-cta)]"
                 : "bg-[var(--vellum-border-strong)]"
             }`}
           >
@@ -236,7 +236,7 @@ export function RemoteImagesSection({
         {saving && (
           <div
             data-testid="privacy-status-saving"
-            className="flex items-center gap-1.5 text-xs text-[var(--brand-primary)] pt-1"
+            className="flex items-center gap-1.5 text-xs text-[var(--vellum-ink-secondary)] pt-1"
           >
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span>{t("settings.privacy.saving", "Saving settings...")}</span>

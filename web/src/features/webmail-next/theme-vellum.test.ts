@@ -53,6 +53,38 @@ describe("theme-vellum tokens", () => {
     }
   });
 
+  // 品牌回归批次 1（pm-brand-batch1-1，裁定 D1/D2/D3）：T1 主操作墨色、
+  // T2 AI 琥珀软底、T3 vellum-shell 作用域桥。缺一个消费处就会解析失败。
+  it("registers the T1 cta and T2 ai-soft tokens with the spec values", () => {
+    const rootBlock = css.slice(
+      css.indexOf(":root"),
+      css.indexOf("}", css.indexOf(":root")),
+    );
+    const spec = {
+      "--vellum-cta": "--vellum-cta: var(--vellum-ink);",
+      "--vellum-cta-hover": "--vellum-cta-hover: var(--vellum-ink-hover);",
+      "--vellum-cta-foreground": "--vellum-cta-foreground: #ffffff;",
+      "--vellum-ai-accent-soft": "--vellum-ai-accent-soft: #fdf3e7;",
+    };
+    for (const [token, needle] of Object.entries(spec)) {
+      expect(rootBlock, `missing ${token}`).toContain(needle);
+    }
+  });
+
+  it("bridges shadcn surfaces via the .vellum-shell scope (D3)", () => {
+    const block = css.slice(css.indexOf(".vellum-shell"));
+    const spec = {
+      "--background": "--background: #faf9f5;",
+      "--card": "--card: #ffffff;",
+      "--muted": "--muted: #f6f4ee;",
+      "--border": "--border: #ebe8e0;",
+      "--primary": "--primary: #18181b;",
+    };
+    for (const [token, needle] of Object.entries(spec)) {
+      expect(block, `vellum-shell missing ${token}`).toContain(needle);
+    }
+  });
+
   it("retires the batch-2 merge targets (info token removed, values confirmed)", () => {
     const rootBlock = css.slice(
       css.indexOf(":root"),

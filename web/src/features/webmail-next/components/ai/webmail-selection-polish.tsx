@@ -203,7 +203,7 @@ export function WebmailSelectionPolish({
             data-testid="btn-selection-polish"
             disabled={isLoading}
             onClick={handlePolish}
-            className="flex items-center gap-1.5 font-medium hover:text-[var(--brand-primary)] transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 font-medium hover:text-[var(--vellum-ai-accent-strong)] transition-colors disabled:opacity-50"
           >
             {isLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -242,7 +242,7 @@ export function WebmailSelectionPolish({
                   type="button"
                   data-testid="btn-apply-polish"
                   onClick={handleApply}
-                  className="px-2 py-0.5 bg-[var(--brand-primary)] text-white rounded text-[12px] font-semibold hover:bg-[var(--vellum-brand-strong)] flex items-center gap-1 transition-colors"
+                  className="px-2 py-0.5 bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] rounded text-[12px] font-semibold hover:bg-[var(--vellum-cta-hover)] flex items-center gap-1 transition-colors"
                 >
                   <Check className="w-3 h-3" />
                   <span>{t("webmail_next.ai_apply_replace_btn")}</span>
@@ -273,7 +273,7 @@ export function WebmailSelectionPolish({
                     onClose();
                     onOpenAISettings();
                   }}
-                  className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded text-xs font-medium hover:bg-[var(--vellum-brand-strong)] transition-colors"
+                  className="px-3 py-1 bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] rounded text-xs font-medium hover:bg-[var(--vellum-cta-hover)] transition-colors"
                 >
                   {t("webmail_next.ai_go_to_settings")}
                 </button>

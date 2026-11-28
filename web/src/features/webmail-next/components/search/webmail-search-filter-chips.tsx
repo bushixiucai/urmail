@@ -26,7 +26,7 @@ export function WebmailSearchFilterChips({
     chips.push({
       key: "from",
       label: `From: ${params.from}`,
-      icon: <User className="w-3 h-3 text-[var(--brand-primary)]" />,
+      icon: <User className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />,
     });
   }
 
@@ -34,7 +34,7 @@ export function WebmailSearchFilterChips({
     chips.push({
       key: "to",
       label: `To: ${params.to}`,
-      icon: <User className="w-3 h-3 text-[var(--brand-primary)]" />,
+      icon: <User className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />,
     });
   }
 
@@ -42,7 +42,7 @@ export function WebmailSearchFilterChips({
     chips.push({
       key: "subject",
       label: `Subject: "${params.subject}"`,
-      icon: <FileText className="w-3 h-3 text-[var(--brand-primary)]" />,
+      icon: <FileText className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />,
     });
   }
 
@@ -52,7 +52,9 @@ export function WebmailSearchFilterChips({
       label: params.filenameExt
         ? `${t("search.chip_attachment", "Attachment")}: *${params.filenameExt}`
         : t("search.chip_has_attachment", "Has attachment"),
-      icon: <Paperclip className="w-3 h-3 text-[var(--brand-primary)]" />,
+      icon: (
+        <Paperclip className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />
+      ),
     });
   }
 
@@ -60,7 +62,7 @@ export function WebmailSearchFilterChips({
     chips.push({
       key: "folder",
       label: `Folder: ${params.folder}`,
-      icon: <Folder className="w-3 h-3 text-[var(--brand-primary)]" />,
+      icon: <Folder className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />,
     });
   }
 
@@ -75,7 +77,7 @@ export function WebmailSearchFilterChips({
     chips.push({
       key: "dateRange",
       label: dateLabel,
-      icon: <Calendar className="w-3 h-3 text-[var(--brand-primary)]" />,
+      icon: <Calendar className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />,
     });
   }
 
@@ -94,7 +96,7 @@ export function WebmailSearchFilterChips({
         <div
           key={chip.key}
           data-testid={`filter-chip-${chip.key}`}
-          className="flex items-center gap-1 px-2 py-0.5 bg-[var(--vellum-surface)] border border-[var(--vellum-brand-border)] text-[var(--vellum-brand-strong)] rounded-full text-xs font-medium shadow-2xs"
+          className="flex items-center gap-1 px-2 py-0.5 bg-[var(--vellum-surface)] border border-[var(--vellum-border)] text-[var(--vellum-ink)] rounded-full outline outline-1 outline-[var(--brand-primary)] text-xs font-medium shadow-2xs"
         >
           {chip.icon}
           <span className="truncate max-w-[200px]">{chip.label}</span>
@@ -102,7 +104,7 @@ export function WebmailSearchFilterChips({
             data-testid={`btn-remove-chip-${chip.key}`}
             type="button"
             onClick={() => onRemoveParam(chip.key)}
-            className="p-0.5 rounded-full hover:bg-[var(--vellum-brand-border)] text-[var(--vellum-brand-strong)]"
+            className="p-0.5 rounded-full hover:bg-[var(--vellum-border-subtle)] text-[var(--vellum-ink-secondary)]"
             title="Remove filter"
           >
             <X className="w-3 h-3" />

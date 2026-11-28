@@ -251,7 +251,7 @@ export function AiSettingsSection() {
       <div className="border-b border-[var(--vellum-border)] pb-4 flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-[var(--brand-primary)]" />
+            <Sparkles className="w-5 h-5 text-[var(--vellum-ai-accent)]" />
             <span>
               {t("settings.ai.title", "AI Control & Model Configuration")}
             </span>
@@ -340,7 +340,7 @@ export function AiSettingsSection() {
               setUseCustom(e.target.checked);
               setSuccess(false);
             }}
-            className="h-4 w-4 rounded border-gray-300 text-[var(--brand-primary)] focus:ring-[var(--brand-primary)] accent-[var(--brand-primary)]"
+            className="h-4 w-4 rounded border-gray-300 text-[var(--vellum-cta)] focus:ring-[var(--brand-primary)] accent-[var(--vellum-cta)]"
           />
           <div>
             <span className="text-sm font-medium text-[var(--vellum-ink)]">
@@ -512,7 +512,7 @@ export function AiSettingsSection() {
                         <button
                           type="button"
                           onClick={() => setManualModelInput(!manualModelInput)}
-                          className="text-[11px] text-[var(--brand-primary)] hover:underline"
+                          className="text-[11px] text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] hover:underline"
                         >
                           {manualModelInput
                             ? t(
@@ -574,7 +574,7 @@ export function AiSettingsSection() {
                     disabled={testing}
                     className="h-9 px-3 rounded-md bg-[var(--vellum-ground)] border border-[var(--vellum-border)] hover:bg-[var(--vellum-border)] text-xs font-medium text-[var(--vellum-ink)] flex items-center gap-1.5 transition-colors disabled:opacity-50 shrink-0"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--vellum-ai-accent)]" />
                     <span>
                       {testing
                         ? t("settings.ai.testing_connection", "Testing...")
@@ -613,7 +613,7 @@ export function AiSettingsSection() {
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-[var(--brand-primary)]" />
+            <Zap className="w-4 h-4 text-[var(--vellum-ai-accent)]" />
             <h4 className="text-xs font-semibold text-[var(--vellum-ink)]">
               {t("settings.ai.budget_title", "AI Quota & Budget")}
             </h4>
@@ -674,7 +674,7 @@ export function AiSettingsSection() {
           data-testid="btn-save-ai-settings"
           onClick={handleSave}
           disabled={saving || Boolean(endpointError)}
-          className="h-9 px-5 bg-[var(--brand-primary)] hover:bg-[var(--vellum-brand-strong)] text-white text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors disabled:opacity-50"
+          className="h-9 px-5 bg-[var(--vellum-cta)] hover:bg-[var(--vellum-cta-hover)] text-[var(--vellum-cta-foreground)] text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors disabled:opacity-50"
         >
           {saving ? (
             <>
