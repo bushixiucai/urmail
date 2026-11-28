@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Building2, Lock, Mail } from "lucide-react";
 import { ApiRequestError } from "@/lib/api/client";
+import "@/features/webmail-next/theme-vellum.css";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -90,9 +91,18 @@ export function MailboxLoginPage() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-10">
+    <main className="vellum-shell min-h-screen flex items-center justify-center bg-background px-4 py-10">
       <Card className="w-full max-w-md">
-        <CardHeader>
+        <CardHeader className="space-y-1 text-center">
+          {/* Deterministic default brand mark (REVIEW pm-brand-batch1-1 ⑥):
+              always renders the neutral ink glyph when no tenant logo is
+              loaded on this surface — no fetch-dependent fallback. */}
+          <div
+            aria-hidden
+            className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary font-bold text-xl text-primary-foreground select-none"
+          >
+            u
+          </div>
           <CardTitle>{t("page.webmail.login_title")}</CardTitle>
           <CardDescription>
             {t("page.webmail.independent_identity")}
@@ -150,7 +160,7 @@ export function MailboxLoginPage() {
                 type="checkbox"
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
-                className="h-4 w-4 rounded border-input text-primary focus:ring-ring"
+                className="h-4 w-4 rounded border-input text-primary accent-[var(--primary)] focus:ring-ring"
               />
               <label
                 htmlFor="mailbox-remember"

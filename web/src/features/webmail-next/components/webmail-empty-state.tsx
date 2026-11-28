@@ -37,7 +37,7 @@ export function WebmailEmptyState({
         <button
           type="button"
           onClick={onAction}
-          className="mt-4 h-8 px-3 rounded-md bg-[var(--brand-primary)] text-white text-xs font-medium hover:bg-[var(--vellum-brand-strong)] transition-colors"
+          className="mt-4 h-8 px-3 rounded-md bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] text-xs font-medium hover:bg-[var(--vellum-cta-hover)] transition-colors"
         >
           {actionLabel}
         </button>

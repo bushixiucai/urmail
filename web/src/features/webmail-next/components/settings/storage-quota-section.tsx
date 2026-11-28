@@ -65,7 +65,7 @@ export function StorageQuotaSection() {
       <div className="border-b border-[var(--vellum-border)] pb-4 flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
-            <HardDrive className="w-5 h-5 text-[var(--brand-primary)]" />
+            <HardDrive className="w-5 h-5 text-[var(--vellum-ink-secondary)]" />
             <span>{t("settings.quota.title", "Storage & Quota")}</span>
           </h3>
           <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
@@ -125,7 +125,7 @@ export function StorageQuotaSection() {
                     ? "bg-[var(--vellum-color-danger)]"
                     : isWarning
                       ? "bg-[var(--vellum-color-warning)]"
-                      : "bg-[var(--brand-primary)]"
+                      : "bg-[var(--vellum-ink-secondary)]"
                 }`}
                 style={{ width: `${percent}%` }}
               />

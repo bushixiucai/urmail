@@ -152,7 +152,7 @@ export function WebmailEditorTiptap({
           <button
             type="button"
             onClick={onTogglePlainText}
-            className="text-xs text-[var(--brand-primary,var(--brand-primary))] hover:underline"
+            className="text-xs text-[var(--vellum-ink)] hover:underline"
           >
             Switch to Rich Text
           </button>

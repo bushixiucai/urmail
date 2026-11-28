@@ -257,7 +257,7 @@ export function WebmailThreadStack({
             title={t("webmail_next.thread_unread_badge", {
               count: unreadBadgeCount,
             })}
-            className="shrink-0 h-5 px-2 rounded-full bg-[var(--brand-primary)] text-white text-[11px] font-semibold leading-5 text-center"
+            className="shrink-0 h-5 px-2 rounded-full bg-[var(--vellum-ink)] text-white text-[11px] font-semibold leading-5 text-center"
           >
             {unreadBadgeCount}
           </span>
@@ -376,15 +376,15 @@ export function WebmailThreadStack({
                 data-expanded={isExpanded ? "true" : "false"}
                 className="relative bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-lg"
               >
-                {/* Avatar over the timeline (§11-4: Sent members get a
-                    brand ring marking "me") */}
+                {/* Avatar over the timeline (§11-4: Sent members get an ink
+                    ring marking "me"; brand blue reserved to budget) */}
                 <div
                   aria-hidden
                   data-testid={`thread-card-avatar-${memberCardKey}`}
                   data-sent={isSentMember ? "true" : undefined}
                   className={`absolute left-[12px] top-[10px] w-7 h-7 rounded-full bg-[var(--vellum-border)] text-[var(--vellum-ink)] text-xs font-[650] flex items-center justify-center z-10 ${
                     isSentMember
-                      ? "ring-2 ring-[var(--brand-primary)]"
+                      ? "ring-2 ring-[var(--vellum-ink)]"
                       : "ring-2 ring-[var(--vellum-surface)]"
                   }`}
                 >

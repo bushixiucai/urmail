@@ -99,7 +99,7 @@ class ErrorBoundaryClass extends Component<
               data-testid="btn-error-boundary-retry"
               type="button"
               onClick={this.reset}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-primary,var(--brand-primary))] text-white text-xs font-semibold rounded-md shadow-xs hover:brightness-105 active:brightness-95 transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] text-xs font-semibold rounded-md shadow-xs hover:brightness-105 active:brightness-95 transition-all"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>{retryText}</span>

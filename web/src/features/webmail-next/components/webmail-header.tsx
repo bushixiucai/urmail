@@ -102,7 +102,7 @@ export function WebmailHeader({
           <PanelLeft className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-2 font-bold text-base text-[var(--vellum-ink)] tracking-tight min-w-0">
-          <div className="w-2 h-2 rounded-full bg-[var(--brand-primary,var(--brand-primary))] shrink-0" />
+          <div className="w-2 h-2 rounded-full bg-[var(--vellum-ink)] shrink-0" />
           <span className="truncate whitespace-nowrap max-md:hidden">
             {brand?.name || t("webmail_next.brand_name")}
           </span>

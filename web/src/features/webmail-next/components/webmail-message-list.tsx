@@ -743,7 +743,7 @@ export function WebmailMessageList({
               }
             >
               {isAllSelected ? (
-                <CheckSquare className="w-3.5 h-3.5 text-[var(--brand-primary,var(--brand-primary))]" />
+                <CheckSquare className="w-3.5 h-3.5 text-[var(--vellum-cta)]" />
               ) : (
                 <Square className="w-3.5 h-3.5" />
               )}

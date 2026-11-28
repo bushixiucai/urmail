@@ -2169,7 +2169,7 @@ export function WebmailNextWorkbench({
           style={{
             right: "16px",
             bottom: `calc(${bulkActive ? 64 : 16}px + env(safe-area-inset-bottom))`,
-            backgroundColor: "var(--brand-primary)",
+            backgroundColor: "var(--vellum-cta)",
             boxShadow: "var(--elev-toast)",
           }}
         >

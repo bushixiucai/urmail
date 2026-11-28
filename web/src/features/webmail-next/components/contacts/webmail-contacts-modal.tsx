@@ -130,7 +130,7 @@ export function WebmailContactsModal({
         {/* Header */}
         <div className="h-14 px-6 border-b border-[var(--vellum-border)] bg-[var(--vellum-ground)] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2 font-bold text-base text-[var(--vellum-ink)]">
-            <BookUser className="w-5 h-5 text-[var(--brand-primary,var(--brand-primary))]" />
+            <BookUser className="w-5 h-5 text-[var(--vellum-ink-secondary)]" />
             <span>{t("contacts.title", "Personal Contacts")}</span>
           </div>
           <button
@@ -165,7 +165,7 @@ export function WebmailContactsModal({
               data-testid="btn-toggle-add-contact"
               type="button"
               onClick={() => setIsAdding((prev) => !prev)}
-              className="px-3 py-1.5 bg-[var(--brand-primary,var(--brand-primary))] text-white text-xs font-semibold rounded-md shadow-xs hover:brightness-105 flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] text-xs font-semibold rounded-md shadow-xs hover:brightness-105 flex items-center gap-1.5"
             >
               <UserPlus className="w-3.5 h-3.5" />
               <span>
@@ -218,7 +218,7 @@ export function WebmailContactsModal({
                   data-testid="btn-save-new-contact"
                   type="submit"
                   disabled={saving}
-                  className="px-3 py-1 bg-[var(--brand-primary,var(--brand-primary))] text-white text-xs font-semibold rounded shadow-xs hover:brightness-105"
+                  className="px-3 py-1 bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] text-xs font-semibold rounded shadow-xs hover:brightness-105"
                 >
                   {saving
                     ? t("common.saving", "Saving...")
@@ -256,7 +256,7 @@ export function WebmailContactsModal({
                     id={`contact-group-${letter}`}
                     className="space-y-1.5"
                   >
-                    <div className="sticky top-0 bg-[var(--vellum-ground)] px-2 py-0.5 rounded text-xs font-bold text-[var(--brand-primary,var(--brand-primary))] border border-[var(--vellum-border)]">
+                    <div className="sticky top-0 bg-[var(--vellum-ground)] px-2 py-0.5 rounded text-xs font-bold text-[var(--vellum-ink-secondary)] border border-[var(--vellum-border)]">
                       {letter}
                     </div>
                     <div className="space-y-1">
@@ -276,7 +276,7 @@ export function WebmailContactsModal({
                             className="p-2 bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-lg hover:border-[var(--vellum-ink-disabled)] transition-colors flex items-center justify-between gap-3"
                           >
                             <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-8 h-8 rounded-full bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)] font-bold text-xs flex items-center justify-center shrink-0">
+                              <div className="w-8 h-8 rounded-full bg-[var(--vellum-surface-muted)] text-[var(--vellum-ink-secondary)] font-bold text-xs flex items-center justify-center shrink-0">
                                 {initial}
                               </div>
                               <div className="min-w-0">
@@ -297,7 +297,7 @@ export function WebmailContactsModal({
                                   onComposeTo(email);
                                   onClose();
                                 }}
-                                className="px-2 py-1 text-xs text-[var(--brand-primary,var(--brand-primary))] hover:bg-[var(--vellum-brand-soft)] rounded flex items-center gap-1 border border-[var(--vellum-brand-border)] transition-colors shrink-0"
+                                className="px-2 py-1 text-xs text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] rounded flex items-center gap-1 border border-[var(--vellum-border)] transition-colors shrink-0"
                                 title="Compose email to contact"
                               >
                                 <Mail className="w-3 h-3" />
@@ -321,7 +321,7 @@ export function WebmailContactsModal({
               <a
                 key={letter}
                 href={`#contact-group-${letter}`}
-                className="hover:text-[var(--brand-primary,var(--brand-primary))] px-1 py-0.5"
+                className="hover:text-[var(--vellum-ink)] px-1 py-0.5"
               >
                 {letter}
               </a>

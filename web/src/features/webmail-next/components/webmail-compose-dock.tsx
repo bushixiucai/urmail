@@ -499,7 +499,7 @@ export function WebmailComposeDock({
                       Boolean(attachmentError) ||
                       (undoToast.visible && undoToast.phase === "sending")
                     }
-                    className="flex items-center gap-2 px-4 py-1.5 bg-[var(--brand-primary,var(--brand-primary))] text-white text-xs font-semibold rounded-lg shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 disabled:pointer-events-none transition-all"
+                    className="flex items-center gap-2 px-4 py-1.5 bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] text-xs font-semibold rounded-lg shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 disabled:pointer-events-none transition-all"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>{t("webmail_next.send")}</span>
@@ -526,7 +526,7 @@ export function WebmailComposeDock({
                     onClick={() => setIsAICompanionOpen((p) => !p)}
                     className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                       isAICompanionOpen
-                        ? "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]"
+                        ? "bg-[var(--vellum-ai-accent-soft)] text-[var(--vellum-ai-accent-strong)]"
                         : "text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] hover:bg-[var(--vellum-border)]"
                     }`}
                     title={t("webmail_next.ai_companion_toggle")}

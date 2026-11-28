@@ -320,7 +320,7 @@ export function WebmailComposeAICompanion({
                   setShowUnconfigured(false);
                   onOpenAISettings();
                 }}
-                className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded text-xs font-medium hover:bg-[var(--vellum-brand-strong)] transition-colors"
+                className="px-3 py-1 bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] rounded text-xs font-medium hover:bg-[var(--vellum-cta-hover)] transition-colors"
               >
                 {t("webmail_next.ai_go_to_settings")}
               </button>
@@ -337,7 +337,7 @@ export function WebmailComposeAICompanion({
               data-testid={`version-card-${ver.id}`}
               className={`p-3 rounded-lg border transition-all ${
                 isActive
-                  ? "bg-white border-[var(--brand-primary)] shadow-sm"
+                  ? "bg-white border-[var(--vellum-cta)] shadow-sm"
                   : "bg-white/60 border-[var(--vellum-border)]"
               }`}
             >
@@ -363,7 +363,7 @@ export function WebmailComposeAICompanion({
                       data-testid={`btn-rollback-${ver.id}`}
                       disabled={isLoading}
                       onClick={() => handleRollbackClick(idx)}
-                      className="text-[12px] font-medium text-[var(--brand-primary)] hover:text-[var(--vellum-brand-strong)] hover:bg-[var(--brand-primary)]/10 px-2 py-0.5 rounded flex items-center gap-1 transition-colors disabled:opacity-50"
+                      className="text-[12px] font-medium text-[var(--vellum-cta)] hover:text-[var(--vellum-ink-hover)] hover:bg-[var(--vellum-row-selected)] px-2 py-0.5 rounded flex items-center gap-1 transition-colors disabled:opacity-50"
                     >
                       <RotateCcw className="w-3 h-3" />
                       <span>{t("webmail_next.ai_rollback_btn")}</span>
@@ -525,7 +525,7 @@ export function WebmailComposeAICompanion({
             type="submit"
             data-testid="btn-submit-instruction"
             disabled={isLoading || !instruction.trim()}
-            className="p-1.5 bg-[var(--brand-primary)] text-white rounded hover:bg-[var(--vellum-brand-strong)] disabled:opacity-50 transition-colors shrink-0"
+            className="p-1.5 bg-[var(--vellum-cta)] text-[var(--vellum-cta-foreground)] rounded hover:bg-[var(--vellum-cta-hover)] disabled:opacity-50 transition-colors shrink-0"
           >
             {isLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />

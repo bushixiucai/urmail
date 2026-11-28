@@ -847,6 +847,7 @@
     "login.submit": "Sign in to console",
     "login.subtitle": "Multi-tenant email SaaS operations platform",
     "login.switch_to_webmail": "Employee Webmail Login",
+    "login.console_gate_notice": "The admin console is not open in this deployment mode yet. Please sign in to the employee webmail instead:",
     "mailbox.already_exists": "Mailbox address already exists",
     "mailbox.eai_not_supported": "Non-ASCII mailbox addresses (EAI/SMTPUTF8) are not supported yet; use ASCII for the local part",
     "mailbox.invalid_local_part": "Invalid mailbox local part",
