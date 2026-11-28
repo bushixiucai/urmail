@@ -48,14 +48,31 @@ func saveCollectionState(ctx context.Context, pool *db.Pool, sess Session, devic
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err = saveCollectionStateTx(ctx, tx, sess, deviceID, folderID, s); err != nil {
+	if err = saveCollectionStateTx(ctx, tx, sess, deviceID, folderID, s, nil); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func saveCollectionStateTx(ctx context.Context, tx pgx.Tx, sess Session, deviceID, folderID string, s collectionState) error {
-	_, err := tx.Exec(ctx,
+func saveCollectionStateTx(ctx context.Context, tx pgx.Tx, sess Session, deviceID, folderID string, s collectionState, guard *collectionState) error {
+	// pm-eas-replay-fix-1: with a generation guard, the fingerprint
+	// snapshot only lands while the claiming generation still owns the row
+	// — a superseded write is dropped entirely (the dead response key
+	// forces a client resync; no stale generation re-takes effect).
+	if guard == nil {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO mailbox_eas_collection_state
+				   (tenant_id, mailbox_id, device_id, folder_id, sync_epoch, change_seq, uid_validity)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7)
+				 ON CONFLICT (tenant_id, mailbox_id, device_id, folder_id) DO UPDATE SET
+				   sync_epoch = EXCLUDED.sync_epoch,
+				   change_seq = EXCLUDED.change_seq,
+				   uid_validity = EXCLUDED.uid_validity,
+				   updated_at = now()`,
+			sess.TenantID, sess.MailboxID, deviceID, folderID, s.Epoch, s.ChangeSeq, s.UIDValidity)
+		return err
+	}
+	res, err := tx.Exec(ctx,
 		`INSERT INTO mailbox_eas_collection_state
 			   (tenant_id, mailbox_id, device_id, folder_id, sync_epoch, change_seq, uid_validity)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -63,10 +80,23 @@ func saveCollectionStateTx(ctx context.Context, tx pgx.Tx, sess Session, deviceI
 			   sync_epoch = EXCLUDED.sync_epoch,
 			   change_seq = EXCLUDED.change_seq,
 			   uid_validity = EXCLUDED.uid_validity,
-			   updated_at = now()`,
-		sess.TenantID, sess.MailboxID, deviceID, folderID, s.Epoch, s.ChangeSeq, s.UIDValidity)
-	return err
+			   updated_at = now()
+			 WHERE mailbox_eas_collection_state.sync_epoch = $8
+			   AND mailbox_eas_collection_state.change_seq = $9`,
+		sess.TenantID, sess.MailboxID, deviceID, folderID, s.Epoch, s.ChangeSeq, s.UIDValidity,
+		guard.Epoch, guard.ChangeSeq)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return ErrGenerationSuperseded
+	}
+	return nil
 }
+
+// ErrGenerationSuperseded reports that a newer generation owns the
+// collection state; the stale snapshot was dropped (fail-closed).
+var ErrGenerationSuperseded = errors.New("eas collection state superseded by a newer generation")
 
 // itemRow is one stored per-item snapshot entry.
 type itemRow struct {
@@ -195,4 +225,27 @@ func parseSyncKey(key string) (epoch, seq int64, fullSync bool, ok bool) {
 		return 0, 0, false, false
 	}
 	return e, s, false, true
+}
+
+// claimSyncGeneration atomically consumes the presented sync generation
+// (pm-eas-replay-fix-1): the conditional UPDATE makes exactly ONE
+// concurrent same-key request the owner of the next generation; every
+// loser observes zero affected rows and must answer InvalidKey BEFORE any
+// IMAP side effect. Exit strategy once claimed: (complete) the caller
+// persists fingerprints under the claimed seq below; (determinate item
+// failure) only the applied fingerprints persist; (indeterminate — process
+// death after the claim) the consumed seq makes the client's key replay
+// answer InvalidKey and only an explicit key-0 resync recovers:
+// fail-closed, never an automatic re-application of the side effect.
+func claimSyncGeneration(ctx context.Context, pool *db.Pool, sess Session, deviceID, folderID string, oldEpoch, oldSeq, newSeq int64) (bool, error) {
+	res, err := pool.Pool.Exec(ctx,
+		`UPDATE mailbox_eas_collection_state
+		    SET change_seq = $5, updated_at = now()
+		  WHERE tenant_id = $1 AND mailbox_id = $2 AND device_id = $3 AND folder_id = $4
+		    AND sync_epoch = $6 AND change_seq = $7`,
+		sess.TenantID, sess.MailboxID, deviceID, folderID, newSeq, oldEpoch, oldSeq)
+	if err != nil {
+		return false, err
+	}
+	return res.RowsAffected() == 1, nil
 }
