@@ -264,9 +264,7 @@ func bindMailboxMessage(c *gin.Context, target any) bool {
 
 // MailAllowed adapts a mail-service allowlist lookup into the send guard
 // signature; it returns nil when no allowlist is configured.
-func MailAllowed(q interface {
-	MailServiceAllowed(context.Context, int64) (bool, error)
-}) func(context.Context, int64, int64) (bool, error) {
+func MailAllowed(q *store.Queries) func(context.Context, int64, int64) (bool, error) {
 	if q == nil {
 		return nil
 	}
