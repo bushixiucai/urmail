@@ -651,6 +651,21 @@ type MailboxContacts struct {
 	VcardExtra    []byte `json:"vcard_extra"`
 }
 
+type MailboxDraftJournal struct {
+	ID          int64  `json:"id"`
+	TenantID    int64  `json:"tenant_id"`
+	MailboxID   int64  `json:"mailbox_id"`
+	RequestKey  string `json:"request_key"`
+	Digest      string `json:"digest"`
+	MessageID   string `json:"message_id"`
+	Status      string `json:"status"`
+	ResultJson  string `json:"result_json"`
+	Folder      string `json:"folder"`
+	Uid         int64  `json:"uid"`
+	Uidvalidity int64  `json:"uidvalidity"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
 type MailboxEasCollectionState struct {
 	ID          int64  `json:"id"`
 	TenantID    int64  `json:"tenant_id"`
@@ -871,6 +886,33 @@ type MailboxScheduledSends struct {
 	ScheduledAt         sql.NullInt64 `json:"\"scheduled_at\""`
 	SlotTz              string        `json:"\"slot_tz\""`
 	RetryCount          int64         `json:"\"retry_count\""`
+}
+
+type MailboxSendLedger struct {
+	ID                  int64  `json:"id"`
+	TenantID            int64  `json:"tenant_id"`
+	MailboxID           int64  `json:"mailbox_id"`
+	RequestKey          string `json:"request_key"`
+	RequestHash         string `json:"request_hash"`
+	MessageID           string `json:"message_id"`
+	RawSecret           string `json:"raw_secret"`
+	SmtpSecret          string `json:"smtp_secret"`
+	SmtpPasswordVersion string `json:"smtp_password_version"`
+	Status              string `json:"status"`
+	ClaimToken          int64  `json:"claim_token"`
+	LeaseUntil          int64  `json:"lease_until"`
+	SentCopyState       string `json:"sent_copy_state"`
+	CopyAttempts        int64  `json:"copy_attempts"`
+	CopyPendingSince    int64  `json:"copy_pending_since"`
+	AcceptedAt          int64  `json:"accepted_at"`
+	LastError           string `json:"last_error"`
+	DraftFolder         string `json:"draft_folder"`
+	DraftUid            int64  `json:"draft_uid"`
+	DraftUidvalidity    int64  `json:"draft_uidvalidity"`
+	DraftReleased       int64  `json:"draft_released"`
+	NextAttemptAt       int64  `json:"next_attempt_at"`
+	CreatedAt           int64  `json:"created_at"`
+	UpdatedAt           int64  `json:"updated_at"`
 }
 
 type MailboxSendReceipts struct {

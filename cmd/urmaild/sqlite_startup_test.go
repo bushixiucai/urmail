@@ -262,27 +262,69 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 		t.Fatalf("POST /api/v1/mailbox/folders = %d %s, want 502 IMAP_UNAVAILABLE", b5Resp.StatusCode, string(b5Body))
 	}
 
-	sendReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/send",
+	// pm-webmail-writepath-1: the slice engine carries the send ledger, so
+	// the write path left the WEBMAIL_DISABLED degradation. New contract:
+	// (a) a missing idempotency key is rejected BEFORE any side effect —
+	// the ledger must stay empty; (b) a keyed submission crosses to the
+	// real downstream gate — the fixture's SMTP endpoint is unreachable,
+	// so the send lands loud 502 (rejected/uncertain) with exactly ONE
+	// journaled intention, never a silent success and never a duplicate.
+	sendLedgerRows := func() int {
+		handle, err := sqlitedb.Open(ctx, dbPath)
+		if err != nil {
+			t.Fatalf("open ledger db: %v", err)
+		}
+		defer func() { _ = handle.Close() }()
+		var n int
+		if err := handle.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_send_ledger`).Scan(&n); err != nil {
+			t.Fatalf("count ledger rows: %v", err)
+		}
+		return n
+	}
+	noKeyReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/send",
 		strings.NewReader(`{"to":["bob@b.example.test"],"text":"hi"}`))
-	sendReq.Header.Set("Content-Type", "application/json")
-	sendReq.Header.Set("Authorization", "Bearer "+loginPayload.Token)
-	sendResp, err := ts.Client().Do(sendReq)
+	noKeyReq.Header.Set("Content-Type", "application/json")
+	noKeyReq.Header.Set("Authorization", "Bearer "+loginPayload.Token)
+	noKeyResp, err := ts.Client().Do(noKeyReq)
 	if err != nil {
-		t.Fatalf("POST /api/v1/mailbox/send: %v", err)
+		t.Fatalf("POST /api/v1/mailbox/send (no key): %v", err)
 	}
-	bodyBytes, readErr := io.ReadAll(sendResp.Body)
-	if readErr != nil {
-		t.Fatalf("read send body: %v", readErr)
+	noKeyBody, _ := io.ReadAll(noKeyResp.Body)
+	_ = noKeyResp.Body.Close()
+	if noKeyResp.StatusCode != http.StatusBadRequest || !strings.Contains(string(noKeyBody), "SEND_IDEMPOTENCY_REQUIRED") {
+		t.Fatalf("send without key = %d %s, want 400 SEND_IDEMPOTENCY_REQUIRED", noKeyResp.StatusCode, string(noKeyBody))
 	}
-	_ = sendResp.Body.Close()
-	t.Logf("send response status=%d body=%s", sendResp.StatusCode, string(bodyBytes))
-	// slice-3 approves send, so the slice-1 switch no longer rejects it.
-	// This fixture runs without a PlatformPool, which degrades the whole
-	// mailboxAuthed group to WEBMAIL_DISABLED before the switch — a
-	// deployment-wiring state, not the FEATURE_UNAVAILABLE gate. Assert the
-	// error code so the two 503s cannot be confused.
-	if !strings.Contains(string(bodyBytes), "WEBMAIL_DISABLED") {
-		t.Fatalf("send = %d %s, want the fixture WEBMAIL_DISABLED degradation", sendResp.StatusCode, string(bodyBytes))
+	if n := sendLedgerRows(); n != 0 {
+		t.Fatalf("keyless send wrote %d ledger rows, want 0 (no side effects)", n)
+	}
+	keyedSend := func(key string) (int, string) {
+		keyedReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/send",
+			strings.NewReader(`{"to":["bob@b.example.test"],"text":"hi"}`))
+		keyedReq.Header.Set("Content-Type", "application/json")
+		keyedReq.Header.Set("Idempotency-Key", key)
+		keyedReq.Header.Set("Authorization", "Bearer "+loginPayload.Token)
+		keyedResp, err := ts.Client().Do(keyedReq)
+		if err != nil {
+			t.Fatalf("POST /api/v1/mailbox/send (keyed): %v", err)
+		}
+		keyedBody, _ := io.ReadAll(keyedResp.Body)
+		_ = keyedResp.Body.Close()
+		return keyedResp.StatusCode, string(keyedBody)
+	}
+	keyedStatus, keyedBody := keyedSend("startup-probe-00000000")
+	if keyedStatus != http.StatusBadGateway ||
+		(!strings.Contains(keyedBody, "SMTP_UNAVAILABLE") && !strings.Contains(keyedBody, "MAILBOX_SEND_UNCERTAIN")) {
+		t.Fatalf("keyed send = %d %s, want loud 502 at the real downstream gate", keyedStatus, keyedBody)
+	}
+	if n := sendLedgerRows(); n != 1 {
+		t.Fatalf("keyed send journaled %d rows, want exactly 1", n)
+	}
+	replayStatus, replayBody := keyedSend("startup-probe-00000000")
+	if replayStatus != http.StatusOK || !strings.Contains(replayBody, `"sent":false`) || !strings.Contains(replayBody, "startup-probe-00000000") {
+		t.Fatalf("keyed replay = %d %s, want 200 returning the journaled receipt without resubmission", replayStatus, replayBody)
+	}
+	if n := sendLedgerRows(); n != 1 {
+		t.Fatalf("replay grew the ledger to %d rows, want 1", n)
 	}
 
 	readyResp, err := func() (*http.Response, error) {

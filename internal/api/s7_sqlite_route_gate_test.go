@@ -66,8 +66,9 @@ func TestSQLiteRouteGateRejectsUnsupportedPaths(t *testing.T) {
 	// slice runtime their handlers answer the fail-closed 503
 	// WEBMAIL_DISABLED — and must still write nothing (the original S7
 	// side-effect contract carries over to the new semantics).
+	// pm-webmail-writepath-1: send-receipts GET is now functional from the
+	// SQLite ledger (empty here) — it moved OUT of the fail-closed set.
 	for _, probe := range []struct{ method, path, body string }{
-		{http.MethodGet, "/api/v1/mailbox/send-receipts", ""},
 		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"to":["x@example.test"],"text":"x"}`},
 		{http.MethodPost, "/api/v1/mailbox/password", `{"old_password":"x","new_password":"another-valid-password-1"}`},
 	} {
@@ -75,6 +76,9 @@ func TestSQLiteRouteGateRejectsUnsupportedPaths(t *testing.T) {
 		if code != http.StatusServiceUnavailable || !contains(body, "WEBMAIL_DISABLED") {
 			t.Fatalf("%s %s = %d %s, want 503 WEBMAIL_DISABLED (fail-closed, no PG pool)", probe.method, probe.path, code, body)
 		}
+	}
+	if code, body := client.do(http.MethodGet, "/api/v1/mailbox/send-receipts", ""); code != http.StatusOK || !contains(body, `"receipts":[]`) {
+		t.Fatalf("ledger receipts GET = %d %s, want 200 empty", code, body)
 	}
 	afterR2, afterS2, afterSess2 := counts()
 	if beforeR != afterR2 || beforeS != afterS2 || beforeSess != afterSess2 {

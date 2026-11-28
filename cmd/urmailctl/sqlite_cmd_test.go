@@ -41,7 +41,7 @@ func openV6SQLite(t *testing.T) (string, *sql.DB) {
 	return path, db
 }
 
-func TestSQLiteMigrateUpV6ToV7(t *testing.T) {
+func TestSQLiteMigrateUpV6ToV8(t *testing.T) {
 	path, db := openV6SQLite(t)
 	defer func() { _ = db.Close() }()
 	_ = db.Close()
@@ -51,7 +51,10 @@ func TestSQLiteMigrateUpV6ToV7(t *testing.T) {
 			t.Fatalf("sqlite migrate up: %v", err)
 		}
 	})
-	if !strings.Contains(out, "sqlite_migrate_ok user_version=7 expected=7") {
+	// pm-webmail-writepath-1: the chain tip moved to 8 — assert the FINAL
+	// version hard (not a dynamic pass-through) plus the two-table
+	// invariants the new migration must have produced.
+	if !strings.Contains(out, "sqlite_migrate_ok user_version=8 expected=8") {
 		t.Fatalf("output = %q", out)
 	}
 	reopened, err := sqlitedb.OpenExisting(context.Background(), path, sqlitedb.ExpectedSchemaVersion)
@@ -62,6 +65,21 @@ func TestSQLiteMigrateUpV6ToV7(t *testing.T) {
 	var state string
 	if err = reopened.QueryRowContext(t.Context(), "SELECT offsite_state FROM backup_runs WHERE run_uid='cli-v6-0001'").Scan(&state); err != nil || state != "" {
 		t.Fatalf("history state=%q err=%v", state, err)
+	}
+	// pm-webmail-writepath-1 invariants: the send ledger and draft journal
+	// tables exist with their uniqueness surfaces after the upgrade.
+	var ledgerTables int
+	if err = reopened.QueryRowContext(t.Context(),
+		`SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('mailbox_send_ledger','mailbox_draft_journal')`).Scan(&ledgerTables); err != nil || ledgerTables != 2 {
+		t.Fatalf("ledger tables=%d err=%v, want 2", ledgerTables, err)
+	}
+	if _, err = reopened.ExecContext(t.Context(),
+		`INSERT INTO mailbox_send_ledger("tenant_id","mailbox_id","request_key","request_hash","status") VALUES(1,1,'invariant-probe-00000','h','created')`); err != nil {
+		t.Fatalf("ledger insert: %v", err)
+	}
+	if _, err = reopened.ExecContext(t.Context(),
+		`INSERT INTO mailbox_send_ledger("tenant_id","mailbox_id","request_key","request_hash","status") VALUES(1,1,'invariant-probe-00000','h','created')`); err == nil {
+		t.Fatal("duplicate request key must violate the unique index")
 	}
 }
 

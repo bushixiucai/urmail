@@ -110,6 +110,9 @@ func (h *MailboxNativeHandler) saveDraftJournal(c *gin.Context, client webmail.C
 		authError(c, 502, "IMAP_UNAVAILABLE")
 		return webmail.DraftSaveResult{}, false
 	}
+	if h.Pool == nil && h.SendLedger != nil {
+		return h.saveDraftJournalSlice(c, appender, client, session, req, out, folder)
+	}
 	conn, release, ok := h.acquireDraftJournal(c, session, folder, req.UID, req.UIDValidity)
 	if !ok {
 		return webmail.DraftSaveResult{}, false

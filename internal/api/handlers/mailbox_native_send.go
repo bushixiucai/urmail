@@ -54,8 +54,18 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 	if !h.requireEnabled(c) {
 		return
 	}
-	if h.Submitter == nil || h.Vault == nil || h.Pool == nil || h.Secrets == nil {
+	if h.Pool == nil && h.SendLedger == nil {
 		authError(c, 503, "WEBMAIL_DISABLED")
+		return
+	}
+	if h.Submitter == nil || h.Vault == nil || h.Secrets == nil {
+		authError(c, 503, "WEBMAIL_DISABLED")
+		return
+	}
+	if h.Pool == nil {
+		// Slice engine (pm-webmail-writepath-1): the ledger-backed
+		// exactly-once send pipeline. Fail-closed: no ledger, no send.
+		h.sendMessageSlice(c)
 		return
 	}
 	session, ok := middleware.GetMailboxSession(c)
@@ -254,9 +264,7 @@ func bindMailboxMessage(c *gin.Context, target any) bool {
 
 // MailAllowed adapts a mail-service allowlist lookup into the send guard
 // signature; it returns nil when no allowlist is configured.
-func MailAllowed(q interface {
-	MailServiceAllowed(context.Context, int64) (bool, error)
-}) func(context.Context, int64, int64) (bool, error) {
+func MailAllowed(q *store.Queries) func(context.Context, int64, int64) (bool, error) {
 	if q == nil {
 		return nil
 	}
