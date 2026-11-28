@@ -196,3 +196,26 @@ func parseSyncKey(key string) (epoch, seq int64, fullSync bool, ok bool) {
 	}
 	return e, s, false, true
 }
+
+// claimSyncGeneration atomically consumes the presented sync generation
+// (pm-eas-replay-fix-1): the conditional UPDATE makes exactly ONE
+// concurrent same-key request the owner of the next generation; every
+// loser observes zero affected rows and must answer InvalidKey BEFORE any
+// IMAP side effect. Exit strategy once claimed: (complete) the caller
+// persists fingerprints under the claimed seq below; (determinate item
+// failure) only the applied fingerprints persist; (indeterminate — process
+// death after the claim) the consumed seq makes the client's key replay
+// answer InvalidKey and only an explicit key-0 resync recovers:
+// fail-closed, never an automatic re-application of the side effect.
+func claimSyncGeneration(ctx context.Context, pool *db.Pool, sess Session, deviceID, folderID string, oldEpoch, oldSeq, newSeq int64) (bool, error) {
+	res, err := pool.Pool.Exec(ctx,
+		`UPDATE mailbox_eas_collection_state
+		    SET change_seq = $5, updated_at = now()
+		  WHERE tenant_id = $1 AND mailbox_id = $2 AND device_id = $3 AND folder_id = $4
+		    AND sync_epoch = $6 AND change_seq = $7`,
+		sess.TenantID, sess.MailboxID, deviceID, folderID, newSeq, oldEpoch, oldSeq)
+	if err != nil {
+		return false, err
+	}
+	return res.RowsAffected() == 1, nil
+}
