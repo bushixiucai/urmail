@@ -140,6 +140,38 @@ func TestSlice3GateMatrix(t *testing.T) {
 		}
 	}
 
+	// pm-readunlock-1: the two read doors are bound to the AUTHENTICATED
+	// principal — a second tenant's session (bob, tenant 8) sees exactly
+	// the same door semantics as alice's (search hits its own IMAP
+	// boundary; send-receipts stays fail-closed while the platform ledger
+	// is absent), with no cross-principal divergence to exploit.
+	bob := &slice1Client{t: t, server: server}
+	code, body = bob.do(http.MethodPost, "/api/v1/mailbox/session",
+		`{"email":"bob@b.example.test","password":"`+password+`"}`)
+	if code != http.StatusOK {
+		t.Fatalf("bob login = %d %s", code, body)
+	}
+	var bobSession struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(body), &bobSession); err != nil || bobSession.Token == "" {
+		t.Fatalf("bob session parse: %v %s", err, body)
+	}
+	bob.token = bobSession.Token
+	for _, tc := range []struct {
+		method, path string
+		wantCode     int
+		wantBody     string
+	}{
+		{http.MethodGet, "/api/v1/mailbox/search?q=probe", http.StatusBadGateway, "IMAP_UNAVAILABLE"},
+		{http.MethodGet, "/api/v1/mailbox/send-receipts", http.StatusServiceUnavailable, "WEBMAIL_DISABLED"},
+	} {
+		code, body = bob.do(tc.method, tc.path, "")
+		if code != tc.wantCode || !strings.Contains(body, tc.wantBody) {
+			t.Fatalf("bob %s %s = %d %s, want %d %s", tc.method, tc.path, code, body, tc.wantCode, tc.wantBody)
+		}
+	}
+
 	// Unauthenticated callers keep 401 on the newly approved routes.
 	fresh := &slice1Client{t: t, server: server}
 	for _, tc := range []struct{ method, path string }{
