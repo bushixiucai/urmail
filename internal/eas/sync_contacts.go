@@ -280,7 +280,7 @@ func persistCollabState(ctx context.Context, b *SyncBackend, req *SyncRequest, f
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := saveCollectionStateTx(ctx, tx, req.Session, req.DeviceID, folderID, state); err != nil {
+	if err := saveCollectionStateTx(ctx, tx, req.Session, req.DeviceID, folderID, state, nil); err != nil {
 		return err
 	}
 	if err := replaceItemsTx(ctx, tx, req.Session, req.DeviceID, folderID, items); err != nil {
