@@ -28,6 +28,20 @@ func Generate(snapshot nginx.Snapshot) (map[string]string, error) {
 		if domain.TLSCertFile != "" && domain.TLSKeyFile != "" {
 			fmt.Fprintf(&b, "  tls %s %s\n", domain.TLSCertFile, domain.TLSKeyFile)
 		}
+		if domain.TransportOnly {
+			// Transport-only domains (mail transport, no web product) serve
+			// exactly the MTA-STS policy and refuse every other path — the
+			// compose mirror of the host nginx TransportOnly contract
+			// (internal/mail/nginx). Never the generic application upstream,
+			// never the dashboard route: a transport domain carries no web
+			// identity, and proxying it to the panel/mailbox upstream would
+			// hand a mail-only name a web origin.
+			fmt.Fprintf(&b, "  handle /.well-known/mta-sts.txt {\n")
+			fmt.Fprintf(&b, "    reverse_proxy 127.0.0.1:8080\n")
+			fmt.Fprintf(&b, "  }\n")
+			fmt.Fprintf(&b, "  handle {\n    respond 404\n  }\n}\n\n")
+			continue
+		}
 		// User decision 2026-11-27: the monitoring plane lives at
 		// https://<primary host>/dashboard on the SAME site, not a separate
 		// grafana. subdomain. The prefix is KEPT on the proxied request and

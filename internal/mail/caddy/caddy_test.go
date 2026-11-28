@@ -87,3 +87,69 @@ func TestDashboardRouteEmbeddedInPrimarySite(t *testing.T) {
 		t.Fatalf("monitoring route rendered without a hostname:\n%s", files[FileName])
 	}
 }
+
+// TestTransportOnlyDomainPolicyOnly pins the compose mirror of the host
+// nginx TransportOnly contract (pm-compose-mtasts-policy-only-1): a
+// transport-only mail domain serves exactly the MTA-STS policy and refuses
+// every other path — never the generic application upstream, never the
+// dashboard route.
+func TestTransportOnlyDomainPolicyOnly(t *testing.T) {
+	snapshot := nginx.Snapshot{
+		Domains: []nginx.DomainConfig{
+			{FQDN: "box.example.test", TLSCertFile: "/certs/box.cert", TLSKeyFile: "/certs/box.key"},
+			{FQDN: "mail.example.test", TLSCertFile: "/certs/mail.cert", TLSKeyFile: "/certs/mail.key", TransportOnly: true},
+		},
+		GrafanaHostname: "box.example.test",
+	}
+	files, err := Generate(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := files[FileName]
+
+	// Extract the mail.example.test site block.
+	start := strings.Index(out, "mail.example.test {")
+	if start < 0 {
+		t.Fatalf("transport site block missing:\n%s", out)
+	}
+	end := strings.Index(out[start:], "\n}\n")
+	block := out[start : start+end+3]
+	for _, want := range []string{
+		"  tls /certs/mail.cert /certs/mail.key",
+		"  handle /.well-known/mta-sts.txt {",
+		"    reverse_proxy 127.0.0.1:8080",
+		"  }",
+		"  handle {",
+		"    respond 404",
+	} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("policy block missing %q:\n%s", want, block)
+		}
+	}
+	// No web product plumbing on the transport domain.
+	for _, forbidden := range []string{
+		"  reverse_proxy 127.0.0.1:8080\n}\n",
+		"forward_auth",
+		"/dashboard",
+		"/mail/",
+	} {
+		if strings.Contains(block, forbidden) {
+			t.Fatalf("transport block must not carry web product plumbing %q:\n%s", forbidden, block)
+		}
+	}
+
+	// Normal domains do not regress: the primary site keeps its dashboard
+	// route and site proxy.
+	if !strings.Contains(out, "box.example.test {") || !strings.Contains(out, "reverse_proxy 127.0.0.1:8080\n}\n\nmail.example.test {") {
+		t.Fatalf("normal domain regressed:\n%s", out)
+	}
+
+	// Same input renders byte-identically (repeat-render determinism).
+	again, err := Generate(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again[FileName] != out {
+		t.Fatal("repeat render diverged")
+	}
+}
