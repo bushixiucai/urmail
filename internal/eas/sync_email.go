@@ -55,6 +55,21 @@ func (b *SyncBackend) syncEmailCollection(ctx context.Context, req *SyncRequest,
 		items = map[string]itemRow{}
 	}
 	state.UIDValidity = int64(uidv)
+	// pm-eas-replay-fix-1: claim the next generation atomically BEFORE any
+	// IMAP side effect — exactly one concurrent same-key request may own it.
+	// The tail no longer re-advances: the claim already consumed the key.
+	if !fullSync {
+		claimed := state
+		claimed.ChangeSeq = state.ChangeSeq + 1
+		ok, err := claimSyncGeneration(ctx, b.Pool, req.Session, req.DeviceID, p.collectionID, state.Epoch, state.ChangeSeq, claimed.ChangeSeq)
+		if err != nil {
+			return collectionResult{status: syncStatusServerError}
+		}
+		if !ok {
+			return collectionResult{status: syncStatusInvalidKey}
+		}
+		state = claimed
+	}
 	items, responses, applied := b.applyEmailCommands(ctx, req, p, folder, items)
 	result := collectionResult{status: syncStatusSuccess, responses: responses}
 	window := p.windowSize
@@ -207,7 +222,9 @@ func (b *SyncBackend) syncEmailCollection(ctx context.Context, req *SyncRequest,
 			}
 		}
 	}
-	if emitted > 0 || applied || result.moreAvailable {
+	if fullSync && (emitted > 0 || applied || result.moreAvailable) {
+		// A full sync claimed no generation (its epoch was randomized in
+		// keyCheck); the first change batch takes seq 1.
 		state.ChangeSeq++
 	}
 	if err = b.persistEmailState(ctx, req, p.collectionID, state, items); err != nil {
